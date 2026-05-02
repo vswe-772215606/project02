@@ -1,1 +1,549 @@
-export function MenuPage() { return <div>MenuPage (Stub)</div>; }
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { 
+  BookOpen, 
+  Plus, 
+  ChevronUp, 
+  ChevronDown, 
+  Pencil, 
+  Trash2, 
+  Eye, 
+  EyeOff,
+  Package,
+  Layers,
+  X
+} from 'lucide-react';
+import { menuApi, Category, MenuItem, Combo } from '../api/menu';
+import { formatUZS } from '../utils/format';
+import { Modal } from '../components/Modal';
+
+const categorySchema = z.object({
+  name: z.string().min(1, "Nom kiritilishi shart"),
+  displayOrder: z.number().int().default(0),
+});
+
+const itemSchema = z.object({
+  name: z.string().min(1, "Nom kiritilishi shart"),
+  categoryId: z.string().min(1, "Kategoriya tanlanishi shart"),
+  price: z.number().min(0, "Narx noto'g'ri"),
+  description: z.string().optional(),
+  displayOrder: z.number().int().default(0),
+  trackStock: z.boolean().default(false),
+});
+
+export function MenuPage() {
+  const queryClient = useQueryClient();
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [editCategory, setEditCategory] = useState<Category | null>(null);
+  const [editItem, setEditItem] = useState<MenuItem | null>(null);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [isAddingItem, setIsAddingItem] = useState(false);
+  const [view, setView] = useState<'items' | 'combos'>('items');
+
+  const { data: menuData } = useQuery({
+    queryKey: ['menu', 'full'],
+    queryFn: () => menuApi.getMenu(),
+  });
+
+  const categories = menuData?.categories || [];
+  const activeCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
+  const items = activeCategory?.items || [];
+
+  const { data: combos = [] } = useQuery({
+    queryKey: ['menu', 'combos'],
+    queryFn: () => menuApi.listCombos(),
+  });
+
+  // Category Mutations
+  const createCategoryMutation = useMutation({
+    mutationFn: (data: any) => menuApi.createCategory(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      setIsAddingCategory(false);
+    }
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ id, data }: any) => menuApi.updateCategory(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      setEditCategory(null);
+    }
+  });
+
+  // Item Mutations
+  const createItemMutation = useMutation({
+    mutationFn: (data: any) => menuApi.createItem(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      setIsAddingItem(false);
+    }
+  });
+
+  const updateItemMutation = useMutation({
+    mutationFn: ({ id, data }: any) => menuApi.updateItem(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      setEditItem(null);
+    }
+  });
+
+  const toggleAvailabilityMutation = useMutation({
+    mutationFn: ({ id, isAvailable }: any) => menuApi.toggleAvailability(id, isAvailable),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu'] })
+  });
+
+  const reorderCategory = (category: Category, direction: 'up' | 'down') => {
+    const index = categories.indexOf(category);
+    const other = direction === 'up' ? categories[index - 1] : categories[index + 1];
+    if (!other) return;
+    
+    updateCategoryMutation.mutate({ id: category.id, data: { displayOrder: other.displayOrder } });
+    updateCategoryMutation.mutate({ id: other.id, data: { displayOrder: category.displayOrder } });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <BookOpen className="text-slate-400" size={28} />
+          <h1 className="text-2xl font-bold text-slate-800">Menyu boshqaruvi</h1>
+        </div>
+        <div className="flex bg-slate-200/50 p-1 rounded-lg">
+          <button 
+            onClick={() => setView('items')}
+            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'items' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Mahsulotlar
+          </button>
+          <button 
+            onClick={() => setView('combos')}
+            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'combos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            Kombolar
+          </button>
+        </div>
+      </div>
+
+      {view === 'items' ? (
+        <div className="grid grid-cols-12 gap-6 items-start">
+          {/* Categories Column */}
+          <div className="col-span-12 md:col-span-4 lg:col-span-3 space-y-4">
+            <div className="flex items-center justify-between px-2">
+              <h2 className="font-bold text-slate-500 text-xs uppercase tracking-widest">Kategoriyalar</h2>
+              <button 
+                onClick={() => setIsAddingCategory(true)}
+                className="p-1 hover:bg-blue-50 text-blue-600 rounded transition-colors"
+                title="Yangi kategoriya"
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              <div className="divide-y divide-slate-100">
+                {categories.map((cat, idx) => (
+                  <div 
+                    key={cat.id}
+                    onClick={() => setSelectedCategoryId(cat.id)}
+                    className={`group flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                      (selectedCategoryId === cat.id || (!selectedCategoryId && idx === 0))
+                        ? 'bg-blue-50 border-l-4 border-blue-600'
+                        : 'hover:bg-slate-50 border-l-4 border-transparent'
+                    }`}
+                  >
+                    <span className={`text-sm font-semibold truncate ${
+                      (selectedCategoryId === cat.id || (!selectedCategoryId && idx === 0)) ? 'text-blue-700' : 'text-slate-700'
+                    }`}>
+                      {cat.name}
+                    </span>
+                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); reorderCategory(cat, 'up'); }}
+                        disabled={idx === 0}
+                        className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        <ChevronUp size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); reorderCategory(cat, 'down'); }}
+                        disabled={idx === categories.length - 1}
+                        className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setEditCategory(cat); }}
+                        className="p-1 text-slate-400 hover:text-blue-600"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Items Column */}
+          <div className="col-span-12 md:col-span-8 lg:col-span-9 space-y-4">
+            <div className="flex items-center justify-between px-2">
+              <h2 className="font-bold text-slate-500 text-xs uppercase tracking-widest">
+                {activeCategory?.name || 'Mahsulotlar'}
+              </h2>
+              <button 
+                onClick={() => setIsAddingItem(true)}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center space-x-1 shadow-sm"
+              >
+                <Plus size={16} />
+                <span>Qo'shish</span>
+              </button>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-widest border-b border-slate-100">
+                    <th className="px-6 py-3">Nomi</th>
+                    <th className="px-6 py-3">Narxi</th>
+                    <th className="px-6 py-3 text-center">Zaxira</th>
+                    <th className="px-6 py-3 text-center">Holati</th>
+                    <th className="px-6 py-3 text-right">Amallar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {items.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{item.name}</div>
+                        {item.description && <div className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{item.description}</div>}
+                      </td>
+                      <td className="px-6 py-4 font-semibold text-slate-700">
+                        {formatUZS(item.price)}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {item.trackStock ? (
+                          <span className="inline-flex items-center text-xs text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
+                            <Package size={12} className="mr-1" />
+                            HA
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <button 
+                          onClick={() => toggleAvailabilityMutation.mutate({ id: item.id, isAvailable: !item.isAvailable })}
+                          className={`p-1.5 rounded-full transition-colors ${
+                            item.isAvailable ? 'text-green-600 hover:bg-green-50' : 'text-red-400 hover:bg-red-50'
+                          }`}
+                          title={item.isAvailable ? "Mavjud" : "Mavjud emas"}
+                        >
+                          {item.isAvailable ? <Eye size={18} /> : <EyeOff size={18} />}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button 
+                            onClick={() => setEditItem(item)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                        Ushbu kategoriyada mahsulotlar yo'q
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <CombosSection combos={combos} categories={categories} />
+      )}
+
+      {/* Modals */}
+      {(isAddingCategory || editCategory) && (
+        <CategoryModal 
+          category={editCategory} 
+          onClose={() => { setIsAddingCategory(false); setEditCategory(null); }}
+          onSave={(data) => editCategory 
+            ? updateCategoryMutation.mutate({ id: editCategory.id, data })
+            : createCategoryMutation.mutate(data)
+          }
+        />
+      )}
+
+      {(isAddingItem || editItem) && (
+        <ItemModal 
+          item={editItem}
+          categories={categories}
+          initialCategoryId={activeCategory?.id}
+          onClose={() => { setIsAddingItem(false); setEditItem(null); }}
+          onSave={(data) => editItem
+            ? updateItemMutation.mutate({ id: editItem.id, data })
+            : createItemMutation.mutate(data)
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function CategoryModal({ category, onClose, onSave }: any) {
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(categorySchema),
+    defaultValues: category || { name: '', displayOrder: 0 }
+  });
+
+  return (
+    <Modal title={category ? "Kategoriyani tahrirlash" : "Yangi kategoriya"} onClose={onClose} maxWidth="max-w-md">
+      <form onSubmit={handleSubmit(onSave)} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Nomi</label>
+          <input 
+            {...register('name')}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message as string}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Tartib raqami</label>
+          <input 
+            type="number"
+            {...register('displayOrder', { valueAsNumber: true })}
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex space-x-3 pt-2">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
+          <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700">Saqlash</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any) {
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(itemSchema),
+    defaultValues: item || { 
+      name: '', 
+      categoryId: initialCategoryId || '', 
+      price: 0, 
+      description: '', 
+      displayOrder: 0,
+      trackStock: false 
+    }
+  });
+
+  return (
+    <Modal title={item ? "Mahsulotni tahrirlash" : "Yangi mahsulot"} onClose={onClose} maxWidth="max-w-lg">
+      <form onSubmit={handleSubmit(onSave)} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nomi</label>
+            <input 
+              {...register('name')}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message as string}</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Kategoriya</label>
+            <select 
+              {...register('categoryId')}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tanlang...</option>
+              {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Narxi (UZS)</label>
+            <input 
+              type="number"
+              {...register('price', { valueAsNumber: true })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tavsif (ixtiyoriy)</label>
+            <textarea 
+              {...register('description')}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 h-20"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tartib raqami</label>
+            <input 
+              type="number"
+              {...register('displayOrder', { valueAsNumber: true })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-center space-x-2 pt-6">
+            <input 
+              type="checkbox" 
+              id="track-stock"
+              {...register('trackStock')}
+              className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="track-stock" className="text-sm font-medium text-slate-700">Zaxirani kuzatish</label>
+          </div>
+        </div>
+        <div className="flex space-x-3 pt-4">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
+          <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700">Saqlash</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CombosSection({ combos, categories }: any) {
+  const queryClient = useQueryClient();
+  const [isAdding, setIsAdding] = useState(false);
+  const [selectedComponents, setSelectedComponents] = useState<any[]>([]);
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => menuApi.createCombo(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['menu'] });
+      setIsAdding(false);
+      setSelectedComponents([]);
+    }
+  });
+
+  const allItems = categories.flatMap((c: any) => c.items || []);
+
+  const handleAddComponent = (itemId: string) => {
+    if (selectedComponents.find(c => c.menuItemId === itemId)) return;
+    const item = allItems.find((i: any) => i.id === itemId);
+    setSelectedComponents([...selectedComponents, { menuItemId: itemId, name: item.name, quantity: 1 }]);
+  };
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = (e.target as any).name.value;
+    createMutation.mutate({ 
+      name, 
+      components: selectedComponents.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity })) 
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between px-2">
+        <h2 className="font-bold text-slate-500 text-xs uppercase tracking-widest">Kombolar ro'yxati</h2>
+        <button 
+          onClick={() => setIsAdding(true)}
+          className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center space-x-1"
+        >
+          <Plus size={16} />
+          <span>Yangi kombo</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {combos.map((combo: Combo) => (
+          <div key={combo.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-slate-800">{combo.name}</h3>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${combo.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
+                {combo.isActive ? 'FAOL' : 'NOFAOL'}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tarkibi:</div>
+              {combo.components.map(comp => (
+                <div key={comp.id} className="flex justify-between text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg">
+                  <span>{comp.menuItem?.name || 'Noma\'lum'}</span>
+                  <span className="font-bold">x{comp.quantity}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {combos.length === 0 && (
+          <div className="col-span-full py-12 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
+            Hozircha kombolar yaratilmagan
+          </div>
+        )}
+      </div>
+
+      {isAdding && (
+        <Modal title="Yangi kombo yaratish" onClose={() => setIsAdding(false)} maxWidth="max-w-2xl">
+          <form onSubmit={handleCreate} className="space-y-6">
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Kombo nomi</label>
+                  <input name="name" required className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Mahsulot qo'shish</label>
+                  <select 
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => handleAddComponent(e.target.value)}
+                    value=""
+                  >
+                    <option value="">Tanlang...</option>
+                    {allItems.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-slate-700">Tarkibi:</label>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 min-h-[120px] p-3 space-y-2">
+                  {selectedComponents.map((c, idx) => (
+                    <div key={c.menuItemId} className="flex items-center justify-between bg-white p-2 rounded shadow-sm">
+                      <span className="text-sm font-medium text-slate-700 truncate mr-2">{c.name}</span>
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <input 
+                          type="number" 
+                          min="1" 
+                          className="w-12 border border-slate-200 rounded px-1 text-center text-sm"
+                          value={c.quantity}
+                          onChange={(e) => {
+                            const next = [...selectedComponents];
+                            next[idx].quantity = Number(e.target.value);
+                            setSelectedComponents(next);
+                          }}
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => setSelectedComponents(selectedComponents.filter(sc => sc.menuItemId !== c.menuItemId))}
+                          className="text-slate-400 hover:text-red-500"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {selectedComponents.length === 0 && <div className="text-center text-slate-300 text-xs mt-8">Mahsulotlar qo'shilmagan</div>}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 pt-2">
+              <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
+              <button type="submit" disabled={selectedComponents.length === 0 || createMutation.isPending} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50">Yaratish</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
