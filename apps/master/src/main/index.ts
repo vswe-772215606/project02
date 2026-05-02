@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import { createApp } from './server/app';
 import { attachSocket } from './server/socket';
 import { settingsService } from './server/services/settings.service';
+import { startScheduler } from './server/lib/scheduler';
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
 
@@ -18,6 +19,7 @@ async function startServer(): Promise<void> {
   await new Promise<void>((resolve) => {
     httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`[master] HTTP+WS listening on 0.0.0.0:${PORT}`);
+      startScheduler();
       resolve();
     });
   });

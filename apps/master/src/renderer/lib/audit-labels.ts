@@ -1,0 +1,16 @@
+export const AUDIT_LABELS: Record<string, string> = {
+  USER_CREATED: 'Foydalanuvchi yaratildi',
+  USER_DEACTIVATED: 'Foydalanuvchi o\u2018chirildi',
+  DISCOUNT_CREATED: 'Chegirma yaratildi',
+  DISCOUNT_EDITED: 'Chegirma o\u2018zgartirildi',
+  DISCOUNT_DELETED: 'Chegirma o\u2018chirildi',
+  DISCOUNT_APPLIED: 'Chegirma qo\u2018llanildi',
+  ORDER_CANCELED: 'Buyurtma bekor qilindi',
+  WALKOUT_MARKED: 'To\u2018lovsiz ketdi',
+  TABLE_TRANSFERRED: 'Stol o\u2018zgartirildi',
+  RECEIPT_REPRINTED: 'Chek qaytadan chop etildi',
+  SETTINGS_CHANGED: 'Sozlama o\u2018zgartirildi',
+  SERVICE_CHARGE_WAIVED: 'Xizmat haqi olib tashlandi',
+  DAILY_STOCK_SET: 'Kunlik zaxira belgilandi',
+  DAILY_STOCK_ADJUSTED: 'Zaxira qo\u2018lda o\u2018zgartirildi',
+};
