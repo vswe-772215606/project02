@@ -64,10 +64,10 @@ async function main() {
   assert(tables.length >= 6, 'Seed tables missing');
 
   await ensureCleanSlate(admin.id);
-  await stockService.setInitialCounts([
+  await stockService.setInitialForToday([
     { menuItemId: kebab.id, count: 20 },
     { menuItemId: somsa.id, count: 20 },
-  ], admin.id);
+  ], admin.id, true);
 
   console.log('=== Flow A ===');
   const flowA = await orderService.createDraft({
