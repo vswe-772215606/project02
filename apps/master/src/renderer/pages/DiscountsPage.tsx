@@ -57,10 +57,15 @@ export function DiscountsPage() {
     }
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => discountsApi.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discounts'] })
+  });
+
   const handleToggleActive = (discount: Discount) => {
     if (discount.isActive) {
       if (confirm(`"${discount.name}" chegirmasini faolsizlantirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: discount.id, data: { isActive: false } });
+        deleteMutation.mutate(discount.id);
       }
     } else {
       if (confirm(`"${discount.name}" chegirmasini qayta faollashtirmoqchimisiz?`)) {
@@ -116,7 +121,7 @@ export function DiscountsPage() {
                 </button>
                 <button 
                   onClick={() => handleToggleActive(discount)}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`p-2 rounded-lg transition-all ${
                     discount.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
                   }`}
                   title={discount.isActive ? "Faolsizlantirish" : "Faollashtirish"}

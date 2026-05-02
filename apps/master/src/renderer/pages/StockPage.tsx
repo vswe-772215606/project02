@@ -3,14 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Package, 
   RotateCcw, 
-  Plus, 
-  Minus,
+  PlusCircle, 
+  MinusCircle,
   AlertTriangle,
   XCircle,
   CheckCircle2,
   RefreshCw,
-  PlusCircle,
-  MinusCircle,
   CalendarCheck,
   Zap
 } from 'lucide-react';
@@ -21,7 +19,7 @@ export function StockPage() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [initCounts, setInitCounts] = useState<Record<string, number>>({});
   
-  const { data: stockItems = [], isLoading, isFetching } = useQuery({
+  const { data: stockItems = [], isLoading } = useQuery({
     queryKey: ['stock', 'today'],
     queryFn: () => stockApi.getToday(),
   });
@@ -168,11 +166,10 @@ export function StockPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[600px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mahsulot nomi</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hozirda mavjud</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mahsulot nomi va holati</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Holat</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amallar</th>
               </tr>
@@ -186,20 +183,17 @@ export function StockPage() {
                   <tr key={item.menuItemId} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className="font-semibold text-slate-800">{item.name}</span>
-                        <span className="text-[10px] text-slate-400 font-bold uppercase">
-                          {item.initialCount} dan {item.currentCount} ta qoldi
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center">
-                        <span className={`text-2xl font-black ${
-                          isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-blue-600'
-                        }`}>
-                          {item.currentCount}
-                        </span>
-                        <span className="ml-1 text-slate-400 font-bold text-xs uppercase">ta</span>
+                        <span className="text-lg font-bold text-slate-800 leading-tight">{item.name}</span>
+                        <div className="flex items-center space-x-1.5 mt-0.5">
+                          <span className={`text-sm font-black ${
+                            isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-blue-600'
+                          }`}>
+                            {item.currentCount}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                            dan {item.initialCount} ta mavjud (jami)
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
