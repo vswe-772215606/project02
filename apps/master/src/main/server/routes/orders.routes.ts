@@ -7,16 +7,16 @@ export const ordersRouter = Router();
 
 ordersRouter.use(requireAuth);
 
-ordersRouter.post('/', requireRole('WAITER'), ordersController.create);
+ordersRouter.post('/', requireRole(['WAITER', 'OWNER']), ordersController.create);
 ordersRouter.get('/', ordersController.list);
 ordersRouter.get('/:id', ordersController.getById);
-ordersRouter.post('/:id/items', requireRole('WAITER'), ordersController.addItem);
-ordersRouter.post('/:id/combos', requireRole('WAITER'), ordersController.addCombo);
-ordersRouter.patch('/:id/lines/:lineId/notes', requireRole('WAITER'), ordersController.editLineNote);
+ordersRouter.post('/:id/items', requireRole(['WAITER', 'OWNER']), ordersController.addItem);
+ordersRouter.post('/:id/combos', requireRole(['WAITER', 'OWNER']), ordersController.addCombo);
+ordersRouter.patch('/:id/lines/:lineId/notes', requireRole(['WAITER', 'OWNER']), ordersController.editLineNote);
 ordersRouter.post('/:id/lines/:lineId/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelLine);
-ordersRouter.post('/:id/send', requireRole('WAITER'), ordersController.send);
+ordersRouter.post('/:id/send', requireRole(['WAITER', 'OWNER']), ordersController.send);
 ordersRouter.post('/:id/transfer', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.transfer);
-ordersRouter.post('/:id/request-bill', requireRole('WAITER'), ordersController.requestBill);
+ordersRouter.post('/:id/request-bill', requireRole(['WAITER', 'OWNER']), ordersController.requestBill);
 ordersRouter.post('/:id/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelOrder);
 ordersRouter.post('/:id/approve', requireRole(['ADMIN', 'OWNER']), ordersController.approve);
 ordersRouter.post('/:id/mark-paid', requireRole(['ADMIN', 'OWNER']), ordersController.markPaid);
