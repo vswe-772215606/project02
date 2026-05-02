@@ -14,8 +14,8 @@ import {
   RefreshCw,
   Wallet,
   Receipt,
-  User
-import { User } from 'lucide-react';
+  User as UserIcon
+} from 'lucide-react';
 import { reportsApi } from '../api/reports';
 import { formatUZS, formatDateTimeUZ } from '../utils/format';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
@@ -262,7 +262,7 @@ export function ReportsPage() {
           </button>
           <button 
             onClick={() => setTab('monthly')}
-            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${tab === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${tab === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Oylik
           </button>

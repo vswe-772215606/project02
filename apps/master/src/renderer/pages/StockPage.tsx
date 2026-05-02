@@ -9,16 +9,19 @@ import {
   XCircle,
   CheckCircle2,
   RefreshCw,
-  CalendarCheck,
   Zap,
-  Save,
-  Trash
+  Plus,
+  Minus,
+  Check,
+  X
 } from 'lucide-react';
 import { stockApi, DailyStock } from '../api/stock';
 
 export function StockPage() {
   const queryClient = useQueryClient();
   const [rowInputs, setRowInputs] = useState<Record<string, number>>({});
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState<number>(0);
   
   const { data: stockItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['stock', 'today'],
@@ -32,58 +35,55 @@ export function StockPage() {
       setRowInputs({});
     },
     onError: (err: any) => {
-      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+      alert(err.message || "Xatolik yuz berdi");
     }
   });
 
   const batchAddMutation = useMutation({
     mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.addBatch(id, count),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      setAdjustingId(null);
+    },
     onError: (err: any) => {
-      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+      alert(err.message || "Xatolik yuz berdi");
     }
   });
 
   const batchRemoveMutation = useMutation({
     mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.removeBatch(id, count),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      setAdjustingId(null);
+    },
     onError: (err: any) => {
-      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+      alert(err.message || "Xatolik yuz berdi");
     }
   });
 
   const handleSetRow = (menuItemId: string) => {
-    const count = rowInputs[menuItemId];
-    if (count === undefined || count < 0) return;
+    const count = rowInputs[menuItemId] ?? 0;
     setTodayMutation.mutate({ entries: [{ menuItemId, count }] });
   };
 
-  const promptBatch = (id: string, name: string, type: 'add' | 'remove') => {
-    const msg = type === 'add' 
-      ? `"${name}" uchun yangi partiya miqdorini kiriting:` 
-      : `"${name}" uchun yaroqsiz/buzilgan partiya miqdorini kiriting:`;
-    const val = prompt(msg);
-    if (!val) return;
-    const count = parseInt(val, 10);
-    if (isNaN(count) || count <= 0) {
-      alert("Noto'g'ri miqdor kiritildi");
-      return;
-    }
+  const startAdjust = (id: string, type: 'add' | 'remove') => {
+    setAdjustingId(`${id}:${type}`);
+    setAdjustAmount(0);
+  };
 
+  const handleAdjust = () => {
+    if (!adjustingId || adjustAmount <= 0) return;
+    const [id, type] = adjustingId.split(':');
     if (type === 'add') {
-      batchAddMutation.mutate({ id, count });
+      batchAddMutation.mutate({ id, count: adjustAmount });
     } else {
-      batchRemoveMutation.mutate({ id, count });
+      batchRemoveMutation.mutate({ id, count: adjustAmount });
     }
   };
 
   const handleReset = (id: string, name: string) => {
     if (confirm(`"${name}" uchun bugungi zaxirani qaytadan belgilamoqchimisiz? Bu barcha amallarni o'chirib yuboradi.`)) {
-      const val = prompt(`Yangi boshlang'ich miqdorni kiriting:`);
-      if (val === null) return;
-      const count = parseInt(val, 10);
-      if (isNaN(count) || count < 0) return;
-      setTodayMutation.mutate({ entries: [{ menuItemId: id, count }], force: true });
+      setTodayMutation.mutate({ entries: [{ menuItemId: id, count: 0 }], force: true });
     }
   };
 
@@ -139,6 +139,8 @@ export function StockPage() {
               {stockItems.map((item) => {
                 const isLow = item.hasDailyRow && item.currentCount > 0 && item.currentCount < 5;
                 const isOut = item.hasDailyRow && item.currentCount === 0;
+                const isAdjusting = adjustingId?.startsWith(item.menuItemId);
+                const adjustType = adjustingId?.split(':')[1];
 
                 return (
                   <tr key={item.menuItemId} className={`hover:bg-slate-50/50 transition-colors ${!item.hasDailyRow ? 'bg-amber-50/20' : ''}`}>
@@ -153,7 +155,7 @@ export function StockPage() {
                               {item.currentCount}
                             </span>
                             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                              dan {item.initialCount} ta qoldi
+                              dan {item.initialCount} ta mavjud (jami)
                             </span>
                           </div>
                         ) : (
@@ -202,17 +204,43 @@ export function StockPage() {
                             Ochish
                           </button>
                         </div>
+                      ) : isAdjusting ? (
+                        <div className="flex items-center justify-end space-x-2 animate-in slide-in-from-right-2 duration-200">
+                          <div className={`text-[10px] font-black uppercase ${adjustType === 'add' ? 'text-green-600' : 'text-red-600'}`}>
+                            {adjustType === 'add' ? '+ Partiya' : '- Xato'}
+                          </div>
+                          <input 
+                            type="number" 
+                            autoFocus
+                            className="w-20 border border-slate-200 rounded px-2 py-1.5 text-center font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            value={adjustAmount || ''}
+                            onChange={(e) => setAdjustAmount(parseInt(e.target.value) || 0)}
+                          />
+                          <button 
+                            onClick={handleAdjust}
+                            disabled={batchAddMutation.isPending || batchRemoveMutation.isPending}
+                            className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm"
+                          >
+                            <Check size={16} />
+                          </button>
+                          <button 
+                            onClick={() => setAdjustingId(null)}
+                            className="p-1.5 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
                       ) : (
                         <div className="flex items-center justify-end space-x-2">
                           <button 
-                            onClick={() => promptBatch(item.menuItemId, item.name, 'add')}
+                            onClick={() => startAdjust(item.menuItemId, 'add')}
                             className="flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
                           >
                             <PlusCircle size={14} />
                             <span>+ Partiya</span>
                           </button>
                           <button 
-                            onClick={() => promptBatch(item.menuItemId, item.name, 'remove')}
+                            onClick={() => startAdjust(item.menuItemId, 'remove')}
                             className="flex items-center space-x-1 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
                           >
                             <MinusCircle size={14} />
@@ -234,16 +262,6 @@ export function StockPage() {
             </tbody>
           </table>
         </div>
-
-        {stockItems.length === 0 && (
-          <div className="p-16 text-center">
-            <div className="w-16 h-16 bg-slate-100 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Package size={32} />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800">Zaxirali mahsulotlar topilmadi</h3>
-            <p className="text-slate-500 max-w-sm mx-auto">Menyuda birorta mahsulot "Zaxirani kuzatish" rejimida emas.</p>
-          </div>
-        )}
       </div>
 
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start space-x-3">
