@@ -16,3 +16,10 @@ export function formatDateTimeUZ(date: string | Date): string {
     minute: '2-digit',
   }).format(new Date(date));
 }
+
+export function formatMinutesElapsed(date: string | Date): string {
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Hozirgina';
+  return `${mins} daqiqa`;
+}
