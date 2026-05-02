@@ -19,7 +19,8 @@ const updateSchema = z.object({
 export const tablesController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await tableService.list(true));
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json(await tableService.list(includeInactive));
     } catch (error) {
       next(error);
     }

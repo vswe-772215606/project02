@@ -1,13 +1,13 @@
 import { Prisma, UserRole } from '@prisma/client';
-import { Errors } from '../lib/errors';
+import { Errors, AppError } from '../lib/errors';
 import { sessionRepo } from '../repositories/session.repo';
 import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { authService } from './auth.service';
 
 export const userService = {
-  async list() {
-    return userRepo.findAll();
+  async list(includeInactive = false) {
+    return userRepo.findAll(includeInactive);
   },
 
   async create(
@@ -67,16 +67,24 @@ export const userService = {
       isActive?: boolean;
       role?: UserRole;
     },
+    actor: { id: string; role: UserRole },
   ) {
     const existing = await userRepo.findById(id);
     if (!existing) {
       throw Errors.NotFound('User');
     }
 
+    // Role-based reactivation/role update security
+    if (existing.role === UserRole.OWNER && actor.role !== UserRole.OWNER) {
+      throw Errors.Forbidden('Ega (Owner) ma\'lumotlarini faqat boshqa Ega o\'zgartira oladi');
+    }
+
+    const isReactivating = !existing.isActive && input.isActive === true;
+
     const passwordHash = input.password ? await authService.hashPassword(input.password) : undefined;
     const pinHash = input.pin ? await authService.hashPin(input.pin) : undefined;
 
-    return userRepo.update(id, {
+    const updated = await userRepo.update(id, {
       fullName: input.fullName,
       username: input.username,
       passwordHash,
@@ -84,12 +92,42 @@ export const userService = {
       isActive: input.isActive,
       role: input.role,
     });
+
+    if (isReactivating) {
+      await auditService.log({
+        userId: actor.id,
+        action: 'USER_CREATED',
+        entityType: 'User',
+        entityId: id,
+        metadata: {
+          reactivation: true,
+          fullName: updated.fullName,
+          role: updated.role,
+        },
+      });
+    }
+
+    return updated;
   },
 
   async deactivate(id: string, actorUserId: string) {
     const user = await userRepo.findById(id);
     if (!user) {
       throw Errors.NotFound('User');
+    }
+
+    if (user.role === UserRole.OWNER) {
+      const activeOwners = await userRepo.countActiveOwners();
+      if (activeOwners <= 1 && user.isActive) {
+        await auditService.log({
+          userId: actorUserId,
+          action: 'USER_DEACTIVATED',
+          entityType: 'User',
+          entityId: id,
+          metadata: { LAST_OWNER_PROTECTION: true },
+        });
+        throw new AppError('CONFLICT', 409, 'Oxirgi faol egasini o\'chirib bo\'lmaydi');
+      }
     }
 
     const updated = await userRepo.deactivate(id);

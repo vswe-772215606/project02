@@ -21,7 +21,9 @@ const itemSchema = z.object({
   trackStock: z.boolean().optional(),
 });
 
-const itemUpdateSchema = itemSchema.partial();
+const itemUpdateSchema = itemSchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
 const availabilitySchema = z.object({ isAvailable: z.boolean() });
 
 const comboSchema = z.object({
@@ -50,7 +52,8 @@ export const menuController = {
 
   async listCategories(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await menuService.listCategories(true));
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json(await menuService.listCategories(includeInactive));
     } catch (error) {
       next(error);
     }
@@ -78,7 +81,8 @@ export const menuController = {
 
   async listItems(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await menuService.listItems(true));
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json(await menuService.listItems(includeInactive));
     } catch (error) {
       next(error);
     }
@@ -116,7 +120,8 @@ export const menuController = {
 
   async listCombos(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await menuService.listCombos(true));
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json(await menuService.listCombos(includeInactive));
     } catch (error) {
       next(error);
     }

@@ -24,7 +24,8 @@ const updateSchema = z.object({
 export const usersController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json((await userService.list()).map(toPublicUser));
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json((await userService.list(includeInactive)).map(toPublicUser));
     } catch (error) {
       next(error);
     }
@@ -46,7 +47,11 @@ export const usersController = {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const body = updateSchema.parse(req.body);
-      res.json(toPublicUser(await userService.update(req.params.id, body)));
+      const user = await userService.update(req.params.id, body, {
+        id: req.user!.id,
+        role: req.user!.role as UserRole,
+      });
+      res.json(toPublicUser(user));
     } catch (error) {
       next(error);
     }

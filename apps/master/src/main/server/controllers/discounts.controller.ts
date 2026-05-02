@@ -1,6 +1,6 @@
-import { DiscountType } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import { DiscountType } from '@prisma/client';
 import { discountService } from '../services/discount.service';
 
 const createSchema = z.object({
@@ -9,12 +9,15 @@ const createSchema = z.object({
   value: z.union([z.number().int(), z.string().min(1)]),
 });
 
-const updateSchema = createSchema.partial();
+const updateSchema = createSchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
 
 export const discountsController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await discountService.listAll());
+      const includeInactive = req.query.includeInactive === 'true';
+      res.json(await discountService.listAll(includeInactive));
     } catch (error) {
       next(error);
     }

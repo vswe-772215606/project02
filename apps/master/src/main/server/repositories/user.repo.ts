@@ -35,9 +35,19 @@ export const userRepo = {
     });
   },
 
-  async findAll(tx?: Tx) {
+  async findAll(includeInactive = false, tx?: Tx) {
     return (tx ?? getPrisma()).user.findMany({
+      where: includeInactive ? undefined : { isActive: true },
       orderBy: { createdAt: 'asc' },
+    });
+  },
+
+  async countActiveOwners(tx?: Tx) {
+    return (tx ?? getPrisma()).user.count({
+      where: {
+        role: UserRole.OWNER,
+        isActive: true,
+      },
     });
   },
 
