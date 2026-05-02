@@ -66,7 +66,7 @@ export function OrdersPage() {
   }, {} as Record<string, number>);
 
   const filteredOrders = orders.filter(o => 
-    o.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
+    (o.orderNumber?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
     (o.tableId && o.tableId.toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -207,7 +207,7 @@ function OrderListItem({
         <div className="flex items-center space-x-6">
           <div className="text-right">
             <div className="text-lg font-black text-slate-900">
-              {formatUZS(order.totalSnapshot || order.totalAmount)}
+              {formatUZS(order.totalSnapshot || order.totalAmount || 0)}
             </div>
             <StatusBadge status={order.status} />
           </div>
@@ -224,7 +224,7 @@ function OrderListItem({
                 {order.lines?.map(line => (
                   <div key={line.id} className={`flex justify-between text-sm ${line.status === 'CANCELED' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                     <span>{line.quantity}x {line.name}</span>
-                    <span className="font-medium">{formatUZS(line.price * line.quantity)}</span>
+                    <span className="font-medium">{formatUZS((line.price || 0) * line.quantity)}</span>
                   </div>
                 ))}
               </div>

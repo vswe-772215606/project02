@@ -7,6 +7,19 @@ function statusFilter(expectedFrom: OrderStatus | OrderStatus[]) {
   return Array.isArray(expectedFrom) ? { in: expectedFrom } : expectedFrom;
 }
 
+const LIST_INCLUDE = {
+  lines: {
+    orderBy: { createdAt: 'asc' as const },
+  },
+  waiter: {
+    select: {
+      id: true,
+      fullName: true,
+    },
+  },
+  table: true,
+};
+
 export const orderRepo = {
   async create(data: Prisma.OrderCreateInput, tx?: Tx) {
     return (tx ?? getPrisma()).order.create({ data });
@@ -23,6 +36,7 @@ export const orderRepo = {
         lines: {
           include: {
             menuItem: true,
+            kitchenTicket: true,
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -57,6 +71,7 @@ export const orderRepo = {
           notIn: [OrderStatus.CLOSED, OrderStatus.WALKOUT, OrderStatus.CANCELED],
         },
       },
+      include: LIST_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   },
@@ -64,6 +79,7 @@ export const orderRepo = {
   async listByWaiter(waiterId: string, tx?: Tx) {
     return (tx ?? getPrisma()).order.findMany({
       where: { waiterId },
+      include: LIST_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   },
@@ -71,6 +87,7 @@ export const orderRepo = {
   async listByStatus(status: OrderStatus, tx?: Tx) {
     return (tx ?? getPrisma()).order.findMany({
       where: { status },
+      include: LIST_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   },
@@ -83,6 +100,7 @@ export const orderRepo = {
           lte: to,
         },
       },
+      include: LIST_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   },
@@ -114,7 +132,10 @@ export const orderRepo = {
       });
     }
 
-    return client.order.findUnique({ where: { id } });
+    return client.order.findUnique({ 
+      where: { id },
+      include: LIST_INCLUDE 
+    });
   },
 
   async applyTotals(

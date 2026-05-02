@@ -193,7 +193,7 @@ export function MenuPage() {
                     <span className={`text-sm font-semibold truncate ${
                       (selectedCategoryId === cat.id || (!selectedCategoryId && idx === 0)) ? 'text-blue-700' : 'text-slate-700'
                     } ${!cat.isActive ? 'text-slate-400 italic line-through' : ''}`}>
-                      {cat.name}
+                      {cat.name} {!cat.isActive && '(Nofaol)'}
                     </span>
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
