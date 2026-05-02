@@ -2,7 +2,7 @@ import { api } from './client';
 import { User } from './auth';
 
 export const usersApi = {
-  list: () => api.get<User[]>('/api/users'),
+  list: (includeInactive = false) => api.get<User[]>(`/api/users${includeInactive ? '?includeInactive=true' : ''}`),
   create: (data: { role: string; fullName: string; username?: string; password?: string; pin?: string }) => 
     api.post<User>('/api/users', data),
   update: (id: string, data: Partial<User> & { password?: string; pin?: string }) => 

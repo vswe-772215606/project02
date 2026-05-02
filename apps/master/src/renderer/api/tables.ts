@@ -10,7 +10,7 @@ export interface Table {
 }
 
 export const tablesApi = {
-  list: () => api.get<Table[]>('/api/tables'),
+  list: (includeInactive = false) => api.get<Table[]>(`/api/tables${includeInactive ? '?includeInactive=true' : ''}`),
   create: (data: { name: string; type: string; displayOrder?: number }) => 
     api.post<Table>('/api/tables', data),
   update: (id: string, data: Partial<Table>) => 

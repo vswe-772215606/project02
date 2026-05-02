@@ -14,7 +14,8 @@ import {
   HandPlatter,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  Filter
 } from 'lucide-react';
 import { usersApi } from '../api/users';
 import { User } from '../api/auth';
@@ -42,10 +43,11 @@ export function UsersPage() {
   const currentUser = useAuthStore(s => s.user);
   const [isAdding, setIsAdding] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => usersApi.list(),
+    queryKey: ['users', showInactive],
+    queryFn: () => usersApi.list(showInactive),
   });
 
   const createMutation = useMutation({
@@ -61,13 +63,35 @@ export function UsersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditUser(null);
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
     }
   });
 
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => usersApi.deactivate(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+    onError: (err: any) => {
+      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+    }
   });
+
+  const handleToggleActive = (user: User) => {
+    if (user.isActive) {
+      if (confirm(`"${user.fullName}" foydalanuvchisini faolsizlantirmoqchimisiz?`)) {
+        deactivateMutation.mutate(user.id);
+      }
+    } else {
+      if (user.role === 'OWNER' && currentUser?.role !== 'OWNER') {
+        alert("Faqat Ega (Owner) boshqa Egani qayta faollashtira oladi");
+        return;
+      }
+      if (confirm(`"${user.fullName}" foydalanuvchisini qayta faollashtirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: user.id, data: { isActive: true } });
+      }
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -76,13 +100,24 @@ export function UsersPage() {
           <UsersIcon className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Foydalanuvchilar</h1>
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
-        >
-          <Plus size={20} />
-          <span>Yangi foydalanuvchi</span>
-        </button>
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showInactive} 
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+            />
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ham ko'rsatish</span>
+          </label>
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
+          >
+            <Plus size={20} />
+            <span>Yangi foydalanuvchi</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -97,21 +132,23 @@ export function UsersPage() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {users.map((user) => (
-              <tr key={user.id} className={`hover:bg-slate-50/50 transition-colors ${!user.isActive ? 'opacity-50' : ''}`}>
+              <tr key={user.id} className={`hover:bg-slate-50/50 transition-colors ${!user.isActive ? 'bg-slate-50/50' : ''}`}>
                 <td className="px-6 py-4">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${!user.isActive ? 'bg-slate-200 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
                       {user.fullName.substring(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <div className="font-bold text-slate-800">{user.fullName}</div>
+                      <div className={`font-bold ${!user.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>
+                        {user.fullName}
+                      </div>
                       <div className="text-xs text-slate-400 font-medium">@{user.username || 'pin-auth'}</div>
                     </div>
                   </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex justify-center">
-                    <RoleBadge role={user.role} />
+                    <RoleBadge role={user.role} isActive={user.isActive} />
                   </div>
                 </td>
                 <td className="px-6 py-4 text-center">
@@ -131,7 +168,7 @@ export function UsersPage() {
                     </button>
                     {user.id !== currentUser?.id && (
                       <button 
-                        onClick={() => deactivateMutation.mutate(user.id)}
+                        onClick={() => handleToggleActive(user)}
                         className={`p-2 rounded-lg transition-all ${
                           user.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
                         }`}
@@ -144,6 +181,13 @@ export function UsersPage() {
                 </td>
               </tr>
             ))}
+            {users.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">
+                  Foydalanuvchilar topilmadi
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -163,7 +207,7 @@ export function UsersPage() {
   );
 }
 
-function RoleBadge({ role }: { role: string }) {
+function RoleBadge({ role, isActive }: { role: string, isActive: boolean }) {
   const configs: any = {
     OWNER: { label: 'Ega', icon: Shield, color: 'bg-purple-100 text-purple-700' },
     ADMIN: { label: 'Admin', icon: Lock, color: 'bg-blue-100 text-blue-700' },
@@ -173,7 +217,7 @@ function RoleBadge({ role }: { role: string }) {
   const config = configs[role];
   const Icon = config.icon;
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold space-x-1.5 ${config.color}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold space-x-1.5 ${isActive ? config.color : 'bg-slate-100 text-slate-400'}`}>
       <Icon size={14} />
       <span>{config.label}</span>
     </span>

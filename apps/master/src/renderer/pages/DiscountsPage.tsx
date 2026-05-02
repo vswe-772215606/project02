@@ -9,7 +9,8 @@ import {
   Pencil, 
   Trash2, 
   Tag,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { discountsApi, Discount } from '../api/discounts';
 import { settingsApi } from '../api/settings';
@@ -28,10 +29,11 @@ export function DiscountsPage() {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editDiscount, setEditDiscount] = useState<Discount | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: discounts = [], isLoading } = useQuery({
-    queryKey: ['discounts'],
-    queryFn: () => discountsApi.list(),
+    queryKey: ['discounts', showInactive],
+    queryFn: () => discountsApi.list(showInactive),
   });
 
   const { data: settings = {} } = useQuery({
@@ -55,10 +57,17 @@ export function DiscountsPage() {
     }
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => discountsApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discounts'] })
-  });
+  const handleToggleActive = (discount: Discount) => {
+    if (discount.isActive) {
+      if (confirm(`"${discount.name}" chegirmasini faolsizlantirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: discount.id, data: { isActive: false } });
+      }
+    } else {
+      if (confirm(`"${discount.name}" chegirmasini qayta faollashtirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: discount.id, data: { isActive: true } });
+      }
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -67,13 +76,24 @@ export function DiscountsPage() {
           <Percent className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Chegirmalar boshqaruvi</h1>
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
-        >
-          <Plus size={20} />
-          <span>Yangi chegirma</span>
-        </button>
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showInactive} 
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+            />
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ko'rsatish</span>
+          </label>
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
+          >
+            <Plus size={20} />
+            <span>Yangi chegirma</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -81,10 +101,10 @@ export function DiscountsPage() {
           <div className="col-span-full flex justify-center py-12">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
           </div>
-        ) : discounts.filter(d => d.isActive).map((discount) => (
-          <div key={discount.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all">
+        ) : discounts.map((discount) => (
+          <div key={discount.id} className={`bg-white rounded-2xl border p-6 shadow-sm hover:shadow-md transition-all ${!discount.isActive ? 'bg-slate-50 border-dashed border-slate-300 opacity-60' : 'border-slate-200'}`}>
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
+              <div className={`p-3 rounded-xl border ${!discount.isActive ? 'bg-slate-200 text-slate-400 border-slate-300' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
                 {discount.type === 'PERCENT' ? <Percent size={24} /> : <Tag size={24} />}
               </div>
               <div className="flex items-center space-x-1">
@@ -95,17 +115,22 @@ export function DiscountsPage() {
                   <Pencil size={18} />
                 </button>
                 <button 
-                  onClick={() => deleteMutation.mutate(discount.id)}
-                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  onClick={() => handleToggleActive(discount)}
+                  className={`p-2 rounded-lg transition-colors ${
+                    discount.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
+                  }`}
+                  title={discount.isActive ? "Faolsizlantirish" : "Faollashtirish"}
                 >
-                  <Trash2 size={18} />
+                  {discount.isActive ? <Trash2 size={18} /> : <RotateCcw size={18} />}
                 </button>
               </div>
             </div>
 
             <div>
-              <h3 className="text-lg font-black text-slate-800">{discount.name}</h3>
-              <p className="text-2xl font-black text-blue-600 mt-1">
+              <h3 className={`text-lg font-black ${!discount.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>
+                {discount.name}
+              </h3>
+              <p className={`text-2xl font-black mt-1 ${!discount.isActive ? 'text-slate-400' : 'text-blue-600'}`}>
                 {discount.type === 'PERCENT' ? `${discount.value}%` : formatUZS(discount.value)}
               </p>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
@@ -114,7 +139,7 @@ export function DiscountsPage() {
             </div>
           </div>
         ))}
-        {discounts.filter(d => d.isActive).length === 0 && !isLoading && (
+        {discounts.length === 0 && !isLoading && (
           <div className="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
             Chegirmalar mavjud emas
           </div>

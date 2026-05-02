@@ -8,9 +8,10 @@ import {
   Plus, 
   Pencil, 
   Trash2, 
-  Users,
-  Grid,
-  Hash
+  RotateCcw,
+  Hash,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { tablesApi, Table } from '../api/tables';
 import { Modal } from '../components/Modal';
@@ -27,10 +28,11 @@ export function TablesPage() {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editTable, setEditTable] = useState<Table | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: tables = [], isLoading } = useQuery({
-    queryKey: ['tables'],
-    queryFn: () => tablesApi.list(),
+    queryKey: ['tables', showInactive],
+    queryFn: () => tablesApi.list(showInactive),
   });
 
   const sortedTables = [...tables].sort((a, b) => a.displayOrder - b.displayOrder);
@@ -51,8 +53,16 @@ export function TablesPage() {
     }
   });
 
-  const toggleActive = (table: Table) => {
-    updateMutation.mutate({ id: table.id, data: { isActive: !table.isActive } });
+  const handleToggleActive = (table: Table) => {
+    if (table.isActive) {
+      if (confirm(`"${table.name}" stolini faolsizlantirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: table.id, data: { isActive: false } });
+      }
+    } else {
+      if (confirm(`"${table.name}" stolini qayta faollashtirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: table.id, data: { isActive: true } });
+      }
+    }
   };
 
   return (
@@ -62,13 +72,24 @@ export function TablesPage() {
           <Armchair className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Stollar boshqaruvi</h1>
         </div>
-        <button 
-          onClick={() => setIsAdding(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
-        >
-          <Plus size={20} />
-          <span>Yangi stol</span>
-        </button>
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showInactive} 
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+            />
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ko'rsatish</span>
+          </label>
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
+          >
+            <Plus size={20} />
+            <span>Yangi stol</span>
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -81,25 +102,35 @@ export function TablesPage() {
             <div 
               key={table.id} 
               className={`bg-white rounded-2xl border p-6 shadow-sm transition-all hover:shadow-md ${
-                !table.isActive ? 'opacity-60 bg-slate-50' : 'border-slate-200'
+                !table.isActive ? 'bg-slate-50 border-dashed border-slate-300' : 'border-slate-200'
               }`}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-xl ${
-                  table.activeOrderId ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-green-50 text-green-600 border border-green-100'
+                  !table.isActive ? 'bg-slate-200 text-slate-400' :
+                  table.activeOrderId ? 'bg-red-50 text-red-600 border border-red-100' : 
+                  'bg-green-50 text-green-600 border border-green-100'
                 }`}>
                   <Armchair size={24} />
                 </div>
                 <div className="flex items-center space-x-1">
-                  <div className={`w-2.5 h-2.5 rounded-full ${table.activeOrderId ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${table.activeOrderId ? 'text-red-600' : 'text-green-600'}`}>
-                    {table.activeOrderId ? 'Band' : 'Bo\'sh'}
-                  </span>
+                  {table.isActive ? (
+                    <>
+                      <div className={`w-2.5 h-2.5 rounded-full ${table.activeOrderId ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${table.activeOrderId ? 'text-red-600' : 'text-green-600'}`}>
+                        {table.activeOrderId ? 'Band' : 'Bo\'sh'}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nofaol</span>
+                  )}
                 </div>
               </div>
 
               <div>
-                <h3 className="text-lg font-black text-slate-800">{table.name}</h3>
+                <h3 className={`text-lg font-black ${!table.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>
+                  {table.name}
+                </h3>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-0.5">{table.type}</p>
               </div>
 
@@ -118,12 +149,13 @@ export function TablesPage() {
                     <Pencil size={18} />
                   </button>
                   <button 
-                    onClick={() => toggleActive(table)}
+                    onClick={() => handleToggleActive(table)}
                     className={`p-2 rounded-lg transition-colors ${
                       table.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
                     }`}
+                    title={table.isActive ? "Faolsizlantirish" : "Faollashtirish"}
                   >
-                    <Trash2 size={18} />
+                    {table.isActive ? <Trash2 size={18} /> : <RotateCcw size={18} />}
                   </button>
                 </div>
               </div>

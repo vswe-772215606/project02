@@ -37,14 +37,14 @@ export interface Combo {
 }
 
 export const menuApi = {
-  getMenu: () => api.get<{ categories: Category[] }>('/api/menu'),
-  listCategories: () => api.get<Category[]>('/api/menu/categories'),
+  getMenu: (includeInactive = false) => api.get<{ categories: Category[] }>(`/api/menu${includeInactive ? '?includeInactive=true' : ''}`),
+  listCategories: (includeInactive = false) => api.get<Category[]>(`/api/menu/categories${includeInactive ? '?includeInactive=true' : ''}`),
   createCategory: (data: { name: string; displayOrder?: number }) => 
     api.post<Category>('/api/menu/categories', data),
   updateCategory: (id: string, data: { name?: string; displayOrder?: number; isActive?: boolean }) => 
     api.patch<Category>(`/api/menu/categories/${id}`, data),
   
-  listItems: () => api.get<MenuItem[]>('/api/menu/items'),
+  listItems: (includeInactive = false) => api.get<MenuItem[]>(`/api/menu/items${includeInactive ? '?includeInactive=true' : ''}`),
   createItem: (data: { categoryId: string; name: string; price: number; description?: string; displayOrder?: number; trackStock?: boolean }) => 
     api.post<MenuItem>('/api/menu/items', data),
   updateItem: (id: string, data: Partial<MenuItem>) => 
@@ -52,7 +52,7 @@ export const menuApi = {
   toggleAvailability: (id: string, isAvailable: boolean) => 
     api.patch<MenuItem>(`/api/menu/items/${id}/availability`, { isAvailable }),
     
-  listCombos: () => api.get<Combo[]>('/api/menu/combos'),
+  listCombos: (includeInactive = false) => api.get<Combo[]>(`/api/menu/combos${includeInactive ? '?includeInactive=true' : ''}`),
   createCombo: (data: { name: string; components: { menuItemId: string; quantity: number }[] }) => 
     api.post<Combo>('/api/menu/combos', data),
   updateCombo: (id: string, data: Partial<Combo>) => 

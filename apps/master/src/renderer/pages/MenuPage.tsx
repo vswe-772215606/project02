@@ -13,7 +13,7 @@ import {
   Eye, 
   EyeOff,
   Package,
-  Layers,
+  RotateCcw,
   X
 } from 'lucide-react';
 import { menuApi, Category, MenuItem, Combo } from '../api/menu';
@@ -42,10 +42,11 @@ export function MenuPage() {
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [view, setView] = useState<'items' | 'combos'>('items');
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: menuData } = useQuery({
-    queryKey: ['menu', 'full'],
-    queryFn: () => menuApi.getMenu(),
+    queryKey: ['menu', 'full', showInactive],
+    queryFn: () => menuApi.getMenu(showInactive),
   });
 
   const categories = menuData?.categories || [];
@@ -53,8 +54,8 @@ export function MenuPage() {
   const items = activeCategory?.items || [];
 
   const { data: combos = [] } = useQuery({
-    queryKey: ['menu', 'combos'],
-    queryFn: () => menuApi.listCombos(),
+    queryKey: ['menu', 'combos', showInactive],
+    queryFn: () => menuApi.listCombos(showInactive),
   });
 
   // Category Mutations
@@ -96,6 +97,30 @@ export function MenuPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu'] })
   });
 
+  const handleToggleCategoryActive = (category: Category) => {
+    if (category.isActive) {
+      if (confirm(`"${category.name}" kategoriyasini faolsizlantirmoqchimisiz?`)) {
+        updateCategoryMutation.mutate({ id: category.id, data: { isActive: false } });
+      }
+    } else {
+      if (confirm(`"${category.name}" kategoriyasini qayta faollashtirmoqchimisiz?`)) {
+        updateCategoryMutation.mutate({ id: category.id, data: { isActive: true } });
+      }
+    }
+  };
+
+  const handleToggleItemActive = (item: MenuItem) => {
+    if (item.isActive) {
+      if (confirm(`"${item.name}" mahsulotini faolsizlantirmoqchimisiz?`)) {
+        updateItemMutation.mutate({ id: item.id, data: { isActive: false } });
+      }
+    } else {
+      if (confirm(`"${item.name}" mahsulotini qayta faollashtirmoqchimisiz?`)) {
+        updateItemMutation.mutate({ id: item.id, data: { isActive: true } });
+      }
+    }
+  };
+
   const reorderCategory = (category: Category, direction: 'up' | 'down') => {
     const index = categories.indexOf(category);
     const other = direction === 'up' ? categories[index - 1] : categories[index + 1];
@@ -112,19 +137,30 @@ export function MenuPage() {
           <BookOpen className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Menyu boshqaruvi</h1>
         </div>
-        <div className="flex bg-slate-200/50 p-1 rounded-lg">
-          <button 
-            onClick={() => setView('items')}
-            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'items' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Mahsulotlar
-          </button>
-          <button 
-            onClick={() => setView('combos')}
-            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'combos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Kombolar
-          </button>
+        <div className="flex items-center space-x-4">
+          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showInactive} 
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+            />
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ko'rsatish</span>
+          </label>
+          <div className="flex bg-slate-200/50 p-1 rounded-lg">
+            <button 
+              onClick={() => setView('items')}
+              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'items' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Mahsulotlar
+            </button>
+            <button 
+              onClick={() => setView('combos')}
+              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'combos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Kombolar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -152,11 +188,11 @@ export function MenuPage() {
                       (selectedCategoryId === cat.id || (!selectedCategoryId && idx === 0))
                         ? 'bg-blue-50 border-l-4 border-blue-600'
                         : 'hover:bg-slate-50 border-l-4 border-transparent'
-                    }`}
+                    } ${!cat.isActive ? 'bg-slate-50/50' : ''}`}
                   >
                     <span className={`text-sm font-semibold truncate ${
                       (selectedCategoryId === cat.id || (!selectedCategoryId && idx === 0)) ? 'text-blue-700' : 'text-slate-700'
-                    }`}>
+                    } ${!cat.isActive ? 'text-slate-400 italic line-through' : ''}`}>
                       {cat.name}
                     </span>
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -180,6 +216,12 @@ export function MenuPage() {
                       >
                         <Pencil size={14} />
                       </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleToggleCategoryActive(cat); }}
+                        className={`p-1 transition-colors ${cat.isActive ? 'text-slate-400 hover:text-red-500' : 'text-green-500 hover:text-green-600'}`}
+                      >
+                        {cat.isActive ? <Trash2 size={14} /> : <RotateCcw size={14} />}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -190,8 +232,8 @@ export function MenuPage() {
           {/* Items Column */}
           <div className="col-span-12 md:col-span-8 lg:col-span-9 space-y-4">
             <div className="flex items-center justify-between px-2">
-              <h2 className="font-bold text-slate-500 text-xs uppercase tracking-widest">
-                {activeCategory?.name || 'Mahsulotlar'}
+              <h2 className={`font-bold text-slate-500 text-xs uppercase tracking-widest ${!activeCategory?.isActive ? 'italic line-through' : ''}`}>
+                {activeCategory?.name || 'Mahsulotlar'} {!activeCategory?.isActive && '(Nofaol)'}
               </h2>
               <button 
                 onClick={() => setIsAddingItem(true)}
@@ -215,17 +257,17 @@ export function MenuPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={item.id} className={`hover:bg-slate-50/50 transition-colors ${!item.isActive ? 'bg-slate-50/50' : ''}`}>
                       <td className="px-6 py-4">
-                        <div className="font-bold text-slate-800">{item.name}</div>
+                        <div className={`font-bold ${!item.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{item.name}</div>
                         {item.description && <div className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{item.description}</div>}
                       </td>
-                      <td className="px-6 py-4 font-semibold text-slate-700">
+                      <td className={`px-6 py-4 font-semibold ${!item.isActive ? 'text-slate-400' : 'text-slate-700'}`}>
                         {formatUZS(item.price)}
                       </td>
                       <td className="px-6 py-4 text-center">
                         {item.trackStock ? (
-                          <span className="inline-flex items-center text-xs text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
+                          <span className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border ${!item.isActive ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                             <Package size={12} className="mr-1" />
                             HA
                           </span>
@@ -235,8 +277,10 @@ export function MenuPage() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         <button 
+                          disabled={!item.isActive}
                           onClick={() => toggleAvailabilityMutation.mutate({ id: item.id, isAvailable: !item.isAvailable })}
                           className={`p-1.5 rounded-full transition-colors ${
+                            !item.isActive ? 'text-slate-300 cursor-not-allowed' :
                             item.isAvailable ? 'text-green-600 hover:bg-green-50' : 'text-red-400 hover:bg-red-50'
                           }`}
                           title={item.isAvailable ? "Mavjud" : "Mavjud emas"}
@@ -251,6 +295,12 @@ export function MenuPage() {
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
                           >
                             <Pencil size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleToggleItemActive(item)}
+                            className={`p-1.5 rounded transition-all ${item.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'}`}
+                          >
+                            {item.isActive ? <Trash2 size={16} /> : <RotateCcw size={16} />}
                           </button>
                         </div>
                       </td>
@@ -269,7 +319,7 @@ export function MenuPage() {
           </div>
         </div>
       ) : (
-        <CombosSection combos={combos} categories={categories} />
+        <CombosSection combos={combos} categories={categories} showInactive={showInactive} />
       )}
 
       {/* Modals */}
@@ -411,7 +461,7 @@ function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any
   );
 }
 
-function CombosSection({ combos, categories }: any) {
+function CombosSection({ combos, categories, showInactive }: any) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [selectedComponents, setSelectedComponents] = useState<any[]>([]);
@@ -424,6 +474,23 @@ function CombosSection({ combos, categories }: any) {
       setSelectedComponents([]);
     }
   });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: any) => menuApi.updateCombo(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['menu'] })
+  });
+
+  const handleToggleComboActive = (combo: Combo) => {
+    if (combo.isActive) {
+      if (confirm(`"${combo.name}" kombosini faolsizlantirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: combo.id, data: { isActive: false } });
+      }
+    } else {
+      if (confirm(`"${combo.name}" kombosini qayta faollashtirmoqchimisiz?`)) {
+        updateMutation.mutate({ id: combo.id, data: { isActive: true } });
+      }
+    }
+  };
 
   const allItems = categories.flatMap((c: any) => c.items || []);
 
@@ -457,19 +524,27 @@ function CombosSection({ combos, categories }: any) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {combos.map((combo: Combo) => (
-          <div key={combo.id} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div key={combo.id} className={`bg-white rounded-xl border p-5 shadow-sm space-y-4 relative ${!combo.isActive ? 'bg-slate-50/50 border-dashed border-slate-300' : 'border-slate-200'}`}>
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-800">{combo.name}</h3>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${combo.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
-                {combo.isActive ? 'FAOL' : 'NOFAOL'}
-              </span>
+              <h3 className={`font-bold ${!combo.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{combo.name}</h3>
+              <div className="flex items-center space-x-2">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${combo.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400'}`}>
+                  {combo.isActive ? 'FAOL' : 'NOFAOL'}
+                </span>
+                <button 
+                  onClick={() => handleToggleComboActive(combo)}
+                  className={`p-1 rounded transition-all ${combo.isActive ? 'text-slate-400 hover:text-red-500' : 'text-green-500 hover:text-green-600'}`}
+                >
+                  {combo.isActive ? <Trash2 size={16} /> : <RotateCcw size={16} />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tarkibi:</div>
               {combo.components.map(comp => (
                 <div key={comp.id} className="flex justify-between text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg">
-                  <span>{comp.menuItem?.name || 'Noma\'lum'}</span>
-                  <span className="font-bold">x{comp.quantity}</span>
+                  <span className={!combo.isActive ? 'text-slate-400' : ''}>{comp.menuItem?.name || 'Noma\'lum'}</span>
+                  <span className={`font-bold ${!combo.isActive ? 'text-slate-400' : ''}`}>x{comp.quantity}</span>
                 </div>
               ))}
             </div>

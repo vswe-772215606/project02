@@ -9,7 +9,7 @@ export interface Discount {
 }
 
 export const discountsApi = {
-  list: () => api.get<Discount[]>('/api/discounts'),
+  list: (includeInactive = false) => api.get<Discount[]>(`/api/discounts${includeInactive ? '?includeInactive=true' : ''}`),
   create: (data: { name: string; type: string; value: number }) => 
     api.post<Discount>('/api/discounts', data),
   update: (id: string, data: Partial<Discount>) => 
