@@ -20,20 +20,6 @@ import {
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
 
-const navItems = [
-  { label: "Bosh sahifa", path: "/", icon: LayoutDashboard },
-  { label: "Tasdiqlash navbati", path: "/approval-queue", icon: ClipboardCheck },
-  { label: "Buyurtmalar", path: "/orders", icon: ReceiptText },
-  { label: "Menyu", path: "/menu", icon: BookOpen },
-  { label: "Zaxiralar", path: "/stock", icon: Package },
-  { label: "Stollar", path: "/tables", icon: Armchair },
-  { label: "Foydalanuvchilar", path: "/users", icon: Users },
-  { label: "Chegirmalar", path: "/discounts", icon: Percent },
-  { label: "Hisobotlar", path: "/reports", icon: BarChart3 },
-  { label: "Audit jurnali", path: "/audit", icon: ScrollText },
-  { label: "Sozlamalar", path: "/settings", icon: Settings },
-];
-
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, clearAuth } = useAuthStore();
   const { status } = useConnectionStore();
@@ -58,6 +44,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
   };
 
+  const navItems = [
+    { label: "Bosh sahifa", path: "/", icon: LayoutDashboard, roles: ['OWNER', 'ADMIN', 'WAITER', 'KITCHEN'] },
+    { label: "Tasdiqlash navbati", path: "/approval-queue", icon: ClipboardCheck, roles: ['OWNER', 'ADMIN'] },
+    { label: "Buyurtmalar", path: "/orders", icon: ReceiptText, roles: ['OWNER', 'ADMIN', 'WAITER'] },
+    { label: "Menyu", path: "/menu", icon: BookOpen, roles: ['OWNER', 'ADMIN'] },
+    { label: "Zaxiralar", path: "/stock", icon: Package, roles: ['OWNER', 'ADMIN'] },
+    { label: "Stollar", path: "/tables", icon: Armchair, roles: ['OWNER', 'ADMIN'] },
+    { label: "Foydalanuvchilar", path: "/users", icon: Users, roles: ['OWNER', 'ADMIN'] },
+    { label: "Chegirmalar", path: "/discounts", icon: Percent, roles: ['OWNER', 'ADMIN'] },
+    { label: "Hisobotlar", path: "/reports", icon: BarChart3, roles: ['OWNER'] },
+    { label: "Audit jurnali", path: "/audit", icon: ScrollText, roles: ['OWNER'] },
+    { label: "Sozlamalar", path: "/settings", icon: Settings, roles: ['OWNER', 'ADMIN'] },
+  ];
+
+  const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role || ''));
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       {/* Sidebar */}
@@ -76,7 +78,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-          {navItems.map((item) => (
+          {filteredNavItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
