@@ -15,26 +15,35 @@ import {
   Wallet,
   Receipt,
   User
-} from 'lucide-react';
+import { User } from 'lucide-react';
 import { reportsApi } from '../api/reports';
 import { formatUZS, formatDateTimeUZ } from '../utils/format';
+import { ForbiddenMessage } from '../components/ForbiddenMessage';
 
 export function ReportsPage() {
   const [tab, setTab] = useState<'daily' | 'monthly'>('daily');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
-  const { data: dailyData, isLoading: isLoadingDaily } = useQuery({
+  const { data: dailyData, isLoading: isLoadingDaily, error: dailyError } = useQuery({
     queryKey: ['reports', 'daily', date],
     queryFn: () => reportsApi.getDaily(date),
     enabled: tab === 'daily',
+    retry: false,
   });
 
-  const { data: monthlyData, isLoading: isLoadingMonthly } = useQuery({
+  const { data: monthlyData, isLoading: isLoadingMonthly, error: monthlyError } = useQuery({
     queryKey: ['reports', 'monthly', month],
     queryFn: () => reportsApi.getMonthly(month),
     enabled: tab === 'monthly',
+    retry: false,
   });
+
+  const isForbidden = (dailyError as any)?.response?.status === 403 || (monthlyError as any)?.response?.status === 403;
+
+  if (isForbidden) {
+    return <ForbiddenMessage />;
+  }
 
   const renderDaily = () => {
     if (isLoadingDaily) return <div className="flex items-center justify-center p-12"><RefreshCw className="animate-spin text-blue-500" /></div>;

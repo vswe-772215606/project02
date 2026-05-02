@@ -16,6 +16,7 @@ import { auditApi } from '../api/audit';
 import { usersApi } from '../api/users';
 import { formatDateTimeUZ } from '../utils/format';
 import { AUDIT_LABELS } from '../lib/audit-labels';
+import { ForbiddenMessage } from '../components/ForbiddenMessage';
 
 export function AuditPage() {
   const [filters, setFilters] = useState({
@@ -27,10 +28,15 @@ export function AuditPage() {
     pageSize: 20
   });
 
-  const { data: auditData, isLoading, isFetching } = useQuery({
+  const { data: auditData, isLoading, isFetching, error } = useQuery({
     queryKey: ['audit', filters],
     queryFn: () => auditApi.list(filters),
+    retry: false,
   });
+
+  if ((error as any)?.response?.status === 403) {
+    return <ForbiddenMessage />;
+  }
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
