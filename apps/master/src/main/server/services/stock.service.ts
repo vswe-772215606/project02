@@ -11,7 +11,7 @@ type Tx = Prisma.TransactionClient;
 export const stockService = {
   today(): Date {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   },
 
   async listToday() {

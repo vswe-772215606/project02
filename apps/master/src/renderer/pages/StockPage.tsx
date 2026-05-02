@@ -10,16 +10,17 @@ import {
   CheckCircle2,
   RefreshCw,
   CalendarCheck,
-  Zap
+  Zap,
+  Save,
+  Trash
 } from 'lucide-react';
 import { stockApi, DailyStock } from '../api/stock';
 
 export function StockPage() {
   const queryClient = useQueryClient();
-  const [isInitializing, setIsInitializing] = useState(false);
-  const [initCounts, setInitCounts] = useState<Record<string, number>>({});
+  const [rowInputs, setRowInputs] = useState<Record<string, number>>({});
   
-  const { data: stockItems = [], isLoading } = useQuery({
+  const { data: stockItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['stock', 'today'],
     queryFn: () => stockApi.getToday(),
   });
@@ -28,28 +29,33 @@ export function StockPage() {
     mutationFn: ({ entries, force }: { entries: any[], force?: boolean }) => stockApi.setToday(entries, force),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock'] });
-      setIsInitializing(false);
-      setInitCounts({});
+      setRowInputs({});
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
     }
   });
 
   const batchAddMutation = useMutation({
     mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.addBatch(id, count),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] }),
+    onError: (err: any) => {
+      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+    }
   });
 
   const batchRemoveMutation = useMutation({
     mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.removeBatch(id, count),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] }),
+    onError: (err: any) => {
+      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+    }
   });
 
-  const handleSetMorning = () => {
-    const entries = Object.entries(initCounts)
-      .filter(([_, count]) => count > 0)
-      .map(([menuItemId, count]) => ({ menuItemId, count }));
-    
-    if (entries.length === 0) return;
-    setTodayMutation.mutate({ entries });
+  const handleSetRow = (menuItemId: string) => {
+    const count = rowInputs[menuItemId];
+    if (count === undefined || count < 0) return;
+    setTodayMutation.mutate({ entries: [{ menuItemId, count }] });
   };
 
   const promptBatch = (id: string, name: string, type: 'add' | 'remove') => {
@@ -72,9 +78,9 @@ export function StockPage() {
   };
 
   const handleReset = (id: string, name: string) => {
-    if (confirm(`"${name}" uchun bugungi zaxirani qaytadan belgilamoqchimisiz?`)) {
+    if (confirm(`"${name}" uchun bugungi zaxirani qaytadan belgilamoqchimisiz? Bu barcha amallarni o'chirib yuboradi.`)) {
       const val = prompt(`Yangi boshlang'ich miqdorni kiriting:`);
-      if (!val) return;
+      if (val === null) return;
       const count = parseInt(val, 10);
       if (isNaN(count) || count < 0) return;
       setTodayMutation.mutate({ entries: [{ menuItemId: id, count }], force: true });
@@ -90,8 +96,7 @@ export function StockPage() {
     );
   }
 
-  const uninitializedItems = stockItems.filter(item => !item.hasDailyRow);
-  const initializedItems = stockItems.filter(item => item.hasDailyRow);
+  const missingInitialization = stockItems.some(item => !item.hasDailyRow);
 
   return (
     <div className="space-y-6">
@@ -106,60 +111,16 @@ export function StockPage() {
           </div>
         </div>
 
-        {uninitializedItems.length > 0 && !isInitializing && (
-          <button
-            onClick={() => setIsInitializing(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md transition-all active:scale-95"
-          >
-            <CalendarCheck size={18} />
-            <span>Bugun uchun belgilash</span>
-          </button>
-        )}
+        {isFetching && <RefreshCw className="animate-spin text-slate-400" size={18} />}
       </div>
 
-      {isInitializing && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-blue-800 flex items-center space-x-2">
-              <Zap size={20} className="fill-blue-500 text-blue-500" />
-              <span>Ertalabki tayyorgarlik (Morning routine)</span>
-            </h2>
-            <button 
-              onClick={() => setIsInitializing(false)}
-              className="text-slate-400 hover:text-slate-600"
-            >
-              <RotateCcw size={18} />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-            {uninitializedItems.map(item => (
-              <div key={item.menuItemId} className="bg-white p-3 rounded-lg border border-blue-100 flex flex-col space-y-2">
-                <span className="text-sm font-bold text-slate-700 truncate">{item.name}</span>
-                <div className="flex items-center space-x-2">
-                  <input 
-                    type="number" 
-                    placeholder="0"
-                    className="w-full border border-slate-200 rounded px-2 py-1 text-center font-bold outline-none focus:ring-2 focus:ring-blue-500"
-                    onChange={(e) => setInitCounts(prev => ({ ...prev, [item.menuItemId]: parseInt(e.target.value) || 0 }))}
-                  />
-                  <span className="text-xs text-slate-400 font-bold">ta</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-end space-x-3">
-            <button 
-              onClick={() => setIsInitializing(false)}
-              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-800"
-            >
-              Bekor qilish
-            </button>
-            <button 
-              onClick={handleSetMorning}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg font-black hover:bg-blue-700 shadow-md"
-            >
-              Barchasini tasdiqlash
-            </button>
+      {missingInitialization && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between shadow-sm">
+          <div className="flex items-center space-x-3">
+            <Zap size={20} className="text-amber-500 fill-amber-500" />
+            <p className="text-sm font-bold text-amber-800">
+              Diqqat: Ayrim mahsulotlar uchun bugungi zaxira hali belgilanmagan!
+            </p>
           </div>
         </div>
       )}
@@ -169,35 +130,44 @@ export function StockPage() {
           <table className="w-full text-left border-collapse min-w-[600px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mahsulot nomi va holati</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Holat</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mahsulot</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Holati</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amallar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {initializedItems.map((item) => {
-                const isLow = item.currentCount > 0 && item.currentCount < 5;
-                const isOut = item.currentCount === 0;
+              {stockItems.map((item) => {
+                const isLow = item.hasDailyRow && item.currentCount > 0 && item.currentCount < 5;
+                const isOut = item.hasDailyRow && item.currentCount === 0;
 
                 return (
-                  <tr key={item.menuItemId} className="hover:bg-slate-50/50 transition-colors">
+                  <tr key={item.menuItemId} className={`hover:bg-slate-50/50 transition-colors ${!item.hasDailyRow ? 'bg-amber-50/20' : ''}`}>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-lg font-bold text-slate-800 leading-tight">{item.name}</span>
-                        <div className="flex items-center space-x-1.5 mt-0.5">
-                          <span className={`text-sm font-black ${
-                            isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-blue-600'
-                          }`}>
-                            {item.currentCount}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                            dan {item.initialCount} ta mavjud (jami)
-                          </span>
-                        </div>
+                        {item.hasDailyRow ? (
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span className={`text-sm font-black ${
+                              isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-blue-600'
+                            }`}>
+                              {item.currentCount}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                              dan {item.initialCount} ta qoldi
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-amber-500 font-bold uppercase tracking-tighter">Hali belgilanmagan</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {isOut ? (
+                      {!item.hasDailyRow ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-slate-100 text-slate-400 text-[10px] font-black uppercase border border-slate-200">
+                          <AlertTriangle size={12} />
+                          <span>Kutilmoqda</span>
+                        </span>
+                      ) : isOut ? (
                         <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-black uppercase border border-red-200">
                           <XCircle size={12} />
                           <span>Tugagan</span>
@@ -215,29 +185,48 @@ export function StockPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        <button 
-                          onClick={() => promptBatch(item.menuItemId, item.name, 'add')}
-                          className="flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
-                        >
-                          <PlusCircle size={14} />
-                          <span>+ Yangi partiya</span>
-                        </button>
-                        <button 
-                          onClick={() => promptBatch(item.menuItemId, item.name, 'remove')}
-                          className="flex items-center space-x-1 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
-                        >
-                          <MinusCircle size={14} />
-                          <span>- Buzilgan/Xato</span>
-                        </button>
-                        <button 
-                          onClick={() => handleReset(item.menuItemId, item.name)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors"
-                          title="Qayta sozlash"
-                        >
-                          <RotateCcw size={16} />
-                        </button>
-                      </div>
+                      {!item.hasDailyRow ? (
+                        <div className="flex items-center justify-end space-x-2">
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            className="w-20 border border-slate-200 rounded px-2 py-1.5 text-center font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            value={rowInputs[item.menuItemId] ?? ''}
+                            onChange={(e) => setRowInputs(prev => ({ ...prev, [item.menuItemId]: parseInt(e.target.value) || 0 }))}
+                          />
+                          <button 
+                            onClick={() => handleSetRow(item.menuItemId)}
+                            disabled={setTodayMutation.isPending}
+                            className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 shadow-md transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            Ochish
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end space-x-2">
+                          <button 
+                            onClick={() => promptBatch(item.menuItemId, item.name, 'add')}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                          >
+                            <PlusCircle size={14} />
+                            <span>+ Partiya</span>
+                          </button>
+                          <button 
+                            onClick={() => promptBatch(item.menuItemId, item.name, 'remove')}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                          >
+                            <MinusCircle size={14} />
+                            <span>- Xato</span>
+                          </button>
+                          <button 
+                            onClick={() => handleReset(item.menuItemId, item.name)}
+                            className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors"
+                            title="Qayta sozlash"
+                          >
+                            <RotateCcw size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -262,9 +251,10 @@ export function StockPage() {
         <div className="text-sm text-slate-600">
           <p className="font-bold mb-1">Qoidalar:</p>
           <ul className="list-disc list-inside space-y-0.5 opacity-90 text-xs font-medium">
-            <li><b>Yangi partiya:</b> Kun davomida qo'shimcha mahsulot tayyorlansa ishlatiladi (jami va mavjud miqdor ortadi).</li>
-            <li><b>Buzilgan/Xato:</b> Ovqat to'kilsa yoki yaroqsiz bo'lib qolsa ishlatiladi (faqat mavjud miqdor kamayadi).</li>
-            <li>Zaxira 0 ga tushganda, ofitsiantlar ushbu mahsulotni buyurtma qila olmaydilar.</li>
+            <li><b>Ochish (Set):</b> Kun boshida ushbu mahsulotning umumiy miqdorini belgilaydi.</li>
+            <li><b>+ Partiya:</b> Kun davomida qo'shimcha tayyorlansa (jami va mavjud ortadi).</li>
+            <li><b>- Xato:</b> Buzilgan yoki noto'g'ri kiritilgan bo'lsa (faqat mavjud kamayadi).</li>
+            <li>Zaxira 0 ga tushganda, mahsulot menyuda avtomatik yashiriladi.</li>
           </ul>
         </div>
       </div>
