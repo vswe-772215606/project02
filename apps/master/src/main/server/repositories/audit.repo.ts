@@ -39,6 +39,7 @@ export const auditRepo = {
     const [items, total] = await Promise.all([
       client.auditLog.findMany({
         where,
+        include: { user: true },
         orderBy: { createdAt: 'desc' },
         skip,
         take: params.pageSize,

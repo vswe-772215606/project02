@@ -141,9 +141,9 @@ export function AuditPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-2">
                         <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
-                          {log.user.fullName.split(' ').map((n: string) => n[0]).join('')}
+                          {log.user?.fullName?.split(' ').map((n: string) => n[0]).join('') || '?'}
                         </div>
-                        <span className="text-sm font-medium text-slate-800">{log.user.fullName}</span>
+                        <span className="text-sm font-medium text-slate-800">{log.user?.fullName || 'Noma\'lum'}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
