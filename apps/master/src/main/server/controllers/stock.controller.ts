@@ -7,10 +7,11 @@ const bulkSchema = z.object({
     menuItemId: z.string().min(1),
     count: z.number().int().min(0),
   })),
+  force: z.boolean().optional(),
 });
 
-const patchSchema = z.object({
-  count: z.number().int().min(0),
+const batchSchema = z.object({
+  count: z.number().int().positive(),
 });
 
 const historySchema = z.object({
@@ -31,16 +32,25 @@ export const stockController = {
   async setToday(req: Request, res: Response, next: NextFunction) {
     try {
       const body = bulkSchema.parse(req.body);
-      res.status(201).json(await stockService.setInitialCounts(body.entries, req.user!.id));
+      res.status(201).json(await stockService.setInitialForToday(body.entries, req.user!.id, body.force));
     } catch (error) {
       next(error);
     }
   },
 
-  async patchToday(req: Request, res: Response, next: NextFunction) {
+  async addBatch(req: Request, res: Response, next: NextFunction) {
     try {
-      const body = patchSchema.parse(req.body);
-      res.json(await stockService.adjustCurrent(req.params.menuItemId, body.count, req.user!.id));
+      const { count } = batchSchema.parse(req.body);
+      res.json(await stockService.addBatch(req.params.menuItemId, count, req.user!.id));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async removeBatch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { count } = batchSchema.parse(req.body);
+      res.json(await stockService.removeBatch(req.params.menuItemId, count, req.user!.id));
     } catch (error) {
       next(error);
     }

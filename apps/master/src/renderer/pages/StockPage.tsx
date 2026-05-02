@@ -1,100 +1,86 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Package, 
-  Save, 
   RotateCcw, 
   Plus, 
   Minus,
   AlertTriangle,
   XCircle,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  PlusCircle,
+  MinusCircle,
+  CalendarCheck,
+  Zap
 } from 'lucide-react';
 import { stockApi, DailyStock } from '../api/stock';
 
 export function StockPage() {
   const queryClient = useQueryClient();
-  const [localCounts, setLocalCounts] = useState<Record<string, { initialCount: number; currentCount: number }>>({});
-  const [touchedItems, setTouchedItems] = useState<Set<string>>(new Set());
-  const [isSaving, setIsSaving] = useState(false);
-
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [initCounts, setInitCounts] = useState<Record<string, number>>({});
+  
   const { data: stockItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['stock', 'today'],
     queryFn: () => stockApi.getToday(),
   });
 
-  // Sync with background data for untouched items
-  useEffect(() => {
-    if (stockItems.length > 0) {
-      setLocalCounts(prev => {
-        const next = { ...prev };
-        stockItems.forEach(item => {
-          if (!touchedItems.has(item.menuItemId)) {
-            next[item.menuItemId] = {
-              initialCount: item.initialCount,
-              currentCount: item.currentCount
-            };
-          }
-        });
-        return next;
-      });
+  const setTodayMutation = useMutation({
+    mutationFn: ({ entries, force }: { entries: any[], force?: boolean }) => stockApi.setToday(entries, force),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      setIsInitializing(false);
+      setInitCounts({});
     }
-  }, [stockItems, touchedItems]);
+  });
 
-  const updateLocalCount = (menuItemId: string, field: 'initialCount' | 'currentCount', value: number) => {
-    const val = Math.max(0, value);
-    setLocalCounts(prev => ({
-      ...prev,
-      [menuItemId]: {
-        ...prev[menuItemId],
-        [field]: val
-      }
-    }));
-    setTouchedItems(prev => new Set(prev).add(menuItemId));
+  const batchAddMutation = useMutation({
+    mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.addBatch(id, count),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] })
+  });
+
+  const batchRemoveMutation = useMutation({
+    mutationFn: ({ id, count }: { id: string, count: number }) => stockApi.removeBatch(id, count),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock'] })
+  });
+
+  const handleSetMorning = () => {
+    const entries = Object.entries(initCounts)
+      .filter(([_, count]) => count > 0)
+      .map(([menuItemId, count]) => ({ menuItemId, count }));
+    
+    if (entries.length === 0) return;
+    setTodayMutation.mutate({ entries });
   };
 
-  const adjustCurrent = (menuItemId: string, amount: number) => {
-    const current = localCounts[menuItemId]?.currentCount ?? 0;
-    updateLocalCount(menuItemId, 'currentCount', current + amount);
-  };
+  const promptBatch = (id: string, name: string, type: 'add' | 'remove') => {
+    const msg = type === 'add' 
+      ? `"${name}" uchun yangi partiya miqdorini kiriting:` 
+      : `"${name}" uchun yaroqsiz/buzilgan partiya miqdorini kiriting:`;
+    const val = prompt(msg);
+    if (!val) return;
+    const count = parseInt(val, 10);
+    if (isNaN(count) || count <= 0) {
+      alert("Noto'g'ri miqdor kiritildi");
+      return;
+    }
 
-  const handleSave = async () => {
-    if (touchedItems.size === 0) return;
-    setIsSaving(true);
-    try {
-      // Get all touched items
-      const touchedList = Array.from(touchedItems);
-      
-      // 1. Update initial counts in bulk
-      const initialEntries = touchedList.map(id => ({
-        menuItemId: id,
-        count: localCounts[id].initialCount
-      }));
-      await stockApi.setToday(initialEntries);
-
-      // 2. Adjust current counts individually if they differ from initial (or from what they were)
-      // Note: setToday sets both initial and current to the same value.
-      // So if the user specifically wanted a different current count, we must adjust it.
-      for (const id of touchedList) {
-        if (localCounts[id].currentCount !== localCounts[id].initialCount) {
-          await stockApi.adjust(id, localCounts[id].currentCount);
-        }
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ['stock'] });
-      setTouchedItems(new Set());
-    } catch (error) {
-      console.error('Failed to save stock:', error);
-      alert('Zaxirani saqlashda xatolik yuz berdi');
-    } finally {
-      setIsSaving(false);
+    if (type === 'add') {
+      batchAddMutation.mutate({ id, count });
+    } else {
+      batchRemoveMutation.mutate({ id, count });
     }
   };
 
-  const handleReset = () => {
-    setTouchedItems(new Set());
-    // The useEffect will restore values from stockItems on next render
+  const handleReset = (id: string, name: string) => {
+    if (confirm(`"${name}" uchun bugungi zaxirani qaytadan belgilamoqchimisiz?`)) {
+      const val = prompt(`Yangi boshlang'ich miqdorni kiriting:`);
+      if (!val) return;
+      const count = parseInt(val, 10);
+      if (isNaN(count) || count < 0) return;
+      setTodayMutation.mutate({ entries: [{ menuItemId: id, count }], force: true });
+    }
   };
 
   if (isLoading && stockItems.length === 0) {
@@ -106,7 +92,8 @@ export function StockPage() {
     );
   }
 
-  const hasChanges = touchedItems.size > 0;
+  const uninitializedItems = stockItems.filter(item => !item.hasDailyRow);
+  const initializedItems = stockItems.filter(item => item.hasDailyRow);
 
   return (
     <div className="space-y-6">
@@ -117,34 +104,67 @@ export function StockPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Zaxiralar</h1>
-            <p className="text-slate-500">Bugungi mahsulotlar zaxirasi boshqaruvi</p>
+            <p className="text-slate-500">Bugungi tayyorlangan mahsulotlar hisobi</p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          {hasChanges && (
-            <button
-              onClick={handleReset}
-              className="flex items-center space-x-2 px-4 py-2 text-slate-600 hover:text-slate-800 font-medium transition-colors"
+        {uninitializedItems.length > 0 && !isInitializing && (
+          <button
+            onClick={() => setIsInitializing(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md transition-all active:scale-95"
+          >
+            <CalendarCheck size={18} />
+            <span>Bugun uchun belgilash</span>
+          </button>
+        )}
+      </div>
+
+      {isInitializing && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-blue-800 flex items-center space-x-2">
+              <Zap size={20} className="fill-blue-500 text-blue-500" />
+              <span>Ertalabki tayyorgarlik (Morning routine)</span>
+            </h2>
+            <button 
+              onClick={() => setIsInitializing(false)}
+              className="text-slate-400 hover:text-slate-600"
             >
               <RotateCcw size={18} />
-              <span>Bekor qilish</span>
             </button>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges || isSaving}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-all ${
-              hasChanges && !isSaving
-                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md active:scale-95' 
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-          >
-            <Save size={18} />
-            <span>{isSaving ? 'Saqlanmoqda...' : 'Barchasini saqlash'}</span>
-          </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+            {uninitializedItems.map(item => (
+              <div key={item.menuItemId} className="bg-white p-3 rounded-lg border border-blue-100 flex flex-col space-y-2">
+                <span className="text-sm font-bold text-slate-700 truncate">{item.name}</span>
+                <div className="flex items-center space-x-2">
+                  <input 
+                    type="number" 
+                    placeholder="0"
+                    className="w-full border border-slate-200 rounded px-2 py-1 text-center font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setInitCounts(prev => ({ ...prev, [item.menuItemId]: parseInt(e.target.value) || 0 }))}
+                  />
+                  <span className="text-xs text-slate-400 font-bold">ta</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end space-x-3">
+            <button 
+              onClick={() => setIsInitializing(false)}
+              className="px-4 py-2 text-slate-600 font-bold hover:text-slate-800"
+            >
+              Bekor qilish
+            </button>
+            <button 
+              onClick={handleSetMorning}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg font-black hover:bg-blue-700 shadow-md"
+            >
+              Barchasini tasdiqlash
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -152,61 +172,35 @@ export function StockPage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Mahsulot nomi</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kunlik jami (Ertalabki)</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Hozirda mavjud</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Sotilgan</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hozirda mavjud</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Holat</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Tezkor amallar</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amallar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {stockItems.map((item) => {
-                const local = localCounts[item.menuItemId] || { initialCount: 0, currentCount: 0 };
-                const consumed = Math.max(0, local.initialCount - local.currentCount);
-                const isLow = local.currentCount > 0 && local.currentCount < 5;
-                const isOut = local.currentCount === 0;
-                const isTouched = touchedItems.has(item.menuItemId);
+              {initializedItems.map((item) => {
+                const isLow = item.currentCount > 0 && item.currentCount < 5;
+                const isOut = item.currentCount === 0;
 
                 return (
-                  <tr key={item.menuItemId} className={`hover:bg-slate-50/50 transition-colors ${isTouched ? 'bg-blue-50/30' : ''}`}>
+                  <tr key={item.menuItemId} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="font-semibold text-slate-800">{item.name}</span>
-                        {isTouched && <span className="text-[10px] text-blue-500 font-bold uppercase">O'zgartirildi</span>}
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">
+                          {item.initialCount} dan {item.currentCount} ta qoldi
+                        </span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="number"
-                          value={local.initialCount}
-                          onChange={(e) => updateLocalCount(item.menuItemId, 'initialCount', parseInt(e.target.value) || 0)}
-                          className="w-20 px-2 py-1.5 border border-slate-200 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium text-center"
-                        />
-                        <span className="text-slate-400 text-sm">ta</span>
+                      <div className="flex items-center justify-center">
+                        <span className={`text-2xl font-black ${
+                          isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-blue-600'
+                        }`}>
+                          {item.currentCount}
+                        </span>
+                        <span className="ml-1 text-slate-400 font-bold text-xs uppercase">ta</span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="number"
-                          value={local.currentCount}
-                          onChange={(e) => updateLocalCount(item.menuItemId, 'currentCount', parseInt(e.target.value) || 0)}
-                          className={`w-20 px-2 py-1.5 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-bold text-center ${
-                            isOut ? 'border-red-200 bg-red-50 text-red-700' : 
-                            isLow ? 'border-amber-200 bg-amber-50 text-amber-700' : 
-                            'border-slate-200 text-slate-800'
-                          }`}
-                        />
-                        <span className="text-slate-400 text-sm">ta</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                        consumed > 0 ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'
-                      }`}>
-                        {consumed} ta
-                      </span>
                     </td>
                     <td className="px-6 py-4">
                       {isOut ? (
@@ -227,21 +221,28 @@ export function StockPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end">
-                        <div className="flex rounded-md shadow-sm overflow-hidden border border-slate-200">
-                          {[-10, -5, 5, 10, 20].map((amount) => (
-                            <button
-                              key={amount}
-                              onClick={() => adjustCurrent(item.menuItemId, amount)}
-                              className={`px-2.5 py-1 text-[10px] font-black border-r border-slate-200 last:border-0 hover:bg-slate-100 transition-colors ${
-                                amount < 0 ? 'text-red-500' : 'text-blue-600'
-                              }`}
-                              title={amount > 0 ? `+${amount}` : `${amount}`}
-                            >
-                              {amount > 0 ? `+${amount}` : amount}
-                            </button>
-                          ))}
-                        </div>
+                      <div className="flex items-center justify-end space-x-2">
+                        <button 
+                          onClick={() => promptBatch(item.menuItemId, item.name, 'add')}
+                          className="flex items-center space-x-1 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors"
+                        >
+                          <PlusCircle size={14} />
+                          <span>+ Yangi partiya</span>
+                        </button>
+                        <button 
+                          onClick={() => promptBatch(item.menuItemId, item.name, 'remove')}
+                          className="flex items-center space-x-1 px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
+                        >
+                          <MinusCircle size={14} />
+                          <span>- Buzilgan/Xato</span>
+                        </button>
+                        <button 
+                          onClick={() => handleReset(item.menuItemId, item.name)}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors"
+                          title="Qayta sozlash"
+                        >
+                          <RotateCcw size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -257,19 +258,19 @@ export function StockPage() {
               <Package size={32} />
             </div>
             <h3 className="text-lg font-bold text-slate-800">Zaxirali mahsulotlar topilmadi</h3>
-            <p className="text-slate-500 max-w-sm mx-auto">Menyuda birorta mahsulot "Zaxirani kuzatish" rejimida emas. Buni Menyu bo'limidan sozlash mumkin.</p>
+            <p className="text-slate-500 max-w-sm mx-auto">Menyuda birorta mahsulot "Zaxirani kuzatish" rejimida emas.</p>
           </div>
         )}
       </div>
 
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start space-x-3">
-        <AlertTriangle className="text-blue-500 shrink-0 mt-0.5" size={18} />
-        <div className="text-sm text-blue-800">
-          <p className="font-bold mb-1">Eslatma:</p>
-          <ul className="list-disc list-inside space-y-0.5 opacity-90">
-            <li>"Kunlik jami" - bu mahsulotning bugungi kun uchun tayyorlangan umumiy miqdori.</li>
-            <li>"Hozirda mavjud" - bu ayni damda sotuvda qolgan miqdor.</li>
-            <li>Zaxira 0 ga tushganda, mahsulot avtomatik ravishda menyuda "Mavjud emas" holatiga o'tadi.</li>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start space-x-3">
+        <AlertTriangle className="text-slate-400 shrink-0 mt-0.5" size={18} />
+        <div className="text-sm text-slate-600">
+          <p className="font-bold mb-1">Qoidalar:</p>
+          <ul className="list-disc list-inside space-y-0.5 opacity-90 text-xs font-medium">
+            <li><b>Yangi partiya:</b> Kun davomida qo'shimcha mahsulot tayyorlansa ishlatiladi (jami va mavjud miqdor ortadi).</li>
+            <li><b>Buzilgan/Xato:</b> Ovqat to'kilsa yoki yaroqsiz bo'lib qolsa ishlatiladi (faqat mavjud miqdor kamayadi).</li>
+            <li>Zaxira 0 ga tushganda, ofitsiantlar ushbu mahsulotni buyurtma qila olmaydilar.</li>
           </ul>
         </div>
       </div>
