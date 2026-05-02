@@ -44,6 +44,7 @@ export const stockService = {
       const result = await getPrisma().$transaction(async (tx) => {
         const rows = [];
         for (const entry of entries) {
+          const existing = await dailyStockRepo.findByItemAndDate(entry.menuItemId, date, tx);
           const row = await dailyStockRepo.upsertForDate(
             entry.menuItemId,
             date,
@@ -59,7 +60,8 @@ export const stockService = {
             entityId: row.id,
             metadata: {
               menuItemId: entry.menuItemId,
-              count: entry.count,
+              oldInitial: existing?.initialCount ?? 0,
+              newInitial: entry.count,
             },
           }, tx);
           deferEmit('all', 'stock:changed', {
@@ -96,7 +98,9 @@ export const stockService = {
           entityId: row.id,
           metadata: {
             menuItemId,
+            oldCount: existing?.currentCount ?? 0,
             newCount,
+            reason: 'manual_admin_edit',
           },
         }, tx);
 
@@ -123,6 +127,11 @@ export const stockService = {
     }
 
     const date = this.today();
+    const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date, tx);
+    if (!existing) {
+      throw new AppError('OUT_OF_STOCK', 409, 'Bu mahsulot uchun bugungi zaxira belgilanmagan');
+    }
+
     const result = await dailyStockRepo.decrementAtomic(menuItemId, date, quantity, tx);
     if (result.count === 0) {
       throw Errors.OutOfStock(item.name);

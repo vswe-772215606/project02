@@ -35,6 +35,7 @@ export const menuService = {
 
           return {
             ...item,
+            todayCurrentCount: item.trackStock ? (stock?.currentCount ?? 0) : null,
             effectivelyAvailable,
           };
         }),
