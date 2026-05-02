@@ -20,9 +20,13 @@ export interface Order {
   orderType: 'DINE_IN' | 'TAKEAWAY';
   tableId: string | null;
   waiterId: string;
-  status: 'ACTIVE' | 'BILL_REQUESTED' | 'PAID' | 'CANCELED' | 'WALKOUT';
+  status: 'DRAFT' | 'SENT' | 'BILL_REQUESTED' | 'PENDING_PAYMENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
   itemCount: number;
   totalAmount: number;
+  subtotalSnapshot: number | null;
+  discountAmountSnapshot: number | null;
+  serviceChargeSnapshot: number | null;
+  totalSnapshot: number | null;
   discountId: string | null;
   serviceChargeWaived: boolean;
   createdAt: string;
