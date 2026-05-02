@@ -8,12 +8,10 @@ import { menuRepo } from '../repositories/menu.repo';
 import { orderLineRepo } from '../repositories/orderLine.repo';
 import { orderRepo } from '../repositories/order.repo';
 import { paymentRepo } from '../repositories/payment.repo';
-import { printJobRepo } from '../repositories/printJob.repo';
 import { tableRepo } from '../repositories/table.repo';
 import { auditService } from './audit.service';
 import { billingService } from './billing.service';
 import { printService } from './print.service';
-import { settingsService } from './settings.service';
 import { stockService } from './stock.service';
 
 type Tx = Prisma.TransactionClient;
@@ -732,22 +730,7 @@ export const orderService = {
       throw Errors.IllegalStateTransition(order.status, 'REPRINT_BILL');
     }
 
-    const printerName = settingsService.get('admin_printer_name') || 'POS-80';
-    const job = await printJobRepo.create({
-      type: 'BILL_REPRINT',
-      printerName,
-      payload: {
-        orderId: order.id,
-        reason: input.reason ?? null,
-      },
-      order: {
-        connect: { id: order.id },
-      },
-      triggeredBy: {
-        connect: { id: input.requestingUserId },
-      },
-    });
-    await printService.reprintBill(order);
+    const job = await printService.reprintBill(order, input.requestingUserId);
     await auditService.log({
       userId: input.requestingUserId,
       action: 'RECEIPT_REPRINTED',
@@ -758,7 +741,6 @@ export const orderService = {
         reason: input.reason ?? null,
       },
     });
-
-    return printJobRepo.markSuccess(job.id);
+    return job;
   },
 };

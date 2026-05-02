@@ -3,9 +3,7 @@ import { Errors } from '../lib/errors';
 import { deferEmit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { getPrisma } from '../lib/prisma';
 import { kitchenRepo } from '../repositories/kitchen.repo';
-import { printJobRepo } from '../repositories/printJob.repo';
 import { printService } from './print.service';
-import { settingsService } from './settings.service';
 
 export const kitchenService = {
   async listActive() {
@@ -76,23 +74,8 @@ export const kitchenService = {
   },
 
   async reprint(ticketId: string, actorUserId: string) {
-    const ticket = await this.getById(ticketId);
-    const printerName = settingsService.get('kitchen_printer_name') || 'KITCHEN';
-    const job = await printJobRepo.create({
-      type: 'TICKET_REPRINT',
-      printerName,
-      payload: {
-        ticketId,
-      },
-      ticket: {
-        connect: { id: ticketId },
-      },
-      triggeredBy: {
-        connect: { id: actorUserId },
-      },
-    });
-
-    await printService.tryPrintKitchenTicket(ticket.id);
-    return printJobRepo.markSuccess(job.id);
+    await this.getById(ticketId);
+    const job = await printService.reprintKitchenTicket(ticketId, actorUserId);
+    return job ?? { ok: true, skipped: true };
   },
 };
