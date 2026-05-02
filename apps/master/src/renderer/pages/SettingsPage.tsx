@@ -128,8 +128,8 @@ export function SettingsPage() {
           >
             <input 
               type="text" 
-              value={getVal('printer_receipt_name')}
-              onChange={e => handleChange('printer_receipt_name', e.target.value)}
+              value={getVal('admin_printer_name')}
+              onChange={e => handleChange('admin_printer_name', e.target.value)}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </SettingItem>
@@ -139,8 +139,8 @@ export function SettingsPage() {
           >
             <input 
               type="text" 
-              value={getVal('printer_kitchen_name')}
-              onChange={e => handleChange('printer_kitchen_name', e.target.value)}
+              value={getVal('kitchen_printer_name')}
+              onChange={e => handleChange('kitchen_printer_name', e.target.value)}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </SettingItem>
@@ -154,8 +154,8 @@ export function SettingsPage() {
           >
             <input 
               type="text" 
-              value={getVal('store_name')}
-              onChange={e => handleChange('store_name', e.target.value)}
+              value={getVal('store_heading')}
+              onChange={e => handleChange('store_heading', e.target.value)}
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </SettingItem>
