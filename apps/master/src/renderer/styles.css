@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 * {
   box-sizing: border-box;
 }
@@ -5,24 +9,8 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #fafafa;
-  color: #222;
+  background: #f8fafc;
+  color: #1e293b;
 }
 
-.container {
-  max-width: 720px;
-  margin: 64px auto;
-  padding: 24px;
-}
-
-h1 {
-  margin: 0 0 16px;
-}
-
-.ok {
-  color: #1d7d3a;
-}
-
-.error {
-  color: #b3261e;
-}
+/* Custom styles below Tailwind directives if needed */

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import { getIO } from '../socket';
 
 type DeferredEmit = { room: string; event: string; payload: unknown };
 type DeferredAfterCommit = () => void | Promise<void>;
@@ -55,7 +56,12 @@ export async function flushAfterCommit(): Promise<void> {
 }
 
 export function emitToRoom(room: string, event: string, payload: unknown): void {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[socket-stub] room=${room} event=${event}`, payload);
+  try {
+    getIO().to(room).emit(event, payload);
+  } catch (err) {
+    // Server may not have started yet; log and ignore
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[emitToRoom] socket not ready:', err);
+    }
   }
 }

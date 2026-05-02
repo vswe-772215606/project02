@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'path';
+import { createServer } from 'http';
 import { createApp } from './server/app';
+import { attachSocket } from './server/socket';
 import { settingsService } from './server/services/settings.service';
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
@@ -10,9 +12,12 @@ let mainWindow: BrowserWindow | null = null;
 async function startServer(): Promise<void> {
   await settingsService.loadAll();
   const expressApp = createApp();
+  const httpServer = createServer(expressApp);
+  attachSocket(httpServer);
+
   await new Promise<void>((resolve) => {
-    expressApp.listen(PORT, '0.0.0.0', () => {
-      console.log(`[master] HTTP server listening on 0.0.0.0:${PORT}`);
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`[master] HTTP+WS listening on 0.0.0.0:${PORT}`);
       resolve();
     });
   });

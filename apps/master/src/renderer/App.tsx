@@ -1,36 +1,54 @@
-import { useEffect, useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuthStore } from './stores/auth.store';
+import { useSocket } from './hooks/useSocket';
+import { LoginPage } from './pages/LoginPage';
+import { Layout } from './components/Layout';
+import { DashboardPage } from './pages/DashboardPage';
+import { ApprovalQueuePage } from './pages/ApprovalQueuePage';
+import { OrdersPage } from './pages/OrdersPage';
+import { MenuPage } from './pages/MenuPage';
+import { TablesPage } from './pages/TablesPage';
+import { UsersPage } from './pages/UsersPage';
+import { DiscountsPage } from './pages/DiscountsPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { StockPage } from './pages/StockPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { AuditPage } from './pages/AuditPage';
 
-type HealthState =
-  | { status: 'loading' }
-  | { status: 'ok'; timestamp: string }
-  | { status: 'error'; message: string };
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+});
+
+function AuthedRoutes() {
+  useSocket();
+  return (
+    <Layout>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/approval-queue" element={<ApprovalQueuePage />} />
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/menu" element={<MenuPage />} />
+        <Route path="/tables" element={<TablesPage />} />
+        <Route path="/users" element={<UsersPage />} />
+        <Route path="/discounts" element={<DiscountsPage />} />
+        <Route path="/stock" element={<StockPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/audit" element={<AuditPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </Layout>
+  );
+}
 
 export function App() {
-  const [health, setHealth] = useState<HealthState>({ status: 'loading' });
-
-  useEffect(() => {
-    fetch('http://localhost:4000/api/health')
-      .then((response) => response.json())
-      .then((data: { ok: boolean; timestamp: string }) => {
-        if (data.ok) {
-          setHealth({ status: 'ok', timestamp: data.timestamp });
-        } else {
-          setHealth({ status: 'error', message: 'Unexpected response' });
-        }
-      })
-      .catch((error: Error) => {
-        setHealth({ status: 'error', message: error.message });
-      });
-  }, []);
-
+  const user = useAuthStore((s) => s.user);
   return (
-    <div className="container">
-      <h1>Chayxana Master</h1>
-      {health.status === 'loading' && <p>Tekshirilmoqda...</p>}
-      {health.status === 'ok' && (
-        <p className="ok">Server bilan aloqa o&apos;rnatildi. Vaqt: {health.timestamp}</p>
-      )}
-      {health.status === 'error' && <p className="error">Xato: {health.message}</p>}
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        {user ? <AuthedRoutes /> : <LoginPage />}
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
