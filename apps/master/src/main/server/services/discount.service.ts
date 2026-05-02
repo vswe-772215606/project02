@@ -2,6 +2,7 @@ import { DiscountType, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { discountRepo } from '../repositories/discount.repo';
 import { auditService } from './audit.service';
+import { settingsService } from './settings.service';
 
 export const discountService = {
   async listAll(includeInactive = false) {
@@ -9,6 +10,22 @@ export const discountService = {
       return discountRepo.listAll();
     }
     return discountRepo.listActive();
+  },
+
+  async validateAgainstCap(type: DiscountType, value: number | Prisma.Decimal) {
+    const numValue = typeof value === 'number' ? value : value.toNumber();
+    
+    if (type === 'PERCENT') {
+      const maxPercent = settingsService.getInt('max_discount_percent', 15);
+      if (numValue > maxPercent) {
+        throw Errors.DiscountCapExceeded(`Chegirma foizi maksimal miqdordan (${maxPercent}%) oshib ketdi`);
+      }
+    } else if (type === 'FIXED') {
+      const maxAmount = settingsService.getInt('max_discount_amount', 100000);
+      if (numValue > maxAmount) {
+        throw Errors.DiscountCapExceeded(`Chegirma summasi maksimal miqdordan (${maxAmount} UZS) oshib ketdi`);
+      }
+    }
   },
 
   async create(
@@ -19,6 +36,8 @@ export const discountService = {
     },
     actorUserId: string,
   ) {
+    await this.validateAgainstCap(input.type, Number(input.value));
+    
     const discount = await discountRepo.create({
       name: input.name,
       type: input.type,
@@ -49,6 +68,13 @@ export const discountService = {
   ) {
     const existing = await discountRepo.findById(id);
     if (!existing) throw Errors.NotFound('Discount');
+
+    if (input.type || input.value !== undefined) {
+      await this.validateAgainstCap(
+        input.type || existing.type,
+        input.value !== undefined ? Number(input.value) : existing.value
+      );
+    }
 
     const updated = await discountRepo.update(id, {
       name: input.name,
