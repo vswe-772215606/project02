@@ -13,19 +13,23 @@ export const VIBRATE_PATTERNS: Record<VibrateMode, number[]> = {
 
 interface SettingsState {
   vibrateMode: VibrateMode;
+  serverUrl: string;
   setVibrateMode: (m: VibrateMode) => void;
+  setServerUrl: (url: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       vibrateMode: 'double',
+      serverUrl: '',
       setVibrateMode: (vibrateMode) => set({ vibrateMode }),
+      setServerUrl: (serverUrl) => set({ serverUrl }),
     }),
     {
       name: 'chayxana-settings',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (s) => ({ vibrateMode: s.vibrateMode }),
+      partialize: (s) => ({ vibrateMode: s.vibrateMode, serverUrl: s.serverUrl }),
     },
   ),
 );

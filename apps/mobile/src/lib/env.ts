@@ -1,5 +1,6 @@
-import Constants from 'expo-constants';
+import { useSettingsStore } from '../stores/settings.store';
 
-export const MASTER_URL =
-  (Constants.expoConfig?.extra?.MASTER_URL as string | undefined) ||
-  'http://192.168.1.50:4000';
+export function getMasterUrl(): string {
+  const stored = useSettingsStore.getState().serverUrl;
+  return stored || 'http://192.168.1.50:4000';
+}

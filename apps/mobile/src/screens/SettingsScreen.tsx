@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking,
+  ActivityIndicator, Alert, TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSettingsStore, VibrateMode } from '../stores/settings.store';
+import { useAuthStore } from '../stores/auth.store';
 import { fireReadyNotification } from '../lib/notifications';
 
 const VIBRATE_OPTIONS: { value: VibrateMode; label: string; sub: string }[] = [
@@ -37,13 +39,35 @@ function RadioRow({
 
 export function SettingsScreen() {
   const nav = useNavigation();
-  const { vibrateMode, setVibrateMode } = useSettingsStore();
+  const { vibrateMode, setVibrateMode, serverUrl, setServerUrl } = useSettingsStore();
+  const clearAuth = useAuthStore((s) => s.clearAuth);
   const [testing, setTesting] = useState(false);
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [urlInput, setUrlInput] = useState(serverUrl);
 
   const handleTest = async () => {
     setTesting(true);
     await fireReadyNotification();
     setTesting(false);
+  };
+
+  const handleSaveUrl = () => {
+    const url = urlInput.trim().replace(/\/$/, '');
+    if (!url) return;
+    Alert.alert(
+      'Server manzilini o\'zgartirish',
+      `Yangi manzil: ${url}\n\nDastur qayta ulanadi.`,
+      [
+        { text: 'Bekor qilish', style: 'cancel' },
+        {
+          text: 'Saqlash', onPress: () => {
+            setServerUrl(url);
+            void clearAuth();
+            setEditingUrl(false);
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -57,6 +81,35 @@ export function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
+
+        <Text style={styles.sectionTitle}>SERVER</Text>
+        <View style={styles.card}>
+          {editingUrl ? (
+            <View style={styles.urlEditRow}>
+              <TextInput
+                style={styles.urlInput}
+                value={urlInput}
+                onChangeText={setUrlInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                returnKeyType="done"
+                onSubmitEditing={handleSaveUrl}
+              />
+              <TouchableOpacity style={styles.urlSaveBtn} onPress={handleSaveUrl}>
+                <Text style={styles.urlSaveBtnText}>Saqlash</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.urlRow} onPress={() => { setUrlInput(serverUrl); setEditingUrl(true); }} activeOpacity={0.7}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.urlLabel}>Master server</Text>
+                <Text style={styles.urlValue}>{serverUrl}</Text>
+              </View>
+              <Text style={styles.urlEditHint}>Tahrirlash</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         <Text style={styles.sectionTitle}>OVOZ</Text>
         <View style={styles.card}>
@@ -176,4 +229,26 @@ const styles = StyleSheet.create({
     marginTop: 12, fontSize: 12, color: '#9ca3af',
     textAlign: 'center', lineHeight: 18,
   },
+
+  urlRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  urlLabel: { fontSize: 13, color: '#6b7280', marginBottom: 2 },
+  urlValue: { fontSize: 15, fontWeight: '600', color: '#111827' },
+  urlEditHint: { fontSize: 14, color: '#2563eb', fontWeight: '600' },
+  urlEditRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 10, gap: 8,
+  },
+  urlInput: {
+    flex: 1, borderWidth: 1.5, borderColor: '#2563eb', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 15, color: '#111827',
+  },
+  urlSaveBtn: {
+    backgroundColor: '#2563eb', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  urlSaveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
