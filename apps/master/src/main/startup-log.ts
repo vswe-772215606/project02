@@ -33,3 +33,11 @@ export function createStartupLogger(userDataPath: string): StartupLogger {
     },
   };
 }
+
+export function logProcessContext(logger: StartupLogger): void {
+  logger.info(`process.pid=${process.pid}`);
+  logger.info(`process.ppid=${typeof process.ppid === 'number' ? process.ppid : 'n/a'}`);
+  logger.info(`process.execPath=${process.execPath}`);
+  logger.info(`process.cwd=${process.cwd()}`);
+  logger.info(`process.resourcesPath=${process.resourcesPath}`);
+}
