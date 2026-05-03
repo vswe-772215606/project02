@@ -3,14 +3,39 @@ import { join } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
 import { bootstrapPackagedWindowsSqlite } from './sqlite-bootstrap';
-import { createStartupLogger, logProcessContext } from './startup-log';
+import {
+  createFileLogger,
+  createStartupLogger,
+  formatErrorForLog,
+  installConsoleCapture,
+  logProcessContext,
+} from './startup-log';
 
 const singleInstanceLockAcquired = app.requestSingleInstanceLock();
 const logger = createStartupLogger(app.getPath('userData'));
+const runtimeLogger = createFileLogger(
+  app.getPath('userData'),
+  'runtime.log',
+  '--- runtime diagnostics session ---',
+);
+const rendererLogger = createFileLogger(
+  app.getPath('userData'),
+  'renderer.log',
+  '--- renderer diagnostics session ---',
+);
 
+installConsoleCapture(runtimeLogger);
 logProcessContext(logger);
 logger.info(`app.isPackaged=${app.isPackaged}`);
 logger.info(`single-instance lock acquired=${singleInstanceLockAcquired}`);
+
+process.on('uncaughtException', (error) => {
+  logger.error(`uncaughtException: ${formatErrorForLog(error)}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error(`unhandledRejection: ${formatErrorForLog(reason)}`);
+});
 
 if (!singleInstanceLockAcquired) {
   logger.info('No single-instance lock acquired, quitting duplicate process');
@@ -92,6 +117,36 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    rendererLogger.info(`did-finish-load url=${mainWindow?.webContents.getURL() ?? 'unknown'}`);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    rendererLogger.error(
+      `did-fail-load code=${errorCode} mainFrame=${String(isMainFrame)} url=${validatedURL} description=${errorDescription}`,
+    );
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    rendererLogger.error(
+      `render-process-gone reason=${details.reason} exitCode=${details.exitCode}`,
+    );
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    rendererLogger.error('window became unresponsive');
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const origin = sourceId ? `${sourceId}:${line}` : `line=${line}`;
+    if (level >= 2) {
+      rendererLogger.error(`${origin} ${message}`);
+      return;
+    }
+
+    rendererLogger.info(`${origin} ${message}`);
+  });
 
   mainWindow.on('closed', () => {
     logger.info('mainWindow closed');

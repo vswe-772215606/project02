@@ -37,8 +37,7 @@ export const useAuthStore = create<State>((set) => ({
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', '/');
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      window.location.hash = '#/';
     }
     set({ token: null, user: null, logoutMessage: message });
   },
