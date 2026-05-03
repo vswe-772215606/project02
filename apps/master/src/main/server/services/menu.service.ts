@@ -31,11 +31,12 @@ export const menuService = {
         .filter((item) => item.categoryId === category.id)
         .map((item) => {
           const stock = stockMap.get(item.id);
-          const effectivelyAvailable = item.isAvailable && (!item.trackStock || (stock?.currentCount ?? 0) > 0);
+          const stockCount = stock?.count ?? 0;
+          const effectivelyAvailable = item.isAvailable && (!item.trackStock || stockCount > 0);
 
           return {
             ...item,
-            todayCurrentCount: item.trackStock ? (stock?.currentCount ?? 0) : null,
+            todayCurrentCount: item.trackStock ? stockCount : null,
             effectivelyAvailable,
           };
         }),
@@ -43,14 +44,24 @@ export const menuService = {
   },
 
   async createCategory(data: { name: string; displayOrder?: number }, _actorUserId: string) {
-    return menuRepo.createCategory({
-      name: data.name,
-      displayOrder: data.displayOrder ?? 0,
+    return withEmitContext(async () => {
+      const cat = await menuRepo.createCategory({
+        name: data.name,
+        displayOrder: data.displayOrder ?? 0,
+      });
+      deferEmit('all', 'menu:changed', {});
+      await flushDeferredEmits();
+      return cat;
     });
   },
 
   async updateCategory(id: string, data: Prisma.CategoryUpdateInput, _actorUserId: string) {
-    return menuRepo.updateCategory(id, data);
+    return withEmitContext(async () => {
+      const cat = await menuRepo.updateCategory(id, data);
+      deferEmit('all', 'menu:changed', {});
+      await flushDeferredEmits();
+      return cat;
+    });
   },
 
   async createItem(
@@ -64,18 +75,28 @@ export const menuService = {
     },
     _actorUserId: string,
   ) {
-    return menuRepo.createItem({
-      category: { connect: { id: data.categoryId } },
-      name: data.name,
-      price: new Prisma.Decimal(data.price),
-      description: data.description ?? null,
-      displayOrder: data.displayOrder ?? 0,
-      trackStock: data.trackStock ?? false,
+    return withEmitContext(async () => {
+      const item = await menuRepo.createItem({
+        category: { connect: { id: data.categoryId } },
+        name: data.name,
+        price: new Prisma.Decimal(data.price),
+        description: data.description ?? null,
+        displayOrder: data.displayOrder ?? 0,
+        trackStock: data.trackStock ?? false,
+      });
+      deferEmit('all', 'menu:changed', {});
+      await flushDeferredEmits();
+      return item;
     });
   },
 
   async updateItem(id: string, data: Prisma.MenuItemUpdateInput, _actorUserId: string) {
-    return menuRepo.updateItem(id, data);
+    return withEmitContext(async () => {
+      const item = await menuRepo.updateItem(id, data);
+      deferEmit('all', 'menu:changed', {});
+      await flushDeferredEmits();
+      return item;
+    });
   },
 
   async setItemAvailability(id: string, isAvailable: boolean, _actorUserId: string) {
@@ -91,16 +112,21 @@ export const menuService = {
     data: { name: string; components: Array<{ menuItemId: string; quantity: number }> },
     _actorUserId: string,
   ) {
-    return menuRepo.createCombo({
-      name: data.name,
-      components: {
-        create: data.components.map((component) => ({
-          quantity: component.quantity,
-          menuItem: {
-            connect: { id: component.menuItemId },
-          },
-        })),
-      },
+    return withEmitContext(async () => {
+      const combo = await menuRepo.createCombo({
+        name: data.name,
+        components: {
+          create: data.components.map((component) => ({
+            quantity: component.quantity,
+            menuItem: {
+              connect: { id: component.menuItemId },
+            },
+          })),
+        },
+      });
+      deferEmit('all', 'menu:changed', {});
+      await flushDeferredEmits();
+      return combo;
     });
   },
 
@@ -109,13 +135,18 @@ export const menuService = {
     data: { name?: string; isActive?: boolean; components?: Array<{ menuItemId: string; quantity: number }> },
     _actorUserId: string,
   ) {
+    return withEmitContext(async () => {
     if (data.components) {
       await menuRepo.replaceComponents(id, data.components);
     }
 
-    return menuRepo.updateCombo(id, {
+    const combo = await menuRepo.updateCombo(id, {
       name: data.name,
       isActive: data.isActive,
+    });
+    deferEmit('all', 'menu:changed', {});
+    await flushDeferredEmits();
+    return combo;
     });
   },
 };

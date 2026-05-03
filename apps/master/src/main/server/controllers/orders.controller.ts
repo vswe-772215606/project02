@@ -36,6 +36,10 @@ const transferSchema = z.object({
   tableId: z.string().min(1),
 });
 
+const updateLineQuantitySchema = z.object({
+  quantity: z.number().int().positive(),
+});
+
 const approveSchema = z.object({
   discountId: z.string().optional(),
   serviceChargeWaived: z.boolean().default(false),
@@ -120,6 +124,20 @@ export const ordersController = {
         orderId: req.params.id,
         waiterId: req.user!.id,
         comboId: body.comboId,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateLineQuantity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = updateLineQuantitySchema.parse(req.body);
+      res.json(await orderService.updateLineQuantity({
+        orderId: req.params.id,
+        waiterId: req.user!.id,
+        lineId: req.params.lineId,
+        quantity: body.quantity,
       }));
     } catch (error) {
       next(error);

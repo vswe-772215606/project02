@@ -57,6 +57,13 @@ export const orderLineRepo = {
     });
   },
 
+  async updateQuantity(id: string, quantity: number, tx?: Tx) {
+    return (tx ?? getPrisma()).orderLine.update({
+      where: { id },
+      data: { quantity },
+    });
+  },
+
   async cancel(id: string, reason: string, tx?: Tx) {
     return (tx ?? getPrisma()).orderLine.update({
       where: { id },

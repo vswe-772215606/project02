@@ -12,6 +12,7 @@ ordersRouter.get('/', ordersController.list);
 ordersRouter.get('/:id', ordersController.getById);
 ordersRouter.post('/:id/items', requireRole(['WAITER', 'OWNER']), ordersController.addItem);
 ordersRouter.post('/:id/combos', requireRole(['WAITER', 'OWNER']), ordersController.addCombo);
+ordersRouter.patch('/:id/lines/:lineId/quantity', requireRole(['WAITER', 'OWNER']), ordersController.updateLineQuantity);
 ordersRouter.patch('/:id/lines/:lineId/notes', requireRole(['WAITER', 'OWNER']), ordersController.editLineNote);
 ordersRouter.post('/:id/lines/:lineId/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelLine);
 ordersRouter.post('/:id/send', requireRole(['WAITER', 'OWNER']), ordersController.send);

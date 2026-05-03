@@ -6,8 +6,43 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:win": "electron-builder --win --x64",
+    "package:win:portable": "electron-builder --win portable --x64",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "echo 'no lint'"
+  },
+  "build": {
+    "appId": "com.chayxana.kitchen",
+    "productName": "Chayxana Kitchen",
+    "copyright": "Copyright © 2025 Chayxana",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "!node_modules/**/*.{md,txt,map}",
+      "!node_modules/.cache/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "portable": {
+      "artifactName": "ChayxanaKitchen-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Chayxana Kitchen",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.0",
@@ -28,6 +63,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
     "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",

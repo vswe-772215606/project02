@@ -247,16 +247,37 @@ export const orderService = {
       return getPrisma().$transaction(async (tx) => {
         await stockService.decrement(input.menuItemId, input.quantity, tx);
 
-        const line = await orderLineRepo.create({
-          orderId: input.orderId,
-          menuItemId: input.menuItemId,
-          nameSnapshot: item.name,
-          unitPriceSnapshot: item.price,
-          quantity: input.quantity,
-          notes: input.notes,
-        }, tx);
+        // Merge into existing unsent line for the same item (DRAFT only)
+        const existingUnsentLine = order.status === OrderStatus.DRAFT
+          ? await tx.orderLine.findFirst({
+              where: {
+                orderId: input.orderId,
+                menuItemId: input.menuItemId,
+                kitchenTicketId: null,
+                isCanceled: false,
+              },
+            })
+          : null;
 
-        if (order.status !== OrderStatus.DRAFT) {
+        const line = existingUnsentLine
+          ? await orderLineRepo.updateQuantity(
+              existingUnsentLine.id,
+              existingUnsentLine.quantity + input.quantity,
+              tx,
+            )
+          : await orderLineRepo.create(
+              {
+                orderId: input.orderId,
+                menuItemId: input.menuItemId,
+                nameSnapshot: item.name,
+                unitPriceSnapshot: item.price,
+                quantity: input.quantity,
+                notes: input.notes,
+              },
+              tx,
+            );
+
+        if (!existingUnsentLine && order.status !== OrderStatus.DRAFT) {
           await createAddonTicket(order, input.waiterId, [line.id], tx);
         }
 
@@ -312,6 +333,46 @@ export const orderService = {
         deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
         return lines;
+      });
+    });
+  },
+
+  async updateLineQuantity(input: {
+    orderId: string;
+    waiterId: string;
+    lineId: string;
+    quantity: number;
+  }) {
+    return completeEmitContext(async () => {
+      const order = await getOrderOrThrow(input.orderId);
+      ensureWaiterOwns(order, input.waiterId);
+
+      const line = await orderLineRepo.findById(input.lineId);
+      if (!line || line.orderId !== order.id || line.isCanceled) {
+        throw Errors.NotFound('OrderLine');
+      }
+      if (line.kitchenTicketId !== null) {
+        throw Errors.Business('LINE_ALREADY_SENT', 'Cannot change quantity of a line already sent to kitchen');
+      }
+      if (input.quantity < 1) {
+        throw Errors.Business('INVALID_QUANTITY', 'Quantity must be at least 1');
+      }
+
+      const delta = input.quantity - line.quantity;
+
+      return getPrisma().$transaction(async (tx) => {
+        if (delta > 0 && line.menuItemId) {
+          await stockService.decrement(line.menuItemId, delta, tx);
+        } else if (delta < 0 && line.menuItemId) {
+          await stockService.restore(line.menuItemId, Math.abs(delta), tx);
+        }
+
+        const updated = await orderLineRepo.updateQuantity(line.id, input.quantity, tx);
+
+        deferEmit('admin', 'order:updated', { orderId: order.id });
+        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+
+        return updated;
       });
     });
   },

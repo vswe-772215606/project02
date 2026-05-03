@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Chayxana Ofitsiant",
+    "name": "Chayxana",
     "slug": "chayxana-waiter",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -28,7 +28,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "MASTER_URL": "http://localhost:4000"
+      "MASTER_URL": "http://192.168.1.50:4000"
     }
   }
 }

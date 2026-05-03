@@ -5,6 +5,7 @@
   "scripts": {
     "dev:master": "pnpm --filter @chayxana/master dev",
     "dev:kitchen": "pnpm --filter @chayxana/kitchen dev",
+    "dev:mobile": "pnpm --filter @chayxana/mobile start",
     "build:master": "pnpm --filter @chayxana/master build",
     "build:kitchen": "pnpm --filter @chayxana/kitchen build",
     "typecheck": "pnpm -r typecheck",
@@ -16,5 +17,13 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "react": "19.1.0",
+      "react-dom": "19.1.0",
+      "react-native": "0.81.5",
+      "@types/react": "~19.1.10"
+    }
+  }
 }

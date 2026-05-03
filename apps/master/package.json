@@ -6,10 +6,50 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:win": "electron-builder --win --x64",
+    "package:win:portable": "electron-builder --win portable --x64",
     "build:printer": "bash ./scripts/build-printer.sh",
     "build:printer:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-printer.ps1",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "echo 'no lint configured yet'"
+  },
+  "build": {
+    "appId": "com.chayxana.master",
+    "productName": "Chayxana Master",
+    "copyright": "Copyright © 2025 Chayxana",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*",
+      "!node_modules/**/*.{md,txt,map}",
+      "!node_modules/.cache/**/*"
+    ],
+    "extraResources": [
+      { "from": "resources/bin", "to": "bin" },
+      { "from": "prisma/schema.prisma", "to": "prisma/schema.prisma" },
+      { "from": "prisma/migrations", "to": "prisma/migrations" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "portable": {
+      "artifactName": "ChayxanaMaster-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Chayxana Master",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -42,6 +82,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.5.0",
     "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "postcss": "^8.5.13",
     "prisma": "^6.17.1",

@@ -6,16 +6,21 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// 1. Watch all files in the monorepo
 config.watchFolders = [workspaceRoot];
 
-// 2. Let Metro know where to resolve packages and node_modules
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// 3. Force Metro to resolve modules from the workspace root
-config.resolver.disableHierarchicalLookup = true;
+// Force single canonical path for React packages so Metro never bundles two copies
+config.resolver.extraNodeModules = {
+  react: path.resolve(workspaceRoot, 'node_modules/react'),
+  'react-native': path.resolve(workspaceRoot, 'node_modules/react-native'),
+  'react-dom': path.resolve(workspaceRoot, 'node_modules/react-dom'),
+};
+
+config.resolver.disableHierarchicalLookup = false;
+config.resolver.unstable_enablePackageExports = true;
 
 module.exports = config;
