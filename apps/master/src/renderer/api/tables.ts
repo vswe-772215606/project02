@@ -3,7 +3,7 @@ import { api } from './client';
 export interface Table {
   id: string;
   name: string;
-  type: 'TABLE' | 'BOOTH' | 'VIP';
+  type: 'TABLE' | 'ROOM';
   displayOrder: number;
   isActive: boolean;
   activeOrderId?: string | null;

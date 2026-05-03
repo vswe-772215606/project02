@@ -18,7 +18,7 @@ import { Modal } from '../components/Modal';
 
 const tableSchema = z.object({
   name: z.string().min(1, "Nom kiritilishi shart"),
-  type: z.enum(['TABLE', 'BOOTH', 'VIP']),
+  type: z.enum(['TABLE', 'ROOM']),
   displayOrder: z.number().int().default(0),
 });
 
@@ -206,8 +206,7 @@ function TableModal({ table, onClose, onSave }: any) {
             className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           >
             <option value="TABLE">Oddiy stol</option>
-            <option value="BOOTH">Kabina</option>
-            <option value="VIP">VIP xona</option>
+            <option value="ROOM">Xona</option>
           </select>
         </div>
 
