@@ -29,13 +29,24 @@
       "!node_modules/.cache/**/*"
     ],
     "asarUnpack": [
-      "node_modules/@prisma/client/**/*",
-      "node_modules/@prisma/engines/**/*"
+      "node_modules/@prisma/**/*",
+      "node_modules/.prisma/**/*",
+      "node_modules/prisma/**/*"
     ],
     "extraResources": [
       {
         "from": "../../node_modules/.prisma/client",
         "to": "app.asar.unpacked/node_modules/.prisma/client",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../node_modules/@prisma/client",
+        "to": "app.asar.unpacked/node_modules/@prisma/client",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../../node_modules/@prisma/engines",
+        "to": "app.asar.unpacked/node_modules/@prisma/engines",
         "filter": ["**/*"]
       },
       { "from": "prisma/schema.prisma", "to": "prisma/schema.prisma" },
