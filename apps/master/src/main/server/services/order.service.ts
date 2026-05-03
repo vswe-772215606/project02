@@ -297,7 +297,7 @@ export const orderService = {
             comboGroupId: comboGroupId,
             comboNameSnapshot: combo.name,
             nameSnapshot: component.menuItem.name,
-            unitPriceSnapshot: 0, // Individual items in combo are usually free, combo price is separate
+            unitPriceSnapshot: component.menuItem.price,
             quantity: component.quantity,
           }, tx);
           lines.push(line);
