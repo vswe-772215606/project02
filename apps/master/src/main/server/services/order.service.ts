@@ -286,6 +286,7 @@ export const orderService = {
       }
 
       return getPrisma().$transaction(async (tx) => {
+        const comboGroupId = crypto.randomUUID();
         const lines = [];
         for (const component of combo.components) {
           await stockService.decrement(component.menuItemId, component.quantity, tx);

@@ -11,6 +11,9 @@ const LIST_INCLUDE = {
   lines: {
     orderBy: { createdAt: 'asc' as const },
   },
+  kitchenTickets: {
+    orderBy: { createdAt: 'asc' as const },
+  },
   waiter: {
     select: {
       id: true,

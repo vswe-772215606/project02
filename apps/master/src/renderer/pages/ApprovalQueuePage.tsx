@@ -187,6 +187,7 @@ function ApprovalModal({ orderId, onClose }: { orderId: string; onClose: () => v
 
   return (
     <Modal title={`Buyurtma #${order.orderNumber}ni tasdiqlash`} onClose={onClose} maxWidth="max-w-3xl">
+      <div className="space-y-6">
         {/* Items List */}
         <div className="space-y-4">
           <div className="bg-slate-50 rounded-lg overflow-hidden border border-slate-100">

@@ -90,6 +90,9 @@ async function main() {
   console.log('First ticket progressed to READY');
   await orderService.addLine({ orderId: flowA.id, waiterId: waiter.id, menuItemId: kebab.id, quantity: 1 });
   console.log('Added addon kebab x1 while SENT');
+  await orderService.send({ orderId: flowA.id, waiterId: waiter.id });
+  console.log('Redundant send() called (BUG-K1 check)');
+  
   flowATickets = await kitchenService.listActive();
   ticket = flowATickets.find((entry) => entry.order.id === flowA.id);
   assert(ticket, 'Flow A second ticket missing');
