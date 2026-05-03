@@ -4,7 +4,8 @@ import {
   Package, 
   RefreshCw,
   Check,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { stockApi } from '../api/stock';
 import { useSocket } from '../hooks/useSocket';
@@ -107,14 +108,25 @@ export function StockPage() {
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => handleKeyDown(e, item.menuItemId)}
-                        onBlur={() => !updateMutation.isPending && setEditingId(null)}
                       />
                       <button 
-                        onClick={() => handleSave(item.menuItemId)}
+                        onMouseDown={(e) => {
+                          e.preventDefault(); // Prevent blur before click
+                          handleSave(item.menuItemId);
+                        }}
                         disabled={updateMutation.isPending}
                         className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-md transition-all active:scale-95 disabled:opacity-50"
                       >
                         {updateMutation.isPending ? <RefreshCw size={20} className="animate-spin" /> : <Check size={20} />}
+                      </button>
+                      <button 
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setEditingId(null);
+                        }}
+                        className="p-2 bg-slate-200 text-slate-600 rounded-xl hover:bg-slate-300 transition-colors"
+                      >
+                        <X size={20} />
                       </button>
                     </div>
                   ) : (
