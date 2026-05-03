@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -153,7 +153,7 @@ model MenuItem {
   categoryId   String
   name         String
   description  String?
-  price        Decimal  @db.Decimal(12, 2)
+  price        Decimal
   isAvailable  Boolean  @default(true)
   trackStock   Boolean  @default(false)
   displayOrder Int      @default(0)
@@ -228,11 +228,11 @@ model Order {
   tableId                String?
   waiterId               String
 
-  subtotalSnapshot       Decimal?    @db.Decimal(12, 2)
-  discountAmountSnapshot Decimal?    @db.Decimal(12, 2)
-  serviceChargeSnapshot  Decimal?    @db.Decimal(12, 2)
+  subtotalSnapshot       Decimal?
+  discountAmountSnapshot Decimal?
+  serviceChargeSnapshot  Decimal?
   serviceChargeWaived    Boolean     @default(false)
-  totalSnapshot          Decimal?    @db.Decimal(12, 2)
+  totalSnapshot          Decimal?
   appliedDiscountId      String?
 
   approvedAt             DateTime?
@@ -266,7 +266,7 @@ model OrderLine {
   kitchenTicketId   String?
 
   nameSnapshot      String
-  unitPriceSnapshot Decimal   @db.Decimal(12, 2)
+  unitPriceSnapshot Decimal
 
   quantity          Int
   notes             String?
@@ -317,7 +317,7 @@ model Discount {
   id          String       @id @default(cuid())
   name        String
   type        DiscountType
-  value       Decimal      @db.Decimal(12, 2)
+  value       Decimal
   isActive    Boolean      @default(true)
   createdById String
   createdAt   DateTime     @default(now())
@@ -333,7 +333,7 @@ model Payment {
   id        String        @id @default(cuid())
   orderId   String
   method    PaymentMethod
-  amount    Decimal       @db.Decimal(12, 2)
+  amount    Decimal
   reference String?
   createdAt DateTime      @default(now())
 
@@ -351,7 +351,7 @@ model Payment {
 model DailyStock {
   id           String   @id @default(cuid())
   menuItemId   String
-  date         DateTime @db.Date
+  date         DateTime
   initialCount Int
   currentCount Int
   setById      String

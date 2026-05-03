@@ -1,7 +1,9 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 import { join } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
+import { bootstrapPackagedWindowsSqlite } from './sqlite-bootstrap';
+import { createStartupLogger } from './startup-log';
 
 setupPrismaRuntime();
 
@@ -55,14 +57,42 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(async () => {
-  await startServer();
-  createWindow();
+  const logger = createStartupLogger(app.getPath('userData'));
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+  logger.info('app start');
+  logger.info(`mode: ${app.isPackaged ? 'production' : 'development'}`);
+  logger.info(`platform: ${process.platform}`);
+
+  try {
+    await bootstrapPackagedWindowsSqlite(logger);
+
+    logger.info('starting server');
+    await startServer();
+    logger.info('server start success');
+
+    logger.info('creating Electron window');
+    createWindow();
+    logger.info('window created');
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        logger.info('recreating Electron window on activate');
+        createWindow();
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`startup failure: ${message}`);
+
+    if (app.isPackaged) {
+      dialog.showErrorBox(
+        'Startup failed',
+        `The app could not start.\n\n${message}\n\nSee startup log:\n${logger.path}`,
+      );
     }
-  });
+
+    app.quit();
+  }
 });
 
 app.on('window-all-closed', () => {

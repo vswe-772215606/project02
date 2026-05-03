@@ -10,4 +10,5 @@ build/
 apps/*/dist/
 apps/*/out/
 apps/*/.vite/
-apps/master/prisma/dev.db
+apps/master/prisma/*.db
+apps/master/prisma/**/*.db

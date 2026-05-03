@@ -56,6 +56,10 @@ function main() {
   const prismaClientPackageDir = dirname(
     resolvePackagePath('@prisma/client/package.json'),
   );
+  const prismaCliPackageDir = dirname(resolvePackagePath('prisma/package.json'));
+  const prismaEnginesPackageDir = dirname(
+    resolvePackagePath('@prisma/engines/package.json'),
+  );
   const generatedClientDir = join(
     prismaClientPackageDir,
     '..',
@@ -92,10 +96,34 @@ function main() {
     );
   }
 
+  ensureExists(join(prismaCliPackageDir, 'build', 'index.js'), 'prisma CLI');
+  ensureExists(
+    join(prismaEnginesPackageDir, 'package.json'),
+    '@prisma/engines package',
+  );
+
+  if (process.platform === 'win32') {
+    const engineFiles = readdirSync(prismaEnginesPackageDir);
+    const hasWindowsSchemaEngine = engineFiles.some((file) =>
+      /^schema-engine-.*\.exe$/i.test(file),
+    );
+
+    if (!hasWindowsSchemaEngine) {
+      throw new Error(
+        `Missing Windows schema engine in ${prismaEnginesPackageDir}. Expected schema-engine-*.exe.`,
+      );
+    }
+  }
+
   prepareStageDir();
   copyDir(
     prismaClientPackageDir,
     join(stageDir, 'node_modules', '@prisma', 'client'),
+  );
+  copyDir(prismaCliPackageDir, join(stageDir, 'node_modules', 'prisma'));
+  copyDir(
+    prismaEnginesPackageDir,
+    join(stageDir, 'node_modules', '@prisma', 'engines'),
   );
   copyDir(
     generatedClientDir,

@@ -45,12 +45,22 @@
           "**/*.mjs",
           "**/*.wasm"
         ]
+      },
+      {
+        "from": "build/prisma-package/node_modules/prisma",
+        "to": "node_modules/prisma",
+        "filter": ["**/*"]
       }
     ],
     "extraResources": [
       {
         "from": "build/prisma-package/node_modules/.prisma/client",
         "to": "app.asar.unpacked/node_modules/.prisma/client",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/prisma-package/node_modules/@prisma/engines",
+        "to": "app.asar.unpacked/node_modules/@prisma/engines",
         "filter": ["**/*"]
       },
       { "from": "prisma/schema.prisma", "to": "prisma/schema.prisma" },
