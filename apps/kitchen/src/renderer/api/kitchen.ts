@@ -1,6 +1,5 @@
 import { api } from './client';
-
-type Ticket = any; // refined in next phase
+import { Ticket } from './types';
 
 export const kitchenApi = {
   listActive: () => api.get<Ticket[]>('/api/kitchen/tickets/active'),

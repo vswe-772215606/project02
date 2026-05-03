@@ -7,6 +7,29 @@ import { MASTER_URL } from '../lib/env';
 
 let socket: Socket | null = null;
 
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.1;
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start();
+    setTimeout(() => {
+      osc.stop();
+      ctx.close();
+    }, 200);
+  } catch (err) {
+    console.warn('Audio beep failed:', err);
+  }
+}
+
 export function useSocket() {
   const token = useAuthStore((s) => s.token);
   const setStatus = useConnectionStore((s) => s.setStatus);
@@ -32,7 +55,10 @@ export function useSocket() {
     socket.on('disconnect', () => setStatus('offline'));
     socket.on('connect_error', () => setStatus('offline'));
 
-    socket.on('ticket:new', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
+    socket.on('ticket:new', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
+      beep();
+    });
     socket.on('ticket:statusChanged', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
     socket.on('ticket:noteEdited', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
     socket.on('ticket:canceled', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));

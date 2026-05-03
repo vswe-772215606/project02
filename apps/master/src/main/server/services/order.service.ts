@@ -324,15 +324,32 @@ export const orderService = {
       const order = await getOrderOrThrow(input.orderId);
       ensureWaiterOwns(order, input.waiterId);
 
-      if (order.status !== OrderStatus.DRAFT) {
-        throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE');
+      const line = await orderLineRepo.findById(input.lineId);
+      if (!line || line.orderId !== order.id) {
+        throw Errors.NotFound('OrderLine');
       }
 
-      const line = await orderLineRepo.updateNote(input.lineId, input.notes);
+      if (order.status !== OrderStatus.DRAFT) {
+        // If not draft, check if ticket is still pending
+        if (!line.kitchenTicketId) {
+           // Should not happen if order is SENT, but allow for safety
+        } else {
+          const ticket = await kitchenRepo.findById(line.kitchenTicketId);
+          if (!ticket || ticket.status !== KitchenTicketStatus.PENDING) {
+            throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE (ticket not pending)');
+          }
+        }
+      }
+
+      const updatedLine = await orderLineRepo.updateNote(input.lineId, input.notes);
+      
+      if (line.kitchenTicketId) {
+        deferEmit('kitchen', 'ticket:noteEdited', { ticketId: line.kitchenTicketId, lineId: line.id });
+      }
       deferEmit('admin', 'order:updated', { orderId: order.id });
       deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
-      return line;
+      return updatedLine;
     });
   },
 
