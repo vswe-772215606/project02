@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { app } from 'electron';
 import initSqlJs from 'sql.js';
+import bcrypt from 'bcryptjs';
 import { setupPrismaRuntime } from './prisma-runtime';
 import type { StartupLogger } from './startup-log';
 
@@ -106,6 +107,58 @@ async function applyMigrationsInProcess(
   }
 }
 
+async function seedIfEmpty(logger: StartupLogger): Promise<void> {
+  const { getPrisma } = await import('./server/lib/prisma');
+  const prisma = getPrisma();
+
+  const count = await prisma.user.count();
+  if (count > 0) {
+    logger.info('seed: users already present, skipping');
+    return;
+  }
+
+  logger.info('seed: empty database detected, seeding initial data');
+
+  const hash = (plain: string) => bcrypt.hash(plain, 10);
+
+  await prisma.user.createMany({
+    data: [
+      {
+        id: 'seed-owner',
+        username: 'owner',
+        passwordHash: await hash('owner123'),
+        fullName: 'Owner',
+        role: 'OWNER',
+        isActive: true,
+        failedLogins: 0,
+      },
+      {
+        id: 'seed-admin',
+        username: 'admin',
+        passwordHash: await hash('admin123'),
+        fullName: 'Admin',
+        role: 'ADMIN',
+        isActive: true,
+        failedLogins: 0,
+      },
+    ],
+  });
+
+  await prisma.setting.createMany({
+    data: [
+      { key: 'service_charge_amount', value: '10000' },
+      { key: 'max_discount_percent',  value: '15' },
+      { key: 'max_discount_amount',   value: '100000' },
+      { key: 'kitchen_printer_enabled', value: 'false' },
+      { key: 'admin_printer_name',    value: 'POS-80' },
+      { key: 'kitchen_printer_name',  value: '' },
+      { key: 'store_heading',         value: 'Chayxana' },
+    ],
+  });
+
+  logger.info('seed: initial data inserted (owner / owner123, admin / admin123)');
+}
+
 export async function bootstrapPackagedWindowsSqlite(
   logger: StartupLogger,
 ): Promise<void> {
@@ -147,6 +200,8 @@ export async function bootstrapPackagedWindowsSqlite(
     const { getPrisma } = await import('./server/lib/prisma');
     await getPrisma().$connect();
     logger.info('Prisma Client ready');
+
+    await seedIfEmpty(logger);
     logger.info('SQLite bootstrap success');
   })().catch((error) => {
     bootstrapPromise = null;
