@@ -129,6 +129,7 @@ async function createAddonTicket(
   await orderLineRepo.attachToTicket(lineIds, ticket.id, tx);
 
   deferEmit('kitchen', 'ticket:new', { ticketId: ticket.id });
+  deferEmit('admin', 'ticket:new', { ticketId: ticket.id });
   deferEmit(`waiter:${waiterId}`, 'ticket:new', { ticketId: ticket.id });
 
   if (order.status === OrderStatus.BILL_REQUESTED) {
@@ -346,6 +347,7 @@ export const orderService = {
       
       if (line.kitchenTicketId) {
         deferEmit('kitchen', 'ticket:noteEdited', { ticketId: line.kitchenTicketId, lineId: line.id });
+        deferEmit('admin', 'ticket:noteEdited', { ticketId: line.kitchenTicketId, lineId: line.id });
       }
       deferEmit('admin', 'order:updated', { orderId: order.id });
       deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
@@ -436,6 +438,7 @@ export const orderService = {
         }
 
         deferEmit('kitchen', 'ticket:new', { ticketId: ticket.id });
+        deferEmit('admin', 'ticket:new', { ticketId: ticket.id });
         deferEmit(`waiter:${input.waiterId}`, 'ticket:new', { ticketId: ticket.id });
         deferAfterCommit(() => printService.tryPrintKitchenTicket(ticket.id));
 
@@ -563,6 +566,9 @@ export const orderService = {
         for (const ticket of order.kitchenTickets) {
           if (ticket.status === KitchenTicketStatus.PENDING) {
             await kitchenRepo.setStatus(ticket.id, KitchenTicketStatus.CANCELED, KitchenTicketStatus.PENDING, tx);
+            deferEmit('kitchen', 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
+            deferEmit('admin', 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
+            deferEmit(`waiter:${order.waiterId}`, 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
           }
         }
 

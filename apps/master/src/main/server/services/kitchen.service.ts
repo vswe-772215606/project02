@@ -56,6 +56,10 @@ export const kitchenService = {
           ticketId: input.ticketId,
           status: input.status,
         });
+        deferEmit('admin', 'ticket:statusChanged', {
+          ticketId: input.ticketId,
+          status: input.status,
+        });
         deferEmit(`waiter:${ticket.order.waiter.id}`, 'ticket:statusChanged', {
           ticketId: input.ticketId,
           status: input.status,
