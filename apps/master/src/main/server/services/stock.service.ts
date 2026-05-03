@@ -25,58 +25,54 @@ export const stockService = {
 
     return trackedItems.map((item) => {
       const row = rowMap.get(item.id);
-      const currentCount = row?.currentCount ?? 0;
+      const count = row?.currentCount ?? 0;
 
       return {
         menuItemId: item.id,
         name: item.name,
-        initialCount: row?.initialCount ?? 0,
-        currentCount,
-        isAvailable: item.isAvailable && currentCount > 0,
+        count,
+        isAvailable: item.isAvailable && count > 0,
         hasDailyRow: !!row,
       };
     });
   },
 
-  async setInitialForToday(entries: Array<{ menuItemId: string; count: number }>, actorUserId: string, force = false) {
+  async setOrUpdate(menuItemId: string, count: number, actorUserId: string) {
     return withEmitContext(async () => {
       const date = this.today();
 
       const result = await getPrisma().$transaction(async (tx) => {
-        const rows = [];
-        for (const entry of entries) {
-          const existing = await dailyStockRepo.findByItemAndDate(entry.menuItemId, date, tx);
-          if (existing && !force) {
-            continue; // Skip if already exists and not forcing
-          }
+        const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date, tx);
+        
+        const row = await dailyStockRepo.upsertForDate(
+          menuItemId,
+          date,
+          count,
+          count,
+          actorUserId,
+          tx,
+        );
 
-          const row = await dailyStockRepo.upsertForDate(
-            entry.menuItemId,
-            date,
-            entry.count,
-            entry.count,
-            actorUserId,
-            tx,
-          );
-          await auditService.log({
-            userId: actorUserId,
-            action: 'DAILY_STOCK_SET',
-            entityType: 'DailyStock',
-            entityId: row.id,
-            metadata: {
-              menuItemId: entry.menuItemId,
-              oldInitial: existing?.initialCount ?? 0,
-              newInitial: entry.count,
-              isForced: force,
-            },
-          }, tx);
-          deferEmit('all', 'stock:changed', {
-            menuItemId: entry.menuItemId,
-            currentCount: entry.count,
-          });
-          rows.push(row);
-        }
-        return rows;
+        await auditService.log({
+          userId: actorUserId,
+          action: existing ? 'DAILY_STOCK_ADJUSTED' : 'DAILY_STOCK_SET',
+          entityType: 'DailyStock',
+          entityId: row.id,
+          metadata: {
+            menuItemId,
+            oldCount: existing?.currentCount ?? 0,
+            newCount: count,
+            oldInitial: existing?.initialCount ?? 0,
+            newInitial: count,
+          },
+        }, tx);
+
+        deferEmit('all', 'stock:changed', {
+          menuItemId,
+          currentCount: count,
+        });
+
+        return row;
       });
 
       await flushDeferredEmits();
@@ -84,100 +80,29 @@ export const stockService = {
     });
   },
 
+  /** @deprecated Use setOrUpdate */
+  async setInitialForToday(entries: Array<{ menuItemId: string; count: number }>, actorUserId: string, _force = false) {
+    for (const entry of entries) {
+      await this.setOrUpdate(entry.menuItemId, entry.count, actorUserId);
+    }
+  },
+
+  /** @deprecated Use setOrUpdate */
   async addBatch(menuItemId: string, additionalCount: number, actorUserId: string) {
-    return withEmitContext(async () => {
-      const date = this.today();
-      const result = await getPrisma().$transaction(async (tx) => {
-        const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date, tx);
-        if (!existing) {
-          throw new AppError('NOT_FOUND', 404, 'Bugungi zaxira hali belgilanmagan');
-        }
-
-        const newInitial = existing.initialCount + additionalCount;
-        const newCurrent = existing.currentCount + additionalCount;
-
-        const row = await (tx ?? getPrisma()).dailyStock.update({
-          where: { id: existing.id },
-          data: {
-            initialCount: newInitial,
-            currentCount: newCurrent,
-          },
-        });
-
-        await auditService.log({
-          userId: actorUserId,
-          action: 'DAILY_STOCK_ADJUSTED',
-          entityType: 'DailyStock',
-          entityId: row.id,
-          metadata: {
-            menuItemId,
-            type: 'batch_add',
-            added: additionalCount,
-            oldInitial: existing.initialCount,
-            newInitial,
-            oldCount: existing.currentCount,
-            newCount: newCurrent,
-          },
-        }, tx);
-
-        deferEmit('all', 'stock:changed', {
-          menuItemId,
-          currentCount: newCurrent,
-        });
-
-        return row;
-      });
-
-      await flushDeferredEmits();
-      return result;
-    });
+    const date = this.today();
+    const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date);
+    const current = existing?.currentCount ?? 0;
+    return this.setOrUpdate(menuItemId, current + additionalCount, actorUserId);
   },
 
+  /** @deprecated Use setOrUpdate */
   async removeBatch(menuItemId: string, removedCount: number, actorUserId: string) {
-    return withEmitContext(async () => {
-      const date = this.today();
-      const result = await getPrisma().$transaction(async (tx) => {
-        const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date, tx);
-        if (!existing) {
-          throw new AppError('NOT_FOUND', 404, 'Bugungi zaxira hali belgilanmagan');
-        }
-
-        if (removedCount > existing.currentCount) {
-          throw new AppError('VALIDATION_ERROR', 400, 'Olib tashlanadigan miqdor mavjud zaxiradan ko\'p');
-        }
-
-        const newCurrent = Math.max(0, existing.currentCount - removedCount);
-
-        const row = await (tx ?? getPrisma()).dailyStock.update({
-          where: { id: existing.id },
-          data: { currentCount: newCurrent },
-        });
-
-        await auditService.log({
-          userId: actorUserId,
-          action: 'DAILY_STOCK_ADJUSTED',
-          entityType: 'DailyStock',
-          entityId: row.id,
-          metadata: {
-            menuItemId,
-            type: 'batch_remove',
-            removed: removedCount,
-            oldCount: existing.currentCount,
-            newCount: newCurrent,
-          },
-        }, tx);
-
-        deferEmit('all', 'stock:changed', {
-          menuItemId,
-          currentCount: newCurrent,
-        });
-
-        return row;
-      });
-
-      await flushDeferredEmits();
-      return result;
-    });
+    const date = this.today();
+    const existing = await dailyStockRepo.findByItemAndDate(menuItemId, date);
+    if (!existing) {
+      throw new AppError('NOT_FOUND', 404, 'Bugungi zaxira hali belgilanmagan');
+    }
+    return this.setOrUpdate(menuItemId, Math.max(0, existing.currentCount - removedCount), actorUserId);
   },
 
   async decrement(menuItemId: string, quantity: number, tx: Tx) {

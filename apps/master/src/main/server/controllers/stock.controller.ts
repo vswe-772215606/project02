@@ -38,19 +38,10 @@ export const stockController = {
     }
   },
 
-  async addBatch(req: Request, res: Response, next: NextFunction) {
+  async updateItem(req: Request, res: Response, next: NextFunction) {
     try {
-      const { count } = batchSchema.parse(req.body);
-      res.json(await stockService.addBatch(req.params.menuItemId, count, req.user!.id));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async removeBatch(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { count } = batchSchema.parse(req.body);
-      res.json(await stockService.removeBatch(req.params.menuItemId, count, req.user!.id));
+      const { count } = z.object({ count: z.number().int().min(0) }).parse(req.body);
+      res.json(await stockService.setOrUpdate(req.params.menuItemId, count, req.user!.id));
     } catch (error) {
       next(error);
     }
