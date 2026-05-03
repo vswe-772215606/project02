@@ -18,6 +18,7 @@ import { formatUZS, formatDateTimeUZ } from '../utils/format';
 import { StatusBadge, OrderStatus, KitchenStatusBadge } from '../components/StatusBadge';
 import { PaymentModal } from '../components/PaymentModal';
 import { Modal } from '../components/Modal';
+import { summarizeOrderLines } from '../utils/order-line-summary';
 
 const TABS: { label: string; status: OrderStatus }[] = [
   { label: 'SENT', status: 'SENT' },
@@ -175,6 +176,7 @@ function OrderListItem({
   onWalkout: () => void;
 }) {
   const queryClient = useQueryClient();
+  const mealSummary = summarizeOrderLines(order.lines);
   const reprintMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.reprintBill(order.id, reason),
     onSuccess: () => alert('Chek qayta chop etishga yuborildi')
@@ -191,16 +193,31 @@ function OrderListItem({
             <span className="text-lg font-bold text-slate-800">#{order.orderNumber}</span>
             <span className="text-xs text-slate-400 font-medium">{formatDateTimeUZ(order.createdAt)}</span>
           </div>
-          
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-              <Armchair size={14} />
-              <span className="text-sm font-semibold">{order.tableId || 'Olib ketish'}</span>
+
+          <div className="space-y-2">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                <Armchair size={14} />
+                <span className="text-sm font-semibold">{order.tableId || 'Olib ketish'}</span>
+              </div>
+              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                <UserIcon size={14} />
+                <span className="text-sm font-semibold">{order.waiter?.fullName}</span>
+              </div>
             </div>
-            <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-              <UserIcon size={14} />
-              <span className="text-sm font-semibold">{order.waiter?.fullName}</span>
-            </div>
+            {mealSummary && (
+              <p
+                className="max-w-xl text-sm text-slate-500"
+                style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {mealSummary}
+              </p>
+            )}
           </div>
         </div>
 
@@ -224,7 +241,7 @@ function OrderListItem({
                 <div className="space-y-2">
                   {order.lines?.map(line => (
                     <div key={line.id} className={`flex justify-between text-sm ${line.isCanceled ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                      <span>{line.quantity}x {line.name}</span>
+                      <span>{line.quantity}x {line.nameSnapshot}</span>
                       <span className="font-medium">{formatUZS((line.price || 0) * line.quantity)}</span>
                     </div>
                   ))}

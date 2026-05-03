@@ -18,7 +18,10 @@ export interface OrderLine {
   orderId: string;
   menuItemId: string | null;
   comboId: string | null;
+  comboGroupId?: string | null;
+  comboNameSnapshot?: string | null;
   name: string;
+  nameSnapshot: string;
   price: number;
   quantity: number;
   notes: string | null;

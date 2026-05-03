@@ -17,6 +17,7 @@ import { settingsApi } from '../api/settings';
 import { formatUZS, formatMinutesElapsed } from '../utils/format';
 import { Modal } from '../components/Modal';
 import { KitchenStatusBadge } from '../components/StatusBadge';
+import { summarizeOrderLines } from '../utils/order-line-summary';
 
 export function ApprovalQueuePage() {
   const queryClient = useQueryClient();
@@ -74,6 +75,7 @@ export function ApprovalQueuePage() {
 function OrderRow({ order, onClick }: { order: Order; onClick: () => void }) {
   // Force re-render for time elapsed
   const [, setTick] = useState(0);
+  const mealSummary = summarizeOrderLines(order.lines);
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 10000);
     return () => clearInterval(timer);
@@ -105,6 +107,19 @@ function OrderRow({ order, onClick }: { order: Order; onClick: () => void }) {
               <span>{order.waiter?.fullName}</span>
             </div>
           </div>
+          {mealSummary && (
+            <p
+              className="mt-2 max-w-xl text-sm text-slate-500"
+              style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {mealSummary}
+            </p>
+          )}
         </div>
       </div>
 
@@ -186,10 +201,16 @@ function ApprovalModal({ orderId, onClose }: { orderId: string; onClose: () => v
 
   const serviceCharge = waiveService ? 0 : Number(settings.service_charge_amount || 0);
   const finalTotal = subtotal - discountAmount + serviceCharge;
+  const mealSummary = summarizeOrderLines(order.lines);
 
   return (
     <Modal title={`Buyurtma #${order.orderNumber}ni tasdiqlash`} onClose={onClose} maxWidth="max-w-3xl">
       <div className="space-y-6">
+        {mealSummary && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            {mealSummary}
+          </div>
+        )}
         {/* Items List */}
         <div className="space-y-4">
           <div className="bg-slate-50 rounded-lg overflow-hidden border border-slate-100">

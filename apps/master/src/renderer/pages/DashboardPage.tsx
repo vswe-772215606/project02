@@ -15,6 +15,7 @@ import { ordersApi } from '../api/orders';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatUZS, formatDateTimeUZ } from '../utils/format';
 import { Link } from 'react-router-dom';
+import { summarizeOrderLines } from '../utils/order-line-summary';
 
 export function DashboardPage() {
   const { data: allOrders = [], isLoading } = useQuery({
@@ -104,34 +105,53 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <span className="font-bold text-slate-700">#{order.orderNumber}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-slate-500">{formatDateTimeUZ(order.createdAt)}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <div className="flex items-center space-x-1 text-sm font-medium text-slate-700">
-                          <TableIcon size={14} className="text-slate-400" />
-                          <span>{order.tableId || 'Olib ketish'}</span>
+                {recentOrders.map((order) => {
+                  const mealSummary = summarizeOrderLines(order.lines);
+
+                  return (
+                    <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <span className="font-bold text-slate-700">#{order.orderNumber}</span>
+                          {mealSummary && (
+                            <p
+                              className="max-w-xs text-xs text-slate-500"
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {mealSummary}
+                            </p>
+                          )}
                         </div>
-                        <div className="flex items-center space-x-1 text-xs text-slate-400 mt-0.5">
-                          <UserIcon size={12} />
-                          <span>{order.waiter?.fullName}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm text-slate-500">{formatDateTimeUZ(order.createdAt)}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <div className="flex items-center space-x-1 text-sm font-medium text-slate-700">
+                            <TableIcon size={14} className="text-slate-400" />
+                            <span>{order.tableId || 'Olib ketish'}</span>
+                          </div>
+                          <div className="flex items-center space-x-1 text-xs text-slate-400 mt-0.5">
+                            <UserIcon size={12} />
+                            <span>{order.waiter?.fullName}</span>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 font-bold text-slate-900">
-                      {formatUZS(order.totalSnapshot || order.totalAmount)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <StatusBadge status={order.status} />
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-slate-900">
+                        {formatUZS(order.totalSnapshot || order.totalAmount)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={order.status} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
