@@ -293,7 +293,7 @@ export const orderService = {
           const line = await orderLineRepo.create({
             orderId: input.orderId,
             menuItemId: component.menuItemId,
-            comboId: combo.id,
+            comboGroupId: comboGroupId,
             comboNameSnapshot: combo.name,
             nameSnapshot: component.menuItem.name,
             unitPriceSnapshot: 0, // Individual items in combo are usually free, combo price is separate
@@ -402,11 +402,17 @@ export const orderService = {
         const order = await getOrderOrThrow(input.orderId, tx);
         ensureWaiterOwns(order, input.waiterId);
 
-        if (order.status !== OrderStatus.DRAFT) {
+        if (![OrderStatus.DRAFT, OrderStatus.SENT, OrderStatus.BILL_REQUESTED].includes(order.status)) {
           throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
         }
 
         const unsentLines = order.lines.filter((line) => !line.kitchenTicketId && !line.isCanceled);
+        
+        // If already sent and no new lines, just return success
+        if (order.status !== OrderStatus.DRAFT && unsentLines.length === 0) {
+          return mapToDto(order);
+        }
+
         if (unsentLines.length === 0) {
           throw Errors.Validation('Order has no draft lines');
         }
@@ -418,17 +424,21 @@ export const orderService = {
         }, tx);
 
         await orderLineRepo.attachToTicket(unsentLines.map((line) => line.id), ticket.id, tx);
-        const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
-
-        if (!updated) {
-          throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
+        
+        let updatedOrder = order;
+        if (order.status === OrderStatus.DRAFT) {
+          const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
+          if (!updated) {
+            throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
+          }
+          updatedOrder = updated;
         }
 
         deferEmit('kitchen', 'ticket:new', { ticketId: ticket.id });
         deferEmit(`waiter:${input.waiterId}`, 'ticket:new', { ticketId: ticket.id });
         deferAfterCommit(() => printService.tryPrintKitchenTicket(ticket.id));
 
-        return mapToDto(updated);
+        return mapToDto(updatedOrder);
       });
     });
   },
@@ -547,6 +557,13 @@ export const orderService = {
 
       return getPrisma().$transaction(async (tx) => {
         const updated = await orderRepo.setCanceled(order.id, input.reason, tx);
+
+        // Mark pending kitchen tickets as canceled
+        for (const ticket of order.kitchenTickets) {
+          if (ticket.status === KitchenTicketStatus.PENDING) {
+            await kitchenRepo.setStatus(ticket.id, KitchenTicketStatus.CANCELED, KitchenTicketStatus.PENDING, tx);
+          }
+        }
 
         // Restore stock for all non-canceled items that haven't been cooked
         for (const line of order.lines) {
