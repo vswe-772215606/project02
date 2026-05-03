@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "scripts": {
     "dev:master": "pnpm --filter @chayxana/master dev",
+    "dev:kitchen": "pnpm --filter @chayxana/kitchen dev",
     "build:master": "pnpm --filter @chayxana/master build",
+    "build:kitchen": "pnpm --filter @chayxana/kitchen build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
