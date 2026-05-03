@@ -1,4 +1,4 @@
-import { MASTER_URL } from '../lib/env';
+import { getMasterUrl } from '../lib/env';
 import { useAuthStore } from '../stores/auth.store';
 
 export const api = {
@@ -10,7 +10,7 @@ export const api = {
     }
     headers.set('Content-Type', 'application/json');
 
-    const response = await fetch(`${MASTER_URL}${path}`, {
+    const response = await fetch(`${getMasterUrl()}${path}`, {
       ...options,
       headers,
     });

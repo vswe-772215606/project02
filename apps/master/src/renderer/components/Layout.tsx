@@ -1,25 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  ClipboardCheck, 
-  ReceiptText, 
-  BookOpen, 
-  Armchair, 
-  Users, 
-  Percent, 
-  Settings, 
-  BarChart3, 
-  ScrollText, 
-  Package, 
-  Wifi, 
-  WifiOff, 
-  PanelLeft, 
-  LogOut 
+import {
+  LayoutDashboard,
+  ClipboardCheck,
+  ReceiptText,
+  BookOpen,
+  Armchair,
+  Users,
+  Percent,
+  Settings,
+  BarChart3,
+  ScrollText,
+  Package,
+  Wifi,
+  WifiOff,
+  PanelLeft,
+  LogOut,
+  Monitor,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { authApi } from '../api/auth';
+import { api } from '../api/client';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, clearAuth } = useAuthStore();
@@ -30,10 +32,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem('sidebar_collapsed');
     return saved === 'true';
   });
+  const [serverInfo, setServerInfo] = useState<{ lanIps: string[]; port: number } | null>(null);
 
   useEffect(() => {
     localStorage.setItem('sidebar_collapsed', String(collapsed));
   }, [collapsed]);
+
+  useEffect(() => {
+    api.get<{ lanIps: string[]; port: number }>('/api/health/server-info')
+      .then(setServerInfo)
+      .catch(() => {});
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -160,9 +169,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           
-          <div className="flex items-center space-x-4">
-            {/* Additional header actions can go here */}
-          </div>
+          {serverInfo && serverInfo.lanIps.length > 0 && (
+            <div className="flex items-center space-x-2 bg-slate-100 rounded-lg px-3 py-1.5" title="Mobil va Kitchen ilovalar shu manzilga ulanadi">
+              <Monitor size={14} className="text-slate-500 shrink-0" />
+              <div className="text-xs">
+                <span className="text-slate-400 mr-1">Server:</span>
+                {serverInfo.lanIps.map((ip) => (
+                  <span key={ip} className="font-mono font-bold text-slate-700 mr-2">
+                    {ip}:{serverInfo.port}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </header>
 
         {/* Page Area */}
