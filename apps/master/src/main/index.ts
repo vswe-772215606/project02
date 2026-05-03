@@ -1,26 +1,18 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'path';
 import { createServer } from 'http';
+import { createApp } from './server/app';
+import { attachSocket } from './server/socket';
+import { settingsService } from './server/services/settings.service';
+import { startScheduler } from './server/lib/scheduler';
 
-// Set Prisma env vars before any server module is loaded.
-// electron-vite produces a CJS bundle where external requires are hoisted,
-// so these are set as early as possible in the entry point.
+// Belt-and-suspenders: also set in prisma.ts before new PrismaClient(), but
+// setting here ensures the env is visible to any code path that checks it early.
 if (app.isPackaged) {
   const unpackedRoot = join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
   process.env.PRISMA_QUERY_ENGINE_LIBRARY = join(unpackedRoot, '.prisma', 'client');
   process.env.PRISMA_SCHEMA_PATH = join(process.resourcesPath, 'prisma', 'schema.prisma');
 }
-
-// Server modules are required after env vars are set so that when @prisma/client
-// initialises (on first getPrisma() call) the engine path is already in the env.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { createApp } = require('./server/app') as typeof import('./server/app');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { attachSocket } = require('./server/socket') as typeof import('./server/socket');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { settingsService } = require('./server/services/settings.service') as typeof import('./server/services/settings.service');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { startScheduler } = require('./server/lib/scheduler') as typeof import('./server/lib/scheduler');
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
 
