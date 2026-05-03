@@ -13,6 +13,7 @@
   },
   "build": {
     "appId": "com.chayxana.kitchen",
+    "electronVersion": "31.7.7",
     "productName": "Chayxana Kitchen",
     "copyright": "Copyright © 2025 Chayxana",
     "asar": true,
@@ -62,7 +63,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
-    "electron": "^31.0.0",
+    "electron": "31.7.7",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.0",

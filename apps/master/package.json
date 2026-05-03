@@ -15,6 +15,7 @@
   },
   "build": {
     "appId": "com.chayxana.master",
+    "electronVersion": "31.7.7",
     "productName": "Chayxana Master",
     "copyright": "Copyright © 2025 Chayxana",
     "asar": true,
@@ -81,7 +82,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.5.0",
-    "electron": "^31.0.0",
+    "electron": "31.7.7",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "postcss": "^8.5.13",
