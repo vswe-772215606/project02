@@ -171,7 +171,9 @@ function ApprovalModal({ orderId, onClose }: { orderId: string; onClose: () => v
   }
 
   // Preview calculations
-  const subtotal = order.totalAmount; // This is the sum of items from server
+  const subtotal = order.lines?.reduce((sum, line) => (
+    line.isCanceled ? sum : sum + (line.price * line.quantity)
+  ), 0) ?? 0;
   const selectedDiscount = discounts.find(d => d.id === discountId);
   let discountAmount = 0;
   if (selectedDiscount) {
@@ -204,7 +206,7 @@ function ApprovalModal({ orderId, onClose }: { orderId: string; onClose: () => v
                 {order.lines?.map((line) => (
                   <tr key={line.id} className={line.isCanceled ? 'text-slate-400 bg-slate-50/50 italic' : 'text-slate-700'}>
                     <td className="px-4 py-2">
-                      <div className="font-medium">{line.name}</div>
+                      <div className="font-medium">{line.nameSnapshot}</div>
                       {line.notes && <div className="text-xs text-slate-500 mt-0.5">Qayd: {line.notes}</div>}
                       {line.isCanceled && <div className="text-xs text-red-400 font-bold uppercase tracking-widest">Bekor qilingan</div>}
                     </td>
