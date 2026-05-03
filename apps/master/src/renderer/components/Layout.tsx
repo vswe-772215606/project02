@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
+import { authApi } from '../api/auth';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, clearAuth } = useAuthStore();
@@ -34,9 +35,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
     localStorage.setItem('sidebar_collapsed', String(collapsed));
   }, [collapsed]);
 
-  const handleLogout = () => {
-    clearAuth();
-    navigate('/');
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Local logout must still succeed even if the server session is already gone.
+    } finally {
+      clearAuth();
+      navigate('/');
+    }
   };
 
   const getInitials = (name?: string) => {
@@ -125,10 +132,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Connection Banner */}
-        {status === 'offline' && (
-          <div className="bg-red-600 text-white flex items-center justify-center py-1.5 px-4 text-sm font-medium shrink-0 space-x-2 z-50">
+        {(status === 'reconnecting' || status === 'connecting') && (
+          <div className="bg-amber-500 text-white flex items-center justify-center py-1.5 px-4 text-sm font-medium shrink-0 space-x-2 z-50">
             <WifiOff size={16} />
             <span>Tarmoq bilan aloqa yo'q. Qayta ulanishga urinilmoqda...</span>
+          </div>
+        )}
+        {status === 'auth-failed' && (
+          <div className="bg-red-600 text-white flex items-center justify-center py-1.5 px-4 text-sm font-medium shrink-0 space-x-2 z-50">
+            <WifiOff size={16} />
+            <span>Sessiya tugadi. Iltimos qaytadan kiring.</span>
           </div>
         )}
 
@@ -137,11 +150,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center space-x-3">
             {status === 'online' ? (
               <Wifi size={18} className="text-green-500" />
-            ) : (
+            ) : status === 'auth-failed' ? (
               <WifiOff size={18} className="text-red-500" />
+            ) : (
+              <WifiOff size={18} className="text-amber-500" />
             )}
             <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-              {status === 'online' ? 'Onlayn' : 'Offlayn'}
+              {status === 'online' ? 'Onlayn' : status === 'auth-failed' ? 'Sessiya tugagan' : 'Qayta ulanmoqda'}
             </span>
           </div>
           

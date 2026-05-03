@@ -4,6 +4,7 @@ import { sessionRepo } from '../repositories/session.repo';
 import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { authService } from './auth.service';
+import { kickUser } from '../socket';
 
 export const userService = {
   async list(includeInactive = false) {
@@ -132,6 +133,7 @@ export const userService = {
 
     const updated = await userRepo.deactivate(id);
     await sessionRepo.deleteByUserId(id);
+    kickUser(id, { code: 'USER_DEACTIVATED', message: 'Sessiya tugadi. Iltimos qaytadan kiring.' });
     await auditService.log({
       userId: actorUserId,
       action: 'USER_DEACTIVATED',

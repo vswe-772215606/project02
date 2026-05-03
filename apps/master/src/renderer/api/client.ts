@@ -1,11 +1,10 @@
+import { useAuthStore } from '../stores/auth.store';
+import { getAuthToken } from './auth-token';
+
 const BASE = 'http://localhost:4000';
 
-let token: string | null = null;
-export function setAuthToken(t: string | null) {
-  token = t;
-}
-
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = getAuthToken();
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -17,6 +16,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const text = await res.text();
   const json = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    if (res.status === 401 && token) {
+      useAuthStore.getState().forceLogout("Sessiya tugadi. Iltimos qaytadan kiring.");
+    }
     const code = json?.error?.code ?? 'UNKNOWN';
     const message = json?.error?.message ?? `HTTP ${res.status}`;
     const err = new Error(message) as Error & { code?: string; details?: unknown };

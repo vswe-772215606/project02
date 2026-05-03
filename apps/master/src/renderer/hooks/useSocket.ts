@@ -1,60 +1,68 @@
 import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
-
-let socket: Socket | null = null;
-let socketToken: string | null = null;
+import {
+  connectSocketClient,
+  disconnectSocketClient,
+  getSocketClient,
+  hasSocketClientForToken,
+  reconnectSocketClient,
+} from '../lib/socket-client';
 
 export function useSocket() {
   const token = useAuthStore((s) => s.token);
+  const forceLogout = useAuthStore((s) => s.forceLogout);
   const setStatus = useConnectionStore((s) => s.setStatus);
   const qc = useQueryClient();
   const queryClientRef = useRef(qc);
   const setStatusRef = useRef(setStatus);
+  const forceLogoutRef = useRef(forceLogout);
 
   queryClientRef.current = qc;
   setStatusRef.current = setStatus;
+  forceLogoutRef.current = forceLogout;
 
   useEffect(() => {
     if (!token) {
-      if (socket) {
-        socket.disconnect();
-        socket = null;
-        socketToken = null;
-      }
+      disconnectSocketClient();
       return;
     }
 
-    if (socket && socketToken === token) {
-      if (!socket.connected) {
-        setStatusRef.current('connecting');
-        socket.connect();
+    if (hasSocketClientForToken(token)) {
+      const currentSocket = getSocketClient();
+      if (currentSocket && !currentSocket.connected) {
+        setStatusRef.current('reconnecting');
+        reconnectSocketClient();
       }
       return;
-    }
-
-    if (socket) {
-      socket.disconnect();
-      socket = null;
     }
 
     setStatusRef.current('connecting');
-
-    const nextSocket = io('http://localhost:4000', {
-      auth: { token },
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 5000,
-      autoConnect: true,
-    });
-    socket = nextSocket;
-    socketToken = token;
+    const nextSocket = connectSocketClient(token);
 
     nextSocket.on('connect', () => setStatusRef.current('online'));
-    nextSocket.on('disconnect', () => setStatusRef.current('offline'));
-    nextSocket.on('connect_error', () => setStatusRef.current('offline'));
+    nextSocket.on('disconnect', (reason) => {
+      if (reason === 'io client disconnect') {
+        return;
+      }
+      if (reason === 'io server disconnect') {
+        return;
+      }
+      setStatusRef.current('reconnecting');
+    });
+    nextSocket.on('connect_error', (error) => {
+      if (error.message === 'UNAUTHORIZED') {
+        setStatusRef.current('auth-failed');
+        forceLogoutRef.current("Sessiya tugadi. Iltimos qaytadan kiring.");
+        return;
+      }
+      setStatusRef.current('reconnecting');
+    });
+    nextSocket.on('auth:kicked', (payload?: { message?: string }) => {
+      setStatusRef.current('auth-failed');
+      forceLogoutRef.current(payload?.message ?? "Sessiya tugadi. Iltimos qaytadan kiring.");
+    });
 
     // Generic invalidation strategy: any event re-fetches relevant queries.
     nextSocket.on('order:billRequested', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
@@ -83,10 +91,8 @@ export function useSocket() {
     nextSocket.on('stock:changed', () => queryClientRef.current.invalidateQueries({ queryKey: ['stock'] }));
 
     return () => {
-      if (socket === nextSocket) {
-        nextSocket.disconnect();
-        socket = null;
-        socketToken = null;
+      if (getSocketClient() === nextSocket) {
+        disconnectSocketClient();
       }
     };
   }, [token]);

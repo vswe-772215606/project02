@@ -32,6 +32,15 @@ export const sessionRepo = {
     return session;
   },
 
+  async findByToken(token: string, tx?: Tx) {
+    return (tx ?? getPrisma()).session.findUnique({
+      where: { token },
+      include: {
+        user: true,
+      },
+    });
+  },
+
   async deleteByUserId(userId: string, tx?: Tx) {
     return (tx ?? getPrisma()).session.deleteMany({
       where: { userId },

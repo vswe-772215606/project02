@@ -13,7 +13,7 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
-  const { setAuth } = useAuthStore();
+  const { setAuth, logoutMessage, clearLogoutMessage } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -28,6 +28,7 @@ export function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     setError(null);
+    clearLogoutMessage();
     try {
       const res = await authApi.login(data);
       setAuth(res.token, res.user);
@@ -54,6 +55,11 @@ export function LoginPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded mb-6 text-sm">
             {error}
+          </div>
+        )}
+        {!error && logoutMessage && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded mb-6 text-sm">
+            {logoutMessage}
           </div>
         )}
 

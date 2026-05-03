@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type ConnState = 'connecting' | 'online' | 'offline';
+export type ConnState = 'connecting' | 'online' | 'reconnecting' | 'auth-failed';
 
 export const useConnectionStore = create<{
   status: ConnState;

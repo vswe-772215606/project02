@@ -4,6 +4,7 @@ import { Session, User, UserRole } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { sessionRepo } from '../repositories/session.repo';
 import { userRepo } from '../repositories/user.repo';
+import { kickUser } from '../socket';
 
 const BCRYPT_ROUNDS = 10;
 const PIN_BLACKLIST = new Set([
@@ -46,6 +47,7 @@ async function recordFailedLogin(user: User): Promise<never> {
 
 async function createSession(user: User, deviceLabel: string | undefined, expiresAt: Date): Promise<AuthResult> {
   await userRepo.resetFailedLogins(user.id);
+  kickUser(user.id);
   await sessionRepo.deleteByUserId(user.id);
 
   const token = crypto.randomBytes(32).toString('base64url');
@@ -121,7 +123,11 @@ export const authService = {
   },
 
   async logout(token: string): Promise<void> {
+    const session = await sessionRepo.findByToken(token);
     await sessionRepo.deleteByToken(token);
+    if (session) {
+      kickUser(session.userId, { code: 'LOGGED_OUT' });
+    }
   },
 
   async validateSession(token: string): Promise<(Session & { user: User }) | null> {
