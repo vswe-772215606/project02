@@ -1,13 +1,12 @@
-import { spawn } from 'child_process';
-import { existsSync, mkdirSync, readdirSync } from 'fs';
-import { createRequire } from 'module';
-import { dirname, join } from 'path';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { app } from 'electron';
+import Database from 'better-sqlite3';
 import { setupPrismaRuntime } from './prisma-runtime';
 import type { StartupLogger } from './startup-log';
 
-const requireFromHere = createRequire(__filename);
 let bootstrapPromise: Promise<void> | null = null;
 
 function toSqliteUrl(filePath: string): string {
@@ -16,96 +15,71 @@ function toSqliteUrl(filePath: string): string {
   return pathToFileURL(filePath).href.replace(/^file:\/\/\/([A-Za-z]:)/, 'file:$1');
 }
 
-function resolvePackagedSchemaPath(): string {
-  return join(process.resourcesPath, 'prisma', 'schema.prisma');
+function computeChecksum(sql: string): string {
+  return createHash('sha256').update(sql, 'utf8').digest('hex');
 }
 
-function resolvePackagedSchemaEnginePath(): string {
-  const enginesDir = join(
-    process.resourcesPath,
-    'app.asar.unpacked',
-    'node_modules',
-    '@prisma',
-    'engines',
-  );
-  const engineFile = readdirSync(enginesDir).find((file) =>
-    /^schema-engine-.*\.exe$/i.test(file),
-  );
-
-  if (!engineFile) {
-    throw new Error(
-      `Missing Prisma schema engine in ${enginesDir}. Expected schema-engine-*.exe.`,
-    );
-  }
-
-  return join(enginesDir, engineFile);
-}
-
-function resolvePrismaCliPath(): string {
-  return requireFromHere.resolve('prisma/build/index.js');
-}
-
-async function runPrismaMigrateDeploy(
-  schemaPath: string,
-  schemaEnginePath: string,
+function applyMigrationsInProcess(
+  dbPath: string,
+  migrationsDir: string,
   logger: StartupLogger,
-): Promise<void> {
-  const prismaCliPath = resolvePrismaCliPath();
-  const spawnCwd = dirname(schemaPath);
-  const spawnArgs = [prismaCliPath, 'migrate', 'deploy', '--schema', schemaPath];
+): void {
+  const DatabaseCtor = (Database as unknown as { default?: typeof Database }).default ?? Database;
+  const db = new DatabaseCtor(dbPath);
 
-  logger.info(`spawn executable=${process.execPath}`);
-  logger.info(`spawn args=${JSON.stringify(spawnArgs)}`);
-  logger.info(`spawn cwd=${spawnCwd}`);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _app_migrations (
+        id   TEXT PRIMARY KEY,
+        checksum   TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      spawnArgs,
-      {
-        cwd: spawnCwd,
-        env: {
-          ...process.env,
-          ELECTRON_RUN_AS_NODE: '1',
-          PRISMA_SCHEMA_ENGINE_BINARY: schemaEnginePath,
-        },
-        windowsHide: true,
-      },
+    const migrationDirs = readdirSync(migrationsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+
+    logger.info(`found ${migrationDirs.length} migration(s) in ${migrationsDir}`);
+
+    const getRow = db.prepare('SELECT checksum FROM _app_migrations WHERE id = ?');
+    const insertRow = db.prepare(
+      'INSERT INTO _app_migrations (id, checksum) VALUES (?, ?)',
     );
 
-    logger.info(`spawn child.pid=${child.pid ?? 'unknown'}`);
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      stdout += text;
-      logger.info(`[prisma migrate deploy stdout] ${text.trimEnd()}`);
-    });
-
-    child.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      stderr += text;
-      logger.error(`[prisma migrate deploy stderr] ${text.trimEnd()}`);
-    });
-
-    child.on('error', reject);
-    child.on('close', (code) => {
-      logger.info(`spawn exit code=${code ?? 'unknown'}`);
-
-      if (code === 0) {
-        resolve();
-        return;
+    for (const migrationId of migrationDirs) {
+      const sqlPath = join(migrationsDir, migrationId, 'migration.sql');
+      if (!existsSync(sqlPath)) {
+        logger.info(`migration ${migrationId}: no migration.sql, skipping`);
+        continue;
       }
 
-      reject(
-        new Error(
-          `prisma migrate deploy failed with exit code ${code ?? 'unknown'}.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-        ),
-      );
-    });
-  });
+      const sql = readFileSync(sqlPath, 'utf8');
+      const checksum = computeChecksum(sql);
+      const existing = getRow.get(migrationId) as { checksum: string } | undefined;
+
+      if (existing) {
+        if (existing.checksum !== checksum) {
+          throw new Error(
+            `Migration checksum mismatch for "${migrationId}". ` +
+            `Applied checksum: ${existing.checksum}. ` +
+            `Current checksum: ${checksum}. ` +
+            `Do not modify previously applied migrations.`,
+          );
+        }
+        logger.info(`migration ${migrationId}: skipped (already applied)`);
+        continue;
+      }
+
+      logger.info(`migration ${migrationId}: applying`);
+      db.exec(sql);
+      insertRow.run(migrationId, checksum);
+      logger.info(`migration ${migrationId}: applied`);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 export async function bootstrapPackagedWindowsSqlite(
@@ -123,38 +97,32 @@ export async function bootstrapPackagedWindowsSqlite(
     }
 
     logger.info('SQLite bootstrap begin');
-    logger.info('production mode detected: packaged Windows startup');
     logger.info(`userData path: ${app.getPath('userData')}`);
 
-    const schemaPath = resolvePackagedSchemaPath();
-    logger.info(`resolving Prisma schema: ${schemaPath}`);
-    if (!existsSync(schemaPath)) {
-      throw new Error(`Missing packaged Prisma schema at ${schemaPath}`);
-    }
-
-    logger.info('resolving Prisma runtime paths');
     setupPrismaRuntime();
-
-    logger.info('resolving Prisma schema engine');
-    const schemaEnginePath = resolvePackagedSchemaEnginePath();
-    logger.info(`schema engine found: ${schemaEnginePath}`);
 
     const dbDir = join(app.getPath('userData'), 'data');
     const dbPath = join(dbDir, 'master.sqlite');
     mkdirSync(dbDir, { recursive: true });
-
     logger.info(`SQLite directory ready: ${dbDir}`);
+
     process.env.DATABASE_URL = toSqliteUrl(dbPath);
-    logger.info(`DATABASE_URL set to SQLite file path: ${dbPath}`);
+    logger.info(`DATABASE_URL set: ${process.env.DATABASE_URL}`);
 
-    logger.info('running prisma migrate deploy');
-    await runPrismaMigrateDeploy(schemaPath, schemaEnginePath, logger);
-    logger.info('prisma migrate deploy success');
+    const migrationsDir = join(process.resourcesPath, 'prisma', 'migrations');
+    logger.info(`migrations dir: ${migrationsDir}`);
+    if (!existsSync(migrationsDir)) {
+      throw new Error(`Missing packaged migrations directory at ${migrationsDir}`);
+    }
 
-    logger.info('initializing Prisma');
+    logger.info('running in-process SQLite migrations');
+    applyMigrationsInProcess(dbPath, migrationsDir, logger);
+    logger.info('in-process migrations complete');
+
+    logger.info('initializing Prisma Client');
     const { getPrisma } = await import('./server/lib/prisma');
     await getPrisma().$connect();
-    logger.info('Prisma init success');
+    logger.info('Prisma Client ready');
     logger.info('SQLite bootstrap success');
   })().catch((error) => {
     bootstrapPromise = null;
