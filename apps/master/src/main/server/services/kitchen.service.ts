@@ -29,6 +29,11 @@ export const kitchenService = {
         throw Errors.NotFound('Kitchen ticket');
       }
 
+      const terminalOrderStatuses = ['CANCELED', 'CLOSED', 'WALKOUT'];
+      if (terminalOrderStatuses.includes(ticket.order.status)) {
+        throw Errors.IllegalStateTransition(ticket.order.status, input.status);
+      }
+
       const updated = await getPrisma().$transaction(async (tx) => {
         let next;
         if (input.status === KitchenTicketStatus.IN_PROGRESS) {
