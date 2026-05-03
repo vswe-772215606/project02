@@ -1,4 +1,4 @@
-import { KitchenTicketStatus, Prisma } from '@prisma/client';
+import { KitchenTicketStatus, OrderStatus, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 
 type Tx = Prisma.TransactionClient;
@@ -48,6 +48,11 @@ export const kitchenRepo = {
       where: {
         status: {
           in: [KitchenTicketStatus.PENDING, KitchenTicketStatus.IN_PROGRESS],
+        },
+        order: {
+          status: {
+            notIn: [OrderStatus.CANCELED, OrderStatus.CLOSED, OrderStatus.WALKOUT],
+          },
         },
       },
       include: {
