@@ -25,19 +25,22 @@
     "files": [
       "out/**/*",
       "node_modules/**/*",
-      "node_modules/.prisma/**",
       "!node_modules/**/*.{md,txt,map}",
       "!node_modules/.cache/**/*"
     ],
     "asarUnpack": [
-      "node_modules/.prisma/**",
-      "node_modules/@prisma/client/**",
-      "node_modules/@prisma/engines/**"
+      "node_modules/@prisma/client/**/*",
+      "node_modules/@prisma/engines/**/*"
     ],
     "extraResources": [
-      { "from": "resources/bin", "to": "bin" },
+      {
+        "from": "../../node_modules/.prisma/client",
+        "to": "app.asar.unpacked/node_modules/.prisma/client",
+        "filter": ["**/*"]
+      },
       { "from": "prisma/schema.prisma", "to": "prisma/schema.prisma" },
-      { "from": "prisma/migrations", "to": "prisma/migrations" }
+      { "from": "prisma/migrations", "to": "prisma/migrations" },
+      { "from": "resources/bin", "to": "bin" }
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }]
