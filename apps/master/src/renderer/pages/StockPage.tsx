@@ -8,10 +8,8 @@ import {
   X
 } from 'lucide-react';
 import { stockApi } from '../api/stock';
-import { useSocket } from '../hooks/useSocket';
 
 export function StockPage() {
-  useSocket();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
