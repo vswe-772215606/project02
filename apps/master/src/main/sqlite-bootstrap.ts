@@ -1,13 +1,16 @@
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { createRequire } from 'module';
+import { dirname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { app } from 'electron';
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
 import { setupPrismaRuntime } from './prisma-runtime';
 import type { StartupLogger } from './startup-log';
 
 let bootstrapPromise: Promise<void> | null = null;
+
+const localRequire = createRequire(__filename);
 
 function toSqliteUrl(filePath: string): string {
   // file:///C:/path → file:C:/path (Prisma Windows SQLite format)
@@ -19,22 +22,37 @@ function computeChecksum(sql: string): string {
   return createHash('sha256').update(sql, 'utf8').digest('hex');
 }
 
-function applyMigrationsInProcess(
+async function applyMigrationsInProcess(
   dbPath: string,
   migrationsDir: string,
   logger: StartupLogger,
-): void {
-  const DatabaseCtor = (Database as unknown as { default?: typeof Database }).default ?? Database;
-  const db = new DatabaseCtor(dbPath);
+): Promise<void> {
+  // Locate the sql.js WASM file alongside the package entry.
+  // Electron's patched fs reads it correctly from inside the asar.
+  const sqlJsEntry = localRequire.resolve('sql.js');
+  const SQL = await initSqlJs({
+    locateFile: (filename: string) => join(dirname(sqlJsEntry), filename),
+  });
+
+  const dbBuf = existsSync(dbPath) ? readFileSync(dbPath) : null;
+  const db = new SQL.Database(dbBuf ? new Uint8Array(dbBuf) : undefined);
+  let dirty = false;
 
   try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS _app_migrations (
-        id   TEXT PRIMARY KEY,
-        checksum   TEXT NOT NULL,
-        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    const hasTable = db.exec(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='_app_migrations'`,
+    ).length > 0;
+
+    if (!hasTable) {
+      db.run(`
+        CREATE TABLE _app_migrations (
+          id         TEXT PRIMARY KEY,
+          checksum   TEXT NOT NULL,
+          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      dirty = true;
+    }
 
     const migrationDirs = readdirSync(migrationsDir, { withFileTypes: true })
       .filter((e) => e.isDirectory())
@@ -43,11 +61,6 @@ function applyMigrationsInProcess(
 
     logger.info(`found ${migrationDirs.length} migration(s) in ${migrationsDir}`);
 
-    const getRow = db.prepare('SELECT checksum FROM _app_migrations WHERE id = ?');
-    const insertRow = db.prepare(
-      'INSERT INTO _app_migrations (id, checksum) VALUES (?, ?)',
-    );
-
     for (const migrationId of migrationDirs) {
       const sqlPath = join(migrationsDir, migrationId, 'migration.sql');
       if (!existsSync(sqlPath)) {
@@ -55,16 +68,20 @@ function applyMigrationsInProcess(
         continue;
       }
 
-      const sql = readFileSync(sqlPath, 'utf8');
-      const checksum = computeChecksum(sql);
-      const existing = getRow.get(migrationId) as { checksum: string } | undefined;
+      const migrationSql = readFileSync(sqlPath, 'utf8');
+      const checksum = computeChecksum(migrationSql);
 
-      if (existing) {
-        if (existing.checksum !== checksum) {
+      const stmt = db.prepare('SELECT checksum FROM _app_migrations WHERE id = ?');
+      stmt.bind([migrationId]);
+      const hasRow = stmt.step();
+      const existingChecksum = hasRow ? (stmt.getAsObject()['checksum'] as string) : undefined;
+      stmt.free();
+
+      if (existingChecksum !== undefined) {
+        if (existingChecksum !== checksum) {
           throw new Error(
             `Migration checksum mismatch for "${migrationId}". ` +
-            `Applied checksum: ${existing.checksum}. ` +
-            `Current checksum: ${checksum}. ` +
+            `Applied: ${existingChecksum}. Current: ${checksum}. ` +
             `Do not modify previously applied migrations.`,
           );
         }
@@ -73,9 +90,16 @@ function applyMigrationsInProcess(
       }
 
       logger.info(`migration ${migrationId}: applying`);
-      db.exec(sql);
-      insertRow.run(migrationId, checksum);
+      db.exec(migrationSql);
+      db.run('INSERT INTO _app_migrations (id, checksum) VALUES (?, ?)', [migrationId, checksum]);
+      dirty = true;
       logger.info(`migration ${migrationId}: applied`);
+    }
+
+    if (dirty) {
+      const data = db.export();
+      writeFileSync(dbPath, Buffer.from(data));
+      logger.info('database written to disk');
     }
   } finally {
     db.close();
@@ -116,7 +140,7 @@ export async function bootstrapPackagedWindowsSqlite(
     }
 
     logger.info('running in-process SQLite migrations');
-    applyMigrationsInProcess(dbPath, migrationsDir, logger);
+    await applyMigrationsInProcess(dbPath, migrationsDir, logger);
     logger.info('in-process migrations complete');
 
     logger.info('initializing Prisma Client');
