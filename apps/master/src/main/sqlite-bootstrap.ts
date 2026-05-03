@@ -11,7 +11,9 @@ const requireFromHere = createRequire(__filename);
 let bootstrapPromise: Promise<void> | null = null;
 
 function toSqliteUrl(filePath: string): string {
-  return pathToFileURL(filePath).href.replace('file://', 'file:');
+  // file:///C:/path → file:C:/path (Prisma Windows SQLite format)
+  // file:///home/user → file:/home/user (Prisma Unix SQLite format)
+  return pathToFileURL(filePath).href.replace(/^file:\/\/\/([A-Za-z]:)/, 'file:$1');
 }
 
 function resolvePackagedSchemaPath(): string {
