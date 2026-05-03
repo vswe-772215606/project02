@@ -1,24 +1,27 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'path';
 import { createServer } from 'http';
-import { createApp } from './server/app';
-import { attachSocket } from './server/socket';
-import { settingsService } from './server/services/settings.service';
-import { startScheduler } from './server/lib/scheduler';
+import { setupPrismaRuntime } from './prisma-runtime';
 
-// Belt-and-suspenders: also set in prisma.ts before new PrismaClient(), but
-// setting here ensures the env is visible to any code path that checks it early.
-if (app.isPackaged) {
-  const unpackedRoot = join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
-  process.env.PRISMA_QUERY_ENGINE_LIBRARY = join(unpackedRoot, '.prisma', 'client');
-  process.env.PRISMA_SCHEMA_PATH = join(process.resourcesPath, 'prisma', 'schema.prisma');
-}
+setupPrismaRuntime();
 
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
 
 let mainWindow: BrowserWindow | null = null;
 
 async function startServer(): Promise<void> {
+  const [
+    { createApp },
+    { attachSocket },
+    { settingsService },
+    { startScheduler },
+  ] = await Promise.all([
+    import('./server/app'),
+    import('./server/socket'),
+    import('./server/services/settings.service'),
+    import('./server/lib/scheduler'),
+  ]);
+
   await settingsService.loadAll();
   const expressApp = createApp();
   const httpServer = createServer(expressApp);

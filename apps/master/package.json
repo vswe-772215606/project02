@@ -5,9 +5,11 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "package:win": "electron-builder --win --x64",
-    "package:win:portable": "electron-builder --win portable --x64",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "build": "pnpm run package:prepare && electron-vite build",
+    "package:prepare": "node ./scripts/prepare-prisma-package.mjs",
+    "package:win": "pnpm run build && electron-builder --win --x64",
+    "package:win:portable": "pnpm run build && electron-builder --win portable --x64",
     "build:printer": "bash ./scripts/build-printer.sh",
     "build:printer:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-printer.ps1",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -26,27 +28,29 @@
       "out/**/*",
       "node_modules/**/*",
       "!node_modules/**/*.{md,txt,map}",
-      "!node_modules/.cache/**/*"
-    ],
-    "asarUnpack": [
-      "node_modules/@prisma/**/*",
-      "node_modules/.prisma/**/*",
-      "node_modules/prisma/**/*"
+      "!node_modules/.cache/**/*",
+      {
+        "from": "build/prisma-package/node_modules/@prisma/client",
+        "to": "node_modules/@prisma/client",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/prisma-package/node_modules/.prisma/client",
+        "to": "node_modules/.prisma/client",
+        "filter": [
+          "**/*.js",
+          "**/*.json",
+          "**/*.d.ts",
+          "**/*.prisma",
+          "**/*.mjs",
+          "**/*.wasm"
+        ]
+      }
     ],
     "extraResources": [
       {
-        "from": "../../node_modules/.prisma/client",
+        "from": "build/prisma-package/node_modules/.prisma/client",
         "to": "app.asar.unpacked/node_modules/.prisma/client",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../node_modules/@prisma/client",
-        "to": "app.asar.unpacked/node_modules/@prisma/client",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../../node_modules/@prisma/engines",
-        "to": "app.asar.unpacked/node_modules/@prisma/engines",
         "filter": ["**/*"]
       },
       { "from": "prisma/schema.prisma", "to": "prisma/schema.prisma" },
