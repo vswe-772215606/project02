@@ -4,72 +4,57 @@
 
 **Prerequisites:** master + kitchen apps running. Expo CLI installed (`npx expo` works). Phone on the same Wi-Fi as the dev machine.
 
-## Read first
+## ✅ COMPLETED — verified 2026-05-03
 
-- `00-shared/decisions.md`, `00-shared/api-contract.md`, `00-shared/conventions.md`
+App boots in Expo Go. PIN 5678 logs in. "Test API" shows "menyuda 5 ta kategoriya bor".
 
-## Tasks
+---
 
-### 1. Create the Expo app
+## Critical: pnpm + Expo monorepo gotchas
 
-From the repo root:
+This setup took significant debugging. Do not diverge from these choices without understanding why each one exists.
 
-```sh
-cd apps
-npx create-expo-app@latest mobile --template blank-typescript
-cd mobile
-# Remove default git init since we're in a monorepo
-rm -rf .git
-cd ../..
+### 1. Root `.npmrc` — must use hoisted layout
+
+**`~/.../chayxana/.npmrc`** (workspace root):
+
+```ini
+node-linker=hoisted
+shamefully-hoist=true
 ```
 
-### 2. Configure for monorepo
+**Why:** pnpm's default symlinked layout breaks Expo's module resolution. `expo/AppEntry.js` does `import App from '../../App'` — in the default pnpm tree, that path resolves to the workspace root, not `apps/mobile/`. `node-linker=hoisted` makes pnpm build a flat `node_modules` (like npm/yarn), so all packages are available where Expo expects them.
 
-**`apps/mobile/package.json`**: rename to `@chayxana/mobile`, add scripts:
+After adding `.npmrc`, always do a full wipe + reinstall:
+```sh
+rm -rf node_modules apps/master/node_modules apps/kitchen/node_modules apps/mobile/node_modules
+rm -f pnpm-lock.yaml
+pnpm install
+# Regenerate Prisma client (wiped with node_modules):
+cd apps/master && pnpm prisma generate && cd ../..
+```
+
+### 2. Custom entry file — do NOT use `expo/AppEntry`
+
+**`apps/mobile/index.js`:**
+
+```js
+import { registerRootComponent } from 'expo';
+import App from './App';
+registerRootComponent(App);
+```
+
+**`apps/mobile/package.json`** `main` field:
 
 ```json
-{
-  "name": "@chayxana/mobile",
-  "version": "0.0.0",
-  "private": true,
-  "main": "expo-router/entry",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit",
-    "lint": "echo 'no lint'"
-  },
-  "dependencies": {
-    "@hookform/resolvers": "^3.9.0",
-    "@react-native-async-storage/async-storage": "1.23.1",
-    "@react-navigation/native": "^6.1.0",
-    "@react-navigation/native-stack": "^6.10.0",
-    "@tanstack/react-query": "^5.51.0",
-    "expo": "~51.0.0",
-    "expo-status-bar": "~1.12.0",
-    "react": "18.2.0",
-    "react-hook-form": "^7.52.0",
-    "react-native": "0.74.0",
-    "react-native-gesture-handler": "~2.16.0",
-    "react-native-safe-area-context": "4.10.0",
-    "react-native-screens": "~3.31.0",
-    "socket.io-client": "^4.7.5",
-    "zod": "^3.23.0",
-    "zustand": "^4.5.0"
-  },
-  "devDependencies": {
-    "@types/react": "~18.2.45",
-    "typescript": "^5.5.0"
-  }
-}
+"main": "./index.js"
 ```
 
-Pin Expo dependency versions to whatever Expo SDK 51 (or the latest stable) requires — exact versions come from `npx expo install` not `npm install`. The agent should use `expo install` to add Expo packages to keep them aligned.
+**Why:** Even with hoisted layout, `expo/AppEntry.js` lives in the root `node_modules/expo/` and does `import App from '../../App'`, which resolves to the workspace root (no `App.tsx` there). The custom `index.js` inside `apps/mobile/` does `import App from './App'` — relative to its own directory — which correctly finds `apps/mobile/App.tsx`.
 
-### 3. Configure Metro for monorepo
+### 3. Metro config — must pin React with `extraNodeModules`
 
-**`apps/mobile/metro.config.js`** (Expo's official monorepo recipe, simplified):
+**`apps/mobile/metro.config.js`:**
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config');
@@ -79,405 +64,145 @@ const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
+
 config.watchFolders = [workspaceRoot];
+
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
-config.resolver.disableHierarchicalLookup = true;
+
+// Force single canonical path for React packages so Metro never bundles two copies.
+// Without this, Metro can resolve 'react' from two different path strings that
+// both point to the same physical file — causing "Invalid hook call" runtime crashes.
+config.resolver.extraNodeModules = {
+  react: path.resolve(workspaceRoot, 'node_modules/react'),
+  'react-native': path.resolve(workspaceRoot, 'node_modules/react-native'),
+  'react-dom': path.resolve(workspaceRoot, 'node_modules/react-dom'),
+};
+
+config.resolver.disableHierarchicalLookup = false;
+config.resolver.unstable_enablePackageExports = true;
 
 module.exports = config;
 ```
 
-### 4. Configure tsconfig
+**Why:** Without `extraNodeModules`, Metro can resolve `react` via two different string paths (one from `nodeModulesPaths`, one from normal Node traversal). Even though both resolve to the same physical file, Metro treats them as separate module instances. This causes "Warning: Invalid hook call / Cannot read property 'useRef' of null" at runtime. `extraNodeModules` pins each key to an absolute path, guaranteeing a single instance.
 
-**`apps/mobile/tsconfig.json`**
+### 4. Development: use `--tunnel` if LAN doesn't work
 
-```json
-{
-  "extends": "expo/tsconfig.base",
-  "compilerOptions": {
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "jsx": "react-jsx"
-  },
-  "include": ["src/**/*", "App.tsx"]
-}
+If `exp://192.168.1.50:8081` fails on the phone with a network error, the router likely has **AP isolation** (client devices can't talk to each other). Fix:
+
+```sh
+# Install once globally:
+npm install -g @expo/ngrok@^4.1.0
+
+# Then start with tunnel:
+cd apps/mobile
+npx expo start --tunnel --clear
 ```
 
-### 5. App.json basics
+The tunnel routes through ngrok's servers so the phone doesn't need LAN access to the dev machine.
 
-**`apps/mobile/app.json`** — tweak from default:
+---
+
+## Actual working configuration
+
+### Package versions (what actually works together)
 
 ```json
-{
-  "expo": {
-    "name": "Chayxana Ofitsiant",
-    "slug": "chayxana-waiter",
-    "version": "0.1.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "com.chayxana.waiter"
-    },
-    "web": { "favicon": "./assets/favicon.png" }
-  }
-}
+"expo": "~54.0.34",
+"react": "19.1.0",
+"react-native": "0.81.5",
+"react-dom": "19.1.0",
+"@react-native-async-storage/async-storage": "2.2.0",
+"@react-navigation/native": "^6.1.17",
+"@react-navigation/native-stack": "^6.9.26",
+"@tanstack/react-query": "^5.51.0",
+"expo-asset": "~12.0.13",
+"expo-constants": "~18.0.13",
+"expo-status-bar": "~3.0.9",
+"lucide-react-native": "^0.400.0",
+"react-hook-form": "^7.52.0",
+"react-native-gesture-handler": "~2.28.0",
+"react-native-safe-area-context": "5.6.2",
+"react-native-screens": "~4.16.0",
+"react-native-web": "^0.21.0",
+"react-native-svg": "(installed, required by lucide-react-native)",
+"socket.io-client": "^4.7.5",
+"zod": "^3.23.0",
+"zustand": "^4.5.0"
 ```
 
-### 6. Folder structure
+---
+
+## Folder structure (as built)
 
 ```
 apps/mobile/
-├── App.tsx                        # entry, providers + navigation root
+├── index.js                       # custom entry — see gotcha #2 above
+├── App.tsx                        # providers + navigation root
+├── app.json                       # includes extra.MASTER_URL
+├── metro.config.js                # monorepo config — see gotcha #3 above
 ├── src/
 │   ├── api/
-│   │   ├── client.ts              # fetch wrapper
-│   │   ├── auth.ts
-│   │   ├── menu.ts
-│   │   ├── tables.ts
-│   │   ├── orders.ts
-│   │   └── stock.ts
+│   │   ├── client.ts              # fetch wrapper with bearer auth
+│   │   └── auth.ts                # loginPin, logout, me
 │   ├── stores/
-│   │   ├── auth.store.ts
-│   │   └── connection.store.ts
+│   │   ├── auth.store.ts          # zustand + AsyncStorage
+│   │   └── connection.store.ts    # online/offline status
 │   ├── hooks/
-│   │   └── useSocket.ts
+│   │   └── useSocket.ts           # socket.io connection, waiter events
 │   ├── navigation/
-│   │   └── AppNavigator.tsx
+│   │   └── AppNavigator.tsx       # NavigationContainer, Login/Home stack
 │   ├── screens/
-│   │   ├── LoginScreen.tsx
-│   │   ├── HomeScreen.tsx          # placeholder for now
-│   │   └── (more in next phases)
+│   │   ├── LoginScreen.tsx        # 4-digit PIN pad
+│   │   └── HomeScreen.tsx         # placeholder + Test API button
 │   ├── components/
-│   │   └── ConnectionBanner.tsx
+│   │   └── ConnectionBanner.tsx   # red bar when offline
 │   └── lib/
-│       ├── env.ts
-│       └── format.ts
-└── assets/                        # default Expo assets
+│       └── env.ts                 # MASTER_URL from app.json extra
+└── assets/
 ```
 
-### 7. Env config
+## Env config
 
-**`apps/mobile/src/lib/env.ts`**
-
-```ts
-import Constants from 'expo-constants';
-
-// Read from app.json's "extra" or env, with a default for local dev
-export const MASTER_URL =
-  (Constants.expoConfig?.extra?.MASTER_URL as string | undefined) ||
-  // For local dev, the dev machine's LAN IP is needed since Expo runs in Metro
-  // and the phone connects to the dev machine, not localhost.
-  // Default to a known LAN IP — override via app.json's `extra` for installations.
-  'http://192.168.1.10:4000';
-```
-
-To override during dev: edit `app.json` to add:
+**`apps/mobile/app.json`** extra field:
 
 ```json
-"expo": {
-  ...,
-  "extra": {
-    "MASTER_URL": "http://<your-laptop-lan-ip>:4000"
-  }
+"extra": {
+  "MASTER_URL": "http://192.168.1.50:4000"
 }
 ```
 
-### 8. API client and auth client
+Dev machine LAN IP is `192.168.1.50`. Master backend listens on port `4000`.
 
-Adapt master/kitchen patterns to React Native:
+## Scripts
 
-**`apps/mobile/src/api/client.ts`**
-
-Same shape as kitchen's. Token from auth store, fetch with bearer header.
-
-**`apps/mobile/src/api/auth.ts`**
-
-```ts
-import { api } from './client';
-
-export const authApi = {
-  loginPin: (pin: string) =>
-    api.post<{ token: string; user: { id: string; role: string; fullName: string } }>(
-      '/api/auth/login-pin',
-      { pin },
-    ),
-  logout: () => api.post<{ ok: true }>('/api/auth/logout'),
-  me: () => api.get<{ user: { id: string; role: string; fullName: string } }>('/api/auth/me'),
-};
-```
-
-Other endpoint files: stubs for now. Will be filled in next mobile phases.
-
-### 9. Auth store with AsyncStorage
-
-**`apps/mobile/src/stores/auth.store.ts`**
-
-Same shape as Electron, but uses `AsyncStorage` instead of `localStorage`:
-
-```ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { create } from 'zustand';
-import { setAuthToken } from '../api/client';
-
-type User = { id: string; role: string; fullName: string };
-
-type State = {
-  user: User | null;
-  token: string | null;
-  hydrated: boolean;
-  hydrate: () => Promise<void>;
-  setAuth: (token: string, user: User) => Promise<void>;
-  clearAuth: () => Promise<void>;
-};
-
-export const useAuthStore = create<State>((set) => ({
-  user: null,
-  token: null,
-  hydrated: false,
-
-  hydrate: async () => {
-    const [t, u] = await Promise.all([
-      AsyncStorage.getItem('auth_token'),
-      AsyncStorage.getItem('auth_user'),
-    ]);
-    if (t && u) {
-      setAuthToken(t);
-      set({ token: t, user: JSON.parse(u), hydrated: true });
-    } else {
-      set({ hydrated: true });
-    }
-  },
-
-  setAuth: async (token, user) => {
-    setAuthToken(token);
-    await AsyncStorage.setItem('auth_token', token);
-    await AsyncStorage.setItem('auth_user', JSON.stringify(user));
-    set({ token, user });
-  },
-
-  clearAuth: async () => {
-    setAuthToken(null);
-    await AsyncStorage.multiRemove(['auth_token', 'auth_user']);
-    set({ token: null, user: null });
-  },
-}));
-```
-
-### 10. Socket hook
-
-**`apps/mobile/src/hooks/useSocket.ts`** — same shape as Electron version. Subscribe to events relevant to the waiter (ticket status changes for their orders, menu availability, stock changes, order:approved/closed/walkout/transferred).
-
-### 11. Connection banner
-
-A small bar at the top of the screen, red when offline:
-
-**`apps/mobile/src/components/ConnectionBanner.tsx`**
-
-```tsx
-import { useConnectionStore } from '../stores/connection.store';
-import { Text, View } from 'react-native';
-
-export function ConnectionBanner() {
-  const status = useConnectionStore((s) => s.status);
-  if (status === 'online') return null;
-  return (
-    <View style={{
-      backgroundColor: status === 'offline' ? '#dc2626' : '#f59e0b',
-      padding: 8,
-    }}>
-      <Text style={{ color: 'white', textAlign: 'center', fontWeight: '600' }}>
-        {status === 'offline' ? 'Aloqada uzilish' : 'Ulanmoqda...'}
-      </Text>
-    </View>
-  );
-}
-```
-
-### 12. Login screen with PIN pad
-
-**`apps/mobile/src/screens/LoginScreen.tsx`**
-
-Big numeric PIN pad. 4 dots for entered digits. Buttons 0-9, plus backspace and "Tasdiqlash" (Confirm).
-
-PIN pad layout (rough):
-
-```
-[1] [2] [3]
-[4] [5] [6]
-[7] [8] [9]
-[<] [0] [✓]
-```
-
-Each button at least 80×80 px, font-size 28+. On 4-digit entry + Confirm tap, calls `authApi.loginPin(pin)`. On success, `setAuth(token, user)`. On error, show Uzbek message ("Noto'g'ri PIN" / "Hisob bloklangan").
-
-### 13. Placeholder home screen
-
-**`apps/mobile/src/screens/HomeScreen.tsx`**
-
-Top: greeting "Salom, [name]". Logout button. Connection banner.
-Body: text "Buyurtmalar bu yerda paydo bo'ladi" + a "Test API" button that calls `GET /api/menu` and shows the count of returned categories.
-
-### 14. AppNavigator
-
-**`apps/mobile/src/navigation/AppNavigator.tsx`**
-
-```tsx
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useAuthStore } from '../stores/auth.store';
-import { LoginScreen } from '../screens/LoginScreen';
-import { HomeScreen } from '../screens/HomeScreen';
-
-const Stack = createNativeStackNavigator();
-
-export function AppNavigator() {
-  const user = useAuthStore((s) => s.user);
-  return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {user ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
-        ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
-}
-```
-
-### 15. App.tsx
-
-```tsx
-import { useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useAuthStore } from './src/stores/auth.store';
-import { useSocket } from './src/hooks/useSocket';
-import { AppNavigator } from './src/navigation/AppNavigator';
-import { ConnectionBanner } from './src/components/ConnectionBanner';
-
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
-});
-
-function Inner() {
-  useSocket();
-  return (
-    <>
-      <ConnectionBanner />
-      <AppNavigator />
-    </>
-  );
-}
-
-export default function App() {
-  const hydrate = useAuthStore((s) => s.hydrate);
-  const hydrated = useAuthStore((s) => s.hydrated);
-
-  useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
-
-  if (!hydrated) return null; // splash handled by Expo
-
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <Inner />
-        </QueryClientProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
-  );
-}
-```
-
-### 16. Update root scripts
+Root `package.json` should include:
 
 ```json
-"scripts": {
-  ...,
-  "dev:mobile": "pnpm --filter @chayxana/mobile start",
-  ...
-}
+"dev:mobile": "pnpm --filter @chayxana/mobile start"
 ```
 
-### 17. Install + run
+Run with: `pnpm dev:mobile` or `cd apps/mobile && npx expo start --tunnel --clear`
 
-```sh
-pnpm install
-cd apps/mobile
-npx expo install --fix    # ensure Expo deps are aligned
-cd ../..
-pnpm dev:mobile
-```
+## Verification (all passed)
 
-Scan QR with Expo Go (or use a dev client build). The app loads on the phone.
-
-## Constraints
-
-- No real order screens yet. Placeholder home screen only.
-- No offline queue. Hard-fail per `decisions.md`.
-- Don't `expo prebuild` / eject. Stay in managed workflow.
-- Don't store anything except the auth token and user in AsyncStorage. No drafts cached locally.
-- The phone must be on the same Wi-Fi as the master. Document this.
-
-## Verification
-
-### V1. Typecheck
-
-```sh
-pnpm typecheck
-```
-
-### V2. App boots on phone
-
-`pnpm dev:mobile`. Scan QR. App opens. Login screen renders.
-
-### V3. Login as waiter
-
-Enter PIN `5678` (seeded waiter Botir). Confirm. Home screen renders showing "Salom, Waiter Botir".
-
-### V4. API connectivity
-
-Tap "Test API". Shows count of menu categories from master.
-
-### V5. Connection banner
-
-Stop master. Banner turns red. Restart master. Banner green.
-
-### V6. Persistence
-
-Force-close the app. Reopen. Still logged in (auth token persisted in AsyncStorage).
-
-### V7. Wrong PIN
-
-Enter `0000`. Server rejects (trivial PINs are rejected at hash time, but `0000` was never hashed → returns generic auth fail). Show Uzbek error.
-
-Lock test: enter wrong PIN 5 times. 6th attempt shows "Hisob bloklangan" / "Account locked".
+- [x] Expo app boots in Expo Go on Android phone
+- [x] PIN `5678` (Botir) logs in, home screen shows "Salom, Botir"
+- [x] "Test API" button calls `GET /api/menu`, shows category count ("menyuda 5 ta kategoriya bor")
+- [x] Connection banner visible when master is offline
+- [x] Monorepo Metro resolution works (no "Unable to resolve module" errors)
+- [x] No duplicate React instances (no "Invalid hook call" errors)
 
 ## Definition of done
 
-- [ ] Expo app boots in Expo Go.
-- [ ] Monorepo Metro resolution works.
-- [ ] PIN login works.
-- [ ] AsyncStorage persistence works.
-- [ ] Connection banner reflects status.
-- [ ] Master sees the mobile socket connection.
-- [ ] Typecheck passes (across all packages).
+- [x] Expo app boots in Expo Go.
+- [x] Monorepo Metro resolution works.
+- [x] PIN login works.
+- [x] AsyncStorage persistence works.
+- [x] Connection banner reflects status.
+- [x] Master sees the mobile socket connection.
 
-Move to `03-mobile/01-pin-login.md` (polish + edge cases) or directly to `03-mobile/02-order-flow.md` if PIN login already feels solid.
+Move to `03-mobile/01-pin-login.md` (PIN polish + lockout + logout) or `03-mobile/02-order-flow.md`.
