@@ -40,8 +40,6 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Chayxana Kitchen",
-      "installerIcon": "build-resources/icon.ico",
-      "uninstallerIcon": "build-resources/icon.ico",
       "deleteAppDataOnUninstall": false
     }
   },
