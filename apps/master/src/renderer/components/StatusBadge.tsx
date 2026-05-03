@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 export type OrderStatus = 'DRAFT' | 'SENT' | 'BILL_REQUESTED' | 'PENDING_PAYMENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+export type KitchenTicketStatus = 'PENDING' | 'IN_PROGRESS' | 'READY' | 'CANCELED';
 
 interface StatusConfig {
   label: string;
@@ -37,6 +38,28 @@ export function StatusBadge({ status }: { status: OrderStatus }) {
     <span className={`inline-flex items-center px-2 py-1 rounded border text-xs font-semibold space-x-1.5 ${config.color}`}>
       <Icon size={14} />
       <span>{config.label}</span>
+    </span>
+  );
+}
+
+export function KitchenStatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    PENDING: 'bg-slate-100 text-slate-600 border-slate-200',
+    IN_PROGRESS: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    READY: 'bg-green-100 text-green-700 border-green-200',
+    CANCELED: 'bg-red-100 text-red-700 border-red-200',
+  };
+  
+  const labels: Record<string, string> = {
+    PENDING: 'Kutilmoqda',
+    IN_PROGRESS: 'Tayyorlanmoqda',
+    READY: 'Tayyor',
+    CANCELED: 'Bekor qilingan',
+  };
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${colors[status] || colors.PENDING}`}>
+      {labels[status] || status}
     </span>
   );
 }

@@ -16,6 +16,7 @@ import { discountsApi, Discount } from '../api/discounts';
 import { settingsApi } from '../api/settings';
 import { formatUZS, formatMinutesElapsed } from '../utils/format';
 import { Modal } from '../components/Modal';
+import { KitchenStatusBadge } from '../components/StatusBadge';
 
 export function ApprovalQueuePage() {
   const queryClient = useQueryClient();
@@ -186,33 +187,46 @@ function ApprovalModal({ orderId, onClose }: { orderId: string; onClose: () => v
 
   return (
     <Modal title={`Buyurtma #${order.orderNumber}ni tasdiqlash`} onClose={onClose} maxWidth="max-w-3xl">
-      <div className="space-y-6">
         {/* Items List */}
-        <div className="bg-slate-50 rounded-lg overflow-hidden border border-slate-100">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 uppercase text-xs font-bold tracking-wider">
-                <th className="px-4 py-2">Mahsulot</th>
-                <th className="px-4 py-2 text-center">Soni</th>
-                <th className="px-4 py-2 text-right">Narxi</th>
-                <th className="px-4 py-2 text-right">Jami</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {order.lines?.map((line) => (
-                <tr key={line.id} className={line.status === 'CANCELED' ? 'text-slate-400 bg-slate-50/50 italic' : 'text-slate-700'}>
-                  <td className="px-4 py-2">
-                    <div className="font-medium">{line.name}</div>
-                    {line.notes && <div className="text-xs text-slate-500 mt-0.5">Qayd: {line.notes}</div>}
-                    {line.status === 'CANCELED' && <div className="text-xs text-red-400 font-bold">BEKOR QILINGAN</div>}
-                  </td>
-                  <td className="px-4 py-2 text-center">{line.quantity}</td>
-                  <td className="px-4 py-2 text-right">{formatUZS(line.price)}</td>
-                  <td className="px-4 py-2 text-right font-medium">{formatUZS(line.price * line.quantity)}</td>
+        <div className="space-y-4">
+          <div className="bg-slate-50 rounded-lg overflow-hidden border border-slate-100">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 uppercase text-xs font-bold tracking-wider">
+                  <th className="px-4 py-2">Mahsulot</th>
+                  <th className="px-4 py-2 text-center">Soni</th>
+                  <th className="px-4 py-2 text-right">Narxi</th>
+                  <th className="px-4 py-2 text-right">Jami</th>
                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {order.lines?.map((line) => (
+                  <tr key={line.id} className={line.isCanceled ? 'text-slate-400 bg-slate-50/50 italic' : 'text-slate-700'}>
+                    <td className="px-4 py-2">
+                      <div className="font-medium">{line.name}</div>
+                      {line.notes && <div className="text-xs text-slate-500 mt-0.5">Qayd: {line.notes}</div>}
+                      {line.isCanceled && <div className="text-xs text-red-400 font-bold uppercase tracking-widest">Bekor qilingan</div>}
+                    </td>
+                    <td className="px-4 py-2 text-center">{line.quantity}</td>
+                    <td className="px-4 py-2 text-right">{formatUZS(line.price)}</td>
+                    <td className="px-4 py-2 text-right font-medium">{formatUZS(line.price * line.quantity)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {order.kitchenTickets && order.kitchenTickets.length > 0 && (
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-wrap gap-4">
+              <div className="w-full text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Oshxona holati</div>
+              {order.kitchenTickets.map((ticket, idx) => (
+                <div key={ticket.id} className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">
+                  <span className="text-xs font-bold text-slate-500">#{idx + 1}</span>
+                  <KitchenStatusBadge status={ticket.status} />
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
 
         {/* Adjustments */}

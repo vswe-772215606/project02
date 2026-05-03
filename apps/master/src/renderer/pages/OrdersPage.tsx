@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { ordersApi, Order } from '../api/orders';
 import { formatUZS, formatDateTimeUZ } from '../utils/format';
-import { StatusBadge, OrderStatus } from '../components/StatusBadge';
+import { StatusBadge, OrderStatus, KitchenStatusBadge } from '../components/StatusBadge';
 import { PaymentModal } from '../components/PaymentModal';
 import { Modal } from '../components/Modal';
 
@@ -218,16 +218,32 @@ function OrderListItem({
       {isExpanded && (
         <div className="px-4 pb-4 border-t border-slate-100 pt-4 animate-in slide-in-from-top-2 duration-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-4">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Mahsulotlar</h4>
+            <div className="space-y-6">
               <div className="space-y-2">
-                {order.lines?.map(line => (
-                  <div key={line.id} className={`flex justify-between text-sm ${line.status === 'CANCELED' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                    <span>{line.quantity}x {line.name}</span>
-                    <span className="font-medium">{formatUZS((line.price || 0) * line.quantity)}</span>
-                  </div>
-                ))}
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Mahsulotlar</h4>
+                <div className="space-y-2">
+                  {order.lines?.map(line => (
+                    <div key={line.id} className={`flex justify-between text-sm ${line.isCanceled ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                      <span>{line.quantity}x {line.name}</span>
+                      <span className="font-medium">{formatUZS((line.price || 0) * line.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+
+              {order.kitchenTickets && order.kitchenTickets.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Oshxona buyurtmalari</h4>
+                  <div className="space-y-2">
+                    {order.kitchenTickets.map((ticket, idx) => (
+                      <div key={ticket.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <span className="text-xs font-bold text-slate-600">Chek #{idx + 1}</span>
+                        <KitchenStatusBadge status={ticket.status} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-6">

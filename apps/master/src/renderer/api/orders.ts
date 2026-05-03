@@ -1,6 +1,18 @@
 import { api } from './client';
 import { User } from './auth';
 
+export type KitchenTicketStatus = 'PENDING' | 'IN_PROGRESS' | 'READY' | 'CANCELED';
+
+export interface KitchenTicket {
+  id: string;
+  orderId: string;
+  status: KitchenTicketStatus;
+  startedAt: string | null;
+  readyAt: string | null;
+  canceledAt: string | null;
+  createdAt: string;
+}
+
 export interface OrderLine {
   id: string;
   orderId: string;
@@ -10,8 +22,10 @@ export interface OrderLine {
   price: number;
   quantity: number;
   notes: string | null;
-  status: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'CANCELED';
+  status: string; // Internal line status if used
+  isCanceled: boolean;
   createdAt: string;
+  kitchenTicketId: string | null;
 }
 
 export interface Order {
@@ -31,8 +45,12 @@ export interface Order {
   serviceChargeWaived: boolean;
   createdAt: string;
   updatedAt: string;
+  closedAt: string | null;
+  canceledAt: string | null;
+  cancelReason: string | null;
   lines?: OrderLine[];
   waiter?: User;
+  kitchenTickets?: KitchenTicket[];
 }
 
 export const ordersApi = {

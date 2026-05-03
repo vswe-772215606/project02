@@ -38,10 +38,22 @@ export function useSocket() {
     socket.on('order:closed', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:walkout', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:transferred', () => qc.invalidateQueries({ queryKey: ['orders'] }));
-    socket.on('ticket:new', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
-    socket.on('ticket:statusChanged', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
-    socket.on('ticket:noteEdited', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
-    socket.on('ticket:canceled', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
+    socket.on('ticket:new', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    });
+    socket.on('ticket:statusChanged', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    });
+    socket.on('ticket:noteEdited', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    });
+    socket.on('ticket:canceled', () => {
+      qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    });
     socket.on('menu:itemAvailability', () => qc.invalidateQueries({ queryKey: ['menu'] }));
     socket.on('stock:changed', () => qc.invalidateQueries({ queryKey: ['stock'] }));
 
