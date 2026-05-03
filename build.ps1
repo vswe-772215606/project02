@@ -23,7 +23,7 @@
   .\build.ps1 -MobileOnly
 #>
 param(
-    [string]$MasterUrl  = "http://192.168.1.50:4000",
+    [string]$MasterUrl = "http://192.168.1.50:4000",
     [switch]$SkipMobile,
     [switch]$MobileOnly,
     [switch]$Portable
@@ -35,10 +35,10 @@ $root = $PSScriptRoot
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-function Step  { param($msg) Write-Host "`n====  $msg" -ForegroundColor Cyan }
-function OK    { param($msg) Write-Host "  OK  $msg"  -ForegroundColor Green }
-function Warn  { param($msg) Write-Host "  !!  $msg"  -ForegroundColor Yellow }
-function Fail  { param($msg) Write-Host "FAIL  $msg"  -ForegroundColor Red; exit 1 }
+function Step { param($msg) Write-Host "`n====  $msg" -ForegroundColor Cyan }
+function OK   { param($msg) Write-Host "  OK  $msg"  -ForegroundColor Green }
+function Warn { param($msg) Write-Host "  !!  $msg"  -ForegroundColor Yellow }
+function Fail { param($msg) Write-Host "FAIL  $msg"  -ForegroundColor Red; exit 1 }
 
 function Require-Command {
     param([string]$cmd, [string]$hint)
@@ -58,8 +58,8 @@ function Run {
 # ---------------------------------------------------------------------------
 Step "Checking prerequisites"
 
-Require-Command node  "Install Node.js 20+ from https://nodejs.org"
-Require-Command pnpm  "Run: npm install -g pnpm"
+Require-Command "node" "Install Node.js 20+ from https://nodejs.org"
+Require-Command "pnpm" "Run: npm install -g pnpm"
 
 $nodeVer = (node --version)
 $pnpmVer = (pnpm --version)
@@ -68,23 +68,22 @@ OK "pnpm  $pnpmVer"
 
 # C++ compiler check (for printer binary)
 $compiler = $null
-$cl  = Get-Command cl.exe  -ErrorAction SilentlyContinue
-$gxx = Get-Command g++     -ErrorAction SilentlyContinue
-if     ($cl)  { $compiler = "msvc";  OK "C++   MSVC (cl.exe)" }
-elseif ($gxx) { $compiler = "mingw"; OK "C++   MinGW (g++)" }
-else          { Warn "No C++ compiler found — printer binary will not be rebuilt (using existing receipt.exe)" }
+$cl  = Get-Command "cl.exe" -ErrorAction SilentlyContinue
+$gxx = Get-Command "g++"    -ErrorAction SilentlyContinue
+if ($cl)       { $compiler = "msvc";  OK "C++   MSVC (cl.exe)" }
+elseif ($gxx)  { $compiler = "mingw"; OK "C++   MinGW (g++)" }
+else           { Warn "No C++ compiler found - printer binary will not be rebuilt (using existing receipt.exe if present)" }
 
 if (-not $MobileOnly) {
-    # electron-builder requires Python for native module rebuilds
-    $py = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $py) { Warn "python not found — native module rebuild may fail" }
+    $py = Get-Command "python" -ErrorAction SilentlyContinue
+    if (-not $py) { Warn "python not found - native module rebuild may fail" }
 }
 
-if (-not $SkipMobile -and -not $MobileOnly -or $MobileOnly) {
-    $java = Get-Command java -ErrorAction SilentlyContinue
-    if (-not $java) { Warn "java not found — Android build requires JDK 17+" }
+if ($MobileOnly -or (-not $SkipMobile)) {
+    $java = Get-Command "java" -ErrorAction SilentlyContinue
+    if (-not $java) { Warn "java not found - Android build requires JDK 17+" }
     if (-not $env:ANDROID_HOME -and -not $env:ANDROID_SDK_ROOT) {
-        Warn "ANDROID_HOME not set — Android build requires Android SDK"
+        Warn "ANDROID_HOME not set - Android build requires Android SDK"
     }
 }
 
@@ -93,7 +92,7 @@ if (-not $SkipMobile -and -not $MobileOnly -or $MobileOnly) {
 # ---------------------------------------------------------------------------
 if (-not $MobileOnly) {
     Step "Installing dependencies (pnpm install)"
-    Run pnpm, install, "--frozen-lockfile"
+    Run @("pnpm", "install", "--frozen-lockfile")
     OK "Dependencies installed"
 }
 
@@ -110,42 +109,46 @@ if (-not $MobileOnly) {
         & powershell -ExecutionPolicy Bypass -File $printerScript
         if ($LASTEXITCODE -ne 0) { Fail "Printer binary build failed" }
         OK "receipt.exe built at resources\bin\"
-    } elseif (Test-Path $printerExe) {
-        Warn "Skipping printer build — using existing $printerExe"
-    } else {
+    }
+    elseif (Test-Path $printerExe) {
+        Warn "Skipping printer build - using existing $printerExe"
+    }
+    else {
         Fail "No C++ compiler and no pre-built receipt.exe found. Install MinGW-w64 or MSVC Build Tools."
     }
 }
 
 # ---------------------------------------------------------------------------
-# 4. Master (Electron — admin + server)
+# 4. Master app (Electron - admin + server)
 # ---------------------------------------------------------------------------
 if (-not $MobileOnly) {
     Step "Building Master app"
 
     Push-Location "$root\apps\master"
 
-    # Generate Prisma client for Windows
     Write-Host "  -> prisma generate"
-    Run pnpm, exec, prisma, generate
+    Run @("pnpm", "exec", "prisma", "generate")
     OK "Prisma client generated"
 
-    # TypeScript + Vite build
     Write-Host "  -> electron-vite build"
-    Run pnpm, run, build
+    Run @("pnpm", "run", "build")
     OK "Master JS/TS compiled"
 
-    # Package with electron-builder
-    $ebTarget = if ($Portable) { "--win", "portable" } else { "--win", "nsis" }
-    Write-Host "  -> electron-builder $ebTarget"
-    Run pnpm, exec, electron-builder, --x64, $ebTarget
+    if ($Portable) {
+        Write-Host "  -> electron-builder (portable)"
+        Run @("pnpm", "exec", "electron-builder", "--win", "portable", "--x64")
+    }
+    else {
+        Write-Host "  -> electron-builder (NSIS installer)"
+        Run @("pnpm", "exec", "electron-builder", "--win", "nsis", "--x64")
+    }
 
     Pop-Location
     OK "Master installer -> apps\master\dist\"
 }
 
 # ---------------------------------------------------------------------------
-# 5. Kitchen (Electron — display screen)
+# 5. Kitchen app (Electron - display screen)
 # ---------------------------------------------------------------------------
 if (-not $MobileOnly) {
     Step "Building Kitchen app"
@@ -153,19 +156,24 @@ if (-not $MobileOnly) {
     Push-Location "$root\apps\kitchen"
 
     Write-Host "  -> electron-vite build"
-    Run pnpm, run, build
+    Run @("pnpm", "run", "build")
     OK "Kitchen JS/TS compiled"
 
-    $ebTarget = if ($Portable) { "--win", "portable" } else { "--win", "nsis" }
-    Write-Host "  -> electron-builder $ebTarget"
-    Run pnpm, exec, electron-builder, --x64, $ebTarget
+    if ($Portable) {
+        Write-Host "  -> electron-builder (portable)"
+        Run @("pnpm", "exec", "electron-builder", "--win", "portable", "--x64")
+    }
+    else {
+        Write-Host "  -> electron-builder (NSIS installer)"
+        Run @("pnpm", "exec", "electron-builder", "--win", "nsis", "--x64")
+    }
 
     Pop-Location
     OK "Kitchen installer -> apps\kitchen\dist\"
 }
 
 # ---------------------------------------------------------------------------
-# 6. Mobile (Android APK)
+# 6. Mobile app (Android APK)
 # ---------------------------------------------------------------------------
 if (-not $SkipMobile) {
     Step "Building Mobile app (Android APK)"
@@ -179,40 +187,43 @@ if (-not $SkipMobile) {
     $appJson | ConvertTo-Json -Depth 10 | Set-Content $appJsonPath -Encoding UTF8
     OK "MASTER_URL set to $MasterUrl"
 
-    $eas = Get-Command eas -ErrorAction SilentlyContinue
+    $eas = Get-Command "eas" -ErrorAction SilentlyContinue
 
     if ($eas) {
-        # Cloud / local EAS build
         Write-Host "  -> eas build --platform android --local"
-        Run eas, build, --platform, android, --local, --non-interactive, --output, ".\chayxana.apk"
+        Run @("eas", "build", "--platform", "android", "--local", "--non-interactive", "--output", ".\chayxana.apk")
         OK "APK -> apps\mobile\chayxana.apk"
-    } else {
-        # Local Gradle build (requires Android SDK + JDK)
+    }
+    else {
         Write-Host "  -> expo prebuild"
-        Run npx, expo, prebuild, --platform, android, --clean
+        Run @("npx", "expo", "prebuild", "--platform", "android", "--clean")
 
-        Push-Location android
+        Push-Location "android"
         Write-Host "  -> gradlew assembleRelease"
 
         if (Test-Path ".\gradlew.bat") {
             cmd /c gradlew.bat assembleRelease
-        } else {
-            Run .\gradlew, assembleRelease
         }
-        if ($LASTEXITCODE -ne 0) { Pop-Location; Pop-Location; Fail "Gradle build failed" }
+        else {
+            & .\gradlew assembleRelease
+        }
+        if ($LASTEXITCODE -ne 0) {
+            Pop-Location
+            Pop-Location
+            Fail "Gradle build failed"
+        }
         Pop-Location
 
-        # Copy APK to a known location
         $apkSrc = ".\android\app\build\outputs\apk\release\app-release.apk"
         if (Test-Path $apkSrc) {
             Copy-Item $apkSrc ".\chayxana.apk" -Force
             OK "APK -> apps\mobile\chayxana.apk"
-        } else {
-            # debug fallback
+        }
+        else {
             $apkDebug = ".\android\app\build\outputs\apk\debug\app-debug.apk"
             if (Test-Path $apkDebug) {
                 Copy-Item $apkDebug ".\chayxana.apk" -Force
-                Warn "Release APK not found — copied debug build to apps\mobile\chayxana.apk"
+                Warn "Release APK not found - copied debug build to apps\mobile\chayxana.apk"
             }
         }
     }
@@ -225,9 +236,9 @@ if (-not $SkipMobile) {
 # ---------------------------------------------------------------------------
 Step "Build complete"
 if (-not $MobileOnly) {
-    Write-Host "  Master   : apps\master\dist\Chayxana Master Setup*.exe"  -ForegroundColor Green
-    Write-Host "  Kitchen  : apps\kitchen\dist\Chayxana Kitchen Setup*.exe" -ForegroundColor Green
+    Write-Host "  Master  : apps\master\dist\Chayxana Master Setup*.exe"  -ForegroundColor Green
+    Write-Host "  Kitchen : apps\kitchen\dist\Chayxana Kitchen Setup*.exe" -ForegroundColor Green
 }
 if (-not $SkipMobile) {
-    Write-Host "  Mobile   : apps\mobile\chayxana.apk"                      -ForegroundColor Green
+    Write-Host "  Mobile  : apps\mobile\chayxana.apk" -ForegroundColor Green
 }
