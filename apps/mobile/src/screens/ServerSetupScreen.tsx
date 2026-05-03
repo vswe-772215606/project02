@@ -15,6 +15,14 @@ function normalizeUrl(raw: string): string {
   return url.replace(/\/$/, '');
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return 'Unknown error';
+}
+
 export function ServerSetupScreen() {
   const setServerUrl = useSettingsStore((s) => s.setServerUrl);
   const [input, setInput] = useState('');
@@ -26,13 +34,18 @@ export function ServerSetupScreen() {
     if (!url) { setError("IP manzilni kiriting"); return; }
     setError('');
     setTesting(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${url}/api/health`, { signal: controller.signal });
       if (!res.ok) throw new Error('bad status');
       setServerUrl(url);
-    } catch {
-      setError(`Ulanib bo'lmadi: ${url}\nServer yoqilganligini va IP to'g'riligini tekshiring.`);
+    } catch (error) {
+      setError(
+        `Ulanib bo'lmadi: ${url}\nServer yoqilganligini va IP to'g'riligini tekshiring.\nXatolik: ${getErrorMessage(error)}`,
+      );
     } finally {
+      clearTimeout(timeoutId);
       setTesting(false);
     }
   };

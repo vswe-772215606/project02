@@ -28,7 +28,10 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "MASTER_URL": "http://192.168.1.50:4000"
+      "MASTER_URL": "http://192.168.1.50:4000",
+      "eas": {
+        "projectId": "26443d31-3432-4e01-a219-2b4b968c9120"
+      }
     }
   }
 }
