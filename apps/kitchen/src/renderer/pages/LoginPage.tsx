@@ -3,8 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuthStore } from '../stores/auth.store';
+import { useSettingsStore } from '../stores/settings.store';
 import { authApi } from '../api/auth';
-import { ChefHat, Lock, User } from 'lucide-react';
+import { ChefHat, Lock, User, Settings } from 'lucide-react';
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Foydalanuvchi nomi kiritilmadi'),
@@ -15,6 +16,8 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const login = useAuthStore((s) => s.login);
+  const setServerUrl = useSettingsStore((s) => s.setServerUrl);
+  const serverUrl = useSettingsStore((s) => s.serverUrl);
   const [error, setError] = React.useState<string | null>(null);
 
   const {
@@ -38,12 +41,21 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
-        <div className="bg-blue-600 p-8 text-center text-white">
+        <div className="bg-blue-600 p-8 text-center text-white relative">
           <div className="inline-flex p-4 bg-white/20 rounded-2xl mb-4">
             <ChefHat size={48} />
           </div>
           <h1 className="text-3xl font-black uppercase tracking-tight">Oshxona</h1>
           <p className="text-blue-100 font-medium mt-1">Tizimga kirish</p>
+          <p className="text-blue-200 text-xs mt-1 font-mono">{serverUrl}</p>
+          <button
+            type="button"
+            onClick={() => setServerUrl('')}
+            className="absolute top-3 right-3 p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
+            title="Server manzilini o'zgartirish"
+          >
+            <Settings size={16} />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="p-8 space-y-6">
