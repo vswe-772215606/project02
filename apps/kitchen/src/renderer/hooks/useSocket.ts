@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
+import { checkServerHealth } from '../lib/network';
 import { useMasterUrl } from '../providers/MasterUrlProvider';
 
 let socket: Socket | null = null;
@@ -32,8 +33,10 @@ function beep() {
 
 export function useSocket() {
   const token = useAuthStore((s) => s.token);
+  const logout = useAuthStore((s) => s.logout);
   const { masterUrl } = useMasterUrl();
   const setStatus = useConnectionStore((s) => s.setStatus);
+  const markOnline = useConnectionStore((s) => s.markOnline);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -45,6 +48,18 @@ export function useSocket() {
       return;
     }
 
+    let authFailed = false;
+    let failedAttempts = 0;
+    setStatus('connecting');
+
+    const failAuth = () => {
+      authFailed = true;
+      setStatus('auth-failed');
+      logout();
+      socket?.disconnect();
+      socket = null;
+    };
+
     socket = io(masterUrl, {
       auth: { token },
       reconnection: true,
@@ -52,9 +67,42 @@ export function useSocket() {
       reconnectionDelayMax: 5000,
     });
 
-    socket.on('connect', () => setStatus('online'));
-    socket.on('disconnect', () => setStatus('offline'));
-    socket.on('connect_error', () => setStatus('offline'));
+    socket.on('connect', () => {
+      failedAttempts = 0;
+      markOnline();
+    });
+    socket.on('disconnect', () => {
+      if (!authFailed) {
+        setStatus('reconnecting');
+      }
+    });
+    socket.on('auth:kicked', () => {
+      failAuth();
+    });
+    socket.on('connect_error', (error) => {
+      if (error.message.includes('UNAUTHORIZED')) {
+        failAuth();
+        return;
+      }
+
+      failedAttempts += 1;
+      if (failedAttempts < 5) {
+        setStatus('reconnecting');
+        return;
+      }
+
+      void checkServerHealth(masterUrl, 3000)
+        .then(() => {
+          if (!authFailed) {
+            setStatus('reconnecting');
+          }
+        })
+        .catch(() => {
+          if (!authFailed) {
+            setStatus('unreachable');
+          }
+        });
+    });
 
     socket.on('ticket:new', () => {
       qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
@@ -68,8 +116,9 @@ export function useSocket() {
     socket.on('stock:changed', () => qc.invalidateQueries({ queryKey: ['stock'] }));
 
     return () => {
+      authFailed = true;
       socket?.disconnect();
       socket = null;
     };
-  }, [masterUrl, qc, setStatus, token]);
+  }, [logout, markOnline, masterUrl, qc, setStatus, token]);
 }

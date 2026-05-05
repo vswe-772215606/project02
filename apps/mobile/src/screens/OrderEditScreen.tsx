@@ -81,7 +81,7 @@ export function OrderEditScreen() {
   const route = useRoute<Route>();
   const { orderId } = route.params;
   const qc = useQueryClient();
-  const offline = useConnectionStore((s) => s.status) === 'offline';
+  const offline = useConnectionStore((s) => s.status) !== 'online';
 
   const [tab, setTab] = useState<'order' | 'menu'>('order');
   const [noteModal, setNoteModal] = useState<{ lineId: string; current: string } | null>(null);
@@ -204,12 +204,6 @@ export function OrderEditScreen() {
           <View style={{ width: 40 }} />
         )}
       </View>
-
-      {offline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>Aloqa yo'q — amallar o'chirilgan</Text>
-        </View>
-      )}
 
       {/* Tabs */}
       {isEditable && (

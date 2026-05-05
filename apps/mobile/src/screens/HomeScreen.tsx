@@ -102,6 +102,7 @@ export function HomeScreen() {
   const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const status = useConnectionStore((s) => s.status);
+  const actionsDisabled = status !== 'online';
   const [tab, setTab] = useState<'work' | 'bill'>('work');
 
   const { data: orders = [], isLoading, refetch } = useQuery({
@@ -146,12 +147,6 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {status === 'offline' && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>Aloqa yo'q</Text>
-        </View>
-      )}
-
       {/* Tab bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity
@@ -187,9 +182,9 @@ export function HomeScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.newOrderBtn, status === 'offline' && styles.btnDisabled]}
+          style={[styles.newOrderBtn, actionsDisabled && styles.btnDisabled]}
           onPress={() => nav.navigate('NewOrder')}
-          disabled={status === 'offline'}
+          disabled={actionsDisabled}
         >
           <Text style={styles.newOrderText}>+ Yangi</Text>
         </TouchableOpacity>

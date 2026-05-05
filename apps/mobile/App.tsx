@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback } from 'react';
-import { Alert } from 'react-native';
+import { Alert, View } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -11,6 +11,7 @@ import { useSocket } from './src/hooks/useSocket';
 import { setupNotifications } from './src/lib/notifications';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ConnectionBanner } from './src/components/ConnectionBanner';
+import { ConnectionDiagnostics } from './src/components/ConnectionDiagnostics';
 import { ToastContainer } from './src/components/Toast';
 
 SplashScreen.preventAutoHideAsync();
@@ -27,11 +28,12 @@ const queryClient = new QueryClient({
 function Inner() {
   useSocket();
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ConnectionBanner />
       <AppNavigator />
+      <ConnectionDiagnostics />
       <ToastContainer />
-    </>
+    </View>
   );
 }
 

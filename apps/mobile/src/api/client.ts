@@ -1,4 +1,5 @@
 import { getMasterUrl } from '../lib/env';
+import { useConnectionStore } from '../stores/connection.store';
 
 let authToken: string | null = null;
 let onUnauthorized: (() => void) | null = null;
@@ -30,6 +31,7 @@ export const api = {
     });
 
     if (response.status === 401) {
+      useConnectionStore.getState().setStatus('auth-failed');
       onUnauthorized?.();
       throw Object.assign(new Error('UNAUTHORIZED'), { code: 'UNAUTHORIZED' });
     }

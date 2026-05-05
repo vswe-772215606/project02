@@ -5,20 +5,22 @@ import { useSocket } from './hooks/useSocket';
 import { LoginPage } from './pages/LoginPage';
 import { KitchenDisplayPage } from './pages/KitchenDisplayPage';
 import { ConnectionBanner } from './components/ConnectionBanner';
+import { ConnectionDiagnostics } from './components/ConnectionDiagnostics';
 import { ServerSetupPage } from './pages/ServerSetupPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { MasterUrlProvider, useMasterUrl } from './providers/MasterUrlProvider';
 import { checkServerHealth } from './lib/network';
+import { useConnectionStore } from './stores/connection.store';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-function AuthedApp() {
+function AuthedApp({ onOpenSettings }: { onOpenSettings: () => void }) {
   useSocket();
   return (
     <>
-      <ConnectionBanner />
-      <KitchenDisplayPage />
+      <KitchenDisplayPage onOpenSettings={onOpenSettings} />
     </>
   );
 }
@@ -37,11 +39,15 @@ function AppShell() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const { loading, masterUrl, clearMasterUrl } = useMasterUrl();
+  const setStatus = useConnectionStore((s) => s.setStatus);
+  const markSuccessfulContact = useConnectionStore((s) => s.markSuccessfulContact);
   const [checking, setChecking] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (loading || !masterUrl) {
       setChecking(false);
+      setSettingsOpen(false);
       return;
     }
 
@@ -49,6 +55,12 @@ function AppShell() {
     setChecking(true);
 
     void checkServerHealth(masterUrl)
+      .then(() => {
+        markSuccessfulContact();
+        if (!user) {
+          setStatus('online');
+        }
+      })
       .catch(async () => {
         await clearMasterUrl();
         logout();
@@ -62,7 +74,7 @@ function AppShell() {
     return () => {
       active = false;
     };
-  }, [clearMasterUrl, loading, logout, masterUrl]);
+  }, [clearMasterUrl, loading, logout, markSuccessfulContact, masterUrl, setStatus, user]);
 
   if (loading) {
     return <BootScreen label="Sozlamalar yuklanmoqda..." />;
@@ -74,13 +86,17 @@ function AppShell() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {masterUrl ? <ConnectionBanner onOpenSettings={() => setSettingsOpen(true)} /> : null}
       {!masterUrl ? (
         <ServerSetupPage />
+      ) : settingsOpen ? (
+        <SettingsPage onClose={() => setSettingsOpen(false)} />
       ) : user ? (
-        <AuthedApp />
+        <AuthedApp onOpenSettings={() => setSettingsOpen(true)} />
       ) : (
-        <LoginPage />
+        <LoginPage onOpenSettings={() => setSettingsOpen(true)} />
       )}
+      <ConnectionDiagnostics />
     </QueryClientProvider>
   );
 }

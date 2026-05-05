@@ -14,7 +14,7 @@ export function ServerSetupScreen() {
 
   const handleConnect = async () => {
     const url = normalizeUrl(input);
-    if (!url) { setError("IP manzilni kiriting"); return; }
+    if (!url) { setError('Server manzilini kiriting'); return; }
     setError('');
     setTesting(true);
     try {

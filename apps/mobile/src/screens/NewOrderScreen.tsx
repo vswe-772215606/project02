@@ -15,6 +15,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'NewOrder'>;
 export function NewOrderScreen() {
   const nav = useNavigation<Nav>();
   const status = useConnectionStore((s) => s.status);
+  const actionsDisabled = status !== 'online';
   const [step, setStep] = useState<'type' | 'table'>('type');
 
   const { data: tables = [], isLoading: loadingTables } = useQuery({
@@ -56,12 +57,6 @@ export function NewOrderScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {status === 'offline' && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>Aloqada uzilish</Text>
-        </View>
-      )}
-
       {createMutation.isPending && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#2563eb" />
@@ -71,9 +66,9 @@ export function NewOrderScreen() {
       {step === 'type' ? (
         <View style={styles.typeContainer}>
           <TouchableOpacity
-            style={[styles.typeBtn, status === 'offline' && styles.btnDisabled]}
+            style={[styles.typeBtn, actionsDisabled && styles.btnDisabled]}
             onPress={() => setStep('table')}
-            disabled={status === 'offline'}
+            disabled={actionsDisabled}
           >
             <Text style={styles.typeBtnIcon}>🍽</Text>
             <Text style={styles.typeBtnText}>Zalda</Text>
@@ -81,9 +76,9 @@ export function NewOrderScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.typeBtn, status === 'offline' && styles.btnDisabled]}
+            style={[styles.typeBtn, actionsDisabled && styles.btnDisabled]}
             onPress={handleTakeaway}
-            disabled={status === 'offline' || createMutation.isPending}
+            disabled={actionsDisabled || createMutation.isPending}
           >
             <Text style={styles.typeBtnIcon}>🛍</Text>
             <Text style={styles.typeBtnText}>Olib ketish</Text>

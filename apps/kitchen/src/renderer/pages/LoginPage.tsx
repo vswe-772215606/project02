@@ -14,7 +14,7 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
-export function LoginPage() {
+export function LoginPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const login = useAuthStore((s) => s.login);
   const { masterUrl, clearMasterUrl } = useMasterUrl();
   const [error, setError] = React.useState<string | null>(null);
@@ -49,7 +49,7 @@ export function LoginPage() {
           <p className="text-blue-200 text-xs mt-1 font-mono">{masterUrl}</p>
           <button
             type="button"
-            onClick={() => void clearMasterUrl()}
+            onClick={onOpenSettings}
             className="absolute top-3 right-3 p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
             title="Server manzilini o'zgartirish"
           >
@@ -106,6 +106,16 @@ export function LoginPage() {
             {isSubmitting ? 'Kirilmoqda...' : 'Kirish'}
           </button>
         </form>
+
+        <div className="px-8 pb-7">
+          <button
+            type="button"
+            onClick={() => void clearMasterUrl()}
+            className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Serverni qayta tanlash
+          </button>
+        </div>
       </div>
     </div>
   );

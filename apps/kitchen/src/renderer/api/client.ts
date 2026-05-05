@@ -1,4 +1,5 @@
 import { requireMasterUrl } from '../lib/env';
+import { useConnectionStore } from '../stores/connection.store';
 import { useAuthStore } from '../stores/auth.store';
 
 export const api = {
@@ -17,8 +18,9 @@ export const api = {
     });
 
     if (response.status === 401) {
+      useConnectionStore.getState().setStatus('auth-failed');
       useAuthStore.getState().logout();
-      throw new Error('Unauthorized');
+      throw new Error('UNAUTHORIZED');
     }
 
     const data = await response.json();

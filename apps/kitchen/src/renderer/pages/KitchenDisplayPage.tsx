@@ -2,11 +2,45 @@ import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth.store';
 import { kitchenApi } from '../api/kitchen';
-import { LogOut, ChefHat, RefreshCw, LayoutGrid } from 'lucide-react';
+import { LogOut, ChefHat, RefreshCw, LayoutGrid, Settings } from 'lucide-react';
 import { useConnectionStore } from '../stores/connection.store';
 import { TicketCard } from '../components/TicketCard';
 
-export function KitchenDisplayPage() {
+function getHeaderLabel(status: string): string {
+  switch (status) {
+    case 'online':
+      return "Bog'langan";
+    case 'connecting':
+      return 'Ulanmoqda';
+    case 'reconnecting':
+      return 'Qayta ulanmoqda';
+    case 'auth-failed':
+      return 'Sessiya tugagan';
+    case 'unreachable':
+      return 'Server topilmadi';
+    default:
+      return status;
+  }
+}
+
+function getHeaderDot(status: string): string {
+  switch (status) {
+    case 'online':
+      return 'bg-green-400';
+    case 'connecting':
+      return 'bg-amber-400';
+    case 'reconnecting':
+      return 'bg-orange-500';
+    case 'auth-failed':
+      return 'bg-rose-500';
+    case 'unreachable':
+      return 'bg-red-500';
+    default:
+      return 'bg-slate-400';
+  }
+}
+
+export function KitchenDisplayPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const status = useConnectionStore((s) => s.status);
@@ -38,9 +72,9 @@ export function KitchenDisplayPage() {
           <div>
             <h1 className="text-2xl font-black uppercase tracking-tighter text-white">Oshxona</h1>
             <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${status === 'online' ? 'bg-green-400' : 'bg-red-500'} animate-pulse`} />
+              <div className={`w-2 h-2 rounded-full ${getHeaderDot(status)} animate-pulse`} />
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                {status === 'online' ? 'Bog\'langan' : 'Aloqa yo\'q'}
+                {getHeaderLabel(status)}
               </span>
             </div>
           </div>
@@ -61,6 +95,13 @@ export function KitchenDisplayPage() {
               <p className="text-sm font-bold text-white">{user?.fullName}</p>
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{user?.role}</p>
             </div>
+            <button
+              onClick={onOpenSettings}
+              className="p-4 bg-slate-700 text-slate-400 rounded-2xl hover:bg-slate-600 hover:text-white transition-all active:scale-95"
+              title="Server sozlamalari"
+            >
+              <Settings size={24} />
+            </button>
             <button 
               onClick={logout}
               className="p-4 bg-slate-700 text-slate-400 rounded-2xl hover:bg-red-600 hover:text-white transition-all active:scale-95"

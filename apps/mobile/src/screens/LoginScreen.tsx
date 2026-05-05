@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Animated } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../stores/auth.store';
+import { RootStackParamList } from '../navigation/AppNavigator';
+
+type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
 export function LoginScreen() {
+  const nav = useNavigation<Nav>();
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,6 +112,9 @@ export function LoginScreen() {
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity onPress={() => nav.navigate('Settings')} style={styles.settingsBtn}>
+        <Text style={styles.settingsBtnText}>⚙</Text>
+      </TouchableOpacity>
       <Text style={styles.title}>Chayxana</Text>
       <Text style={styles.subtitle}>PIN kodni kiriting</Text>
 
@@ -162,6 +171,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 20,
   },
+  settingsBtn: {
+    position: 'absolute',
+    top: 56,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsBtnText: { fontSize: 18, color: '#64748b' },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
