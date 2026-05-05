@@ -3,9 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuthStore } from '../stores/auth.store';
-import { useSettingsStore } from '../stores/settings.store';
 import { authApi } from '../api/auth';
 import { ChefHat, Lock, User, Settings } from 'lucide-react';
+import { useMasterUrl } from '../providers/MasterUrlProvider';
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Foydalanuvchi nomi kiritilmadi'),
@@ -16,8 +16,7 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const login = useAuthStore((s) => s.login);
-  const setServerUrl = useSettingsStore((s) => s.setServerUrl);
-  const serverUrl = useSettingsStore((s) => s.serverUrl);
+  const { masterUrl, clearMasterUrl } = useMasterUrl();
   const [error, setError] = React.useState<string | null>(null);
 
   const {
@@ -47,10 +46,10 @@ export function LoginPage() {
           </div>
           <h1 className="text-3xl font-black uppercase tracking-tight">Oshxona</h1>
           <p className="text-blue-100 font-medium mt-1">Tizimga kirish</p>
-          <p className="text-blue-200 text-xs mt-1 font-mono">{serverUrl}</p>
+          <p className="text-blue-200 text-xs mt-1 font-mono">{masterUrl}</p>
           <button
             type="button"
-            onClick={() => setServerUrl('')}
+            onClick={() => void clearMasterUrl()}
             className="absolute top-3 right-3 p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
             title="Server manzilini o'zgartirish"
           >

@@ -1,16 +1,17 @@
-import { getMasterUrl } from '../lib/env';
+import { requireMasterUrl } from '../lib/env';
 import { useAuthStore } from '../stores/auth.store';
 
 export const api = {
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = useAuthStore.getState().token;
     const headers = new Headers(options.headers);
+    const masterUrl = requireMasterUrl();
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
     headers.set('Content-Type', 'application/json');
 
-    const response = await fetch(`${getMasterUrl()}${path}`, {
+    const response = await fetch(`${masterUrl}${path}`, {
       ...options,
       headers,
     });

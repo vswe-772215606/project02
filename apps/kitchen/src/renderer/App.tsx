@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from './stores/auth.store';
-import { useSettingsStore } from './stores/settings.store';
 import { useSocket } from './hooks/useSocket';
 import { LoginPage } from './pages/LoginPage';
 import { KitchenDisplayPage } from './pages/KitchenDisplayPage';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ServerSetupPage } from './pages/ServerSetupPage';
+import { MasterUrlProvider, useMasterUrl } from './providers/MasterUrlProvider';
+import { checkServerHealth } from './lib/network';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -22,48 +23,58 @@ function AuthedApp() {
   );
 }
 
-export function App() {
+function BootScreen({ label }: { label: string }) {
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-slate-400 font-bold uppercase tracking-widest text-sm animate-pulse">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function AppShell() {
   const user = useAuthStore((s) => s.user);
-  const serverUrl = useSettingsStore((s) => s.serverUrl);
-  const setServerUrl = useSettingsStore((s) => s.setServerUrl);
   const logout = useAuthStore((s) => s.logout);
-  const [checking, setChecking] = useState(!!serverUrl);
+  const { loading, masterUrl, clearMasterUrl } = useMasterUrl();
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    if (!serverUrl) return;
+    if (loading || !masterUrl) {
+      setChecking(false);
+      return;
+    }
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    let active = true;
+    setChecking(true);
 
-    fetch(`${serverUrl}/api/health`, { signal: controller.signal })
-      .then((res) => { if (!res.ok) throw new Error('bad status'); })
-      .catch(() => {
-        // Stored URL is unreachable — clear it so ServerSetupPage shows
-        setServerUrl('');
+    void checkServerHealth(masterUrl)
+      .catch(async () => {
+        await clearMasterUrl();
         logout();
       })
       .finally(() => {
-        window.clearTimeout(timeout);
-        setChecking(false);
+        if (active) {
+          setChecking(false);
+        }
       });
 
-    return () => { controller.abort(); window.clearTimeout(timeout); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [clearMasterUrl, loading, logout, masterUrl]);
+
+  if (loading) {
+    return <BootScreen label="Sozlamalar yuklanmoqda..." />;
+  }
 
   if (checking) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-slate-400 font-bold uppercase tracking-widest text-sm animate-pulse">
-          Ulanilmoqda...
-        </div>
-      </div>
-    );
+    return <BootScreen label="Ulanilmoqda..." />;
   }
 
   return (
     <QueryClientProvider client={queryClient}>
-      {!serverUrl ? (
+      {!masterUrl ? (
         <ServerSetupPage />
       ) : user ? (
         <AuthedApp />
@@ -71,5 +82,13 @@ export function App() {
         <LoginPage />
       )}
     </QueryClientProvider>
+  );
+}
+
+export function App() {
+  return (
+    <MasterUrlProvider>
+      <AppShell />
+    </MasterUrlProvider>
   );
 }

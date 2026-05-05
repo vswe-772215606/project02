@@ -14,12 +14,17 @@ export function setUnauthorizedHandler(cb: () => void) {
 export const api = {
   async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers = new Headers(options.headers);
+    const masterUrl = getMasterUrl();
+    if (!masterUrl) {
+      throw Object.assign(new Error('MASTER_URL_NOT_CONFIGURED'), { code: 'MASTER_URL_NOT_CONFIGURED' });
+    }
+
     if (authToken) {
       headers.set('Authorization', `Bearer ${authToken}`);
     }
     headers.set('Content-Type', 'application/json');
 
-    const response = await fetch(`${getMasterUrl()}${path}`, {
+    const response = await fetch(`${masterUrl}${path}`, {
       ...options,
       headers,
     });

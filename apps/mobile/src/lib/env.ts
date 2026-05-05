@@ -1,6 +1,16 @@
+import Constants from 'expo-constants';
 import { useSettingsStore } from '../stores/settings.store';
 
-export function getMasterUrl(): string {
+export function getMasterUrl(): string | null {
   const stored = useSettingsStore.getState().serverUrl;
-  return stored || 'http://192.168.1.50:4000';
+  if (stored) {
+    return stored;
+  }
+
+  const metadata = Constants.expoConfig?.extra?.MASTER_URL;
+  if (typeof metadata === 'string' && metadata.length > 0) {
+    return metadata;
+  }
+
+  return null;
 }

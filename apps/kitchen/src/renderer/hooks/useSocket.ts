@@ -3,8 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
-import { getMasterUrl } from '../lib/env';
-import { useSettingsStore } from '../stores/settings.store';
+import { useMasterUrl } from '../providers/MasterUrlProvider';
 
 let socket: Socket | null = null;
 
@@ -33,12 +32,12 @@ function beep() {
 
 export function useSocket() {
   const token = useAuthStore((s) => s.token);
-  const serverUrl = useSettingsStore((s) => s.serverUrl);
+  const { masterUrl } = useMasterUrl();
   const setStatus = useConnectionStore((s) => s.setStatus);
   const qc = useQueryClient();
 
   useEffect(() => {
-    if (!token) {
+    if (!token || !masterUrl) {
       if (socket) {
         socket.disconnect();
         socket = null;
@@ -46,7 +45,7 @@ export function useSocket() {
       return;
     }
 
-    socket = io(getMasterUrl(), {
+    socket = io(masterUrl, {
       auth: { token },
       reconnection: true,
       reconnectionDelay: 500,
@@ -72,5 +71,5 @@ export function useSocket() {
       socket?.disconnect();
       socket = null;
     };
-  }, [token, serverUrl, qc, setStatus]);
+  }, [masterUrl, qc, setStatus, token]);
 }

@@ -16,7 +16,9 @@ export function useSocket() {
   const qc = useQueryClient();
 
   useEffect(() => {
-    if (!token) {
+    const masterUrl = getMasterUrl();
+
+    if (!token || !masterUrl) {
       if (socket) {
         socket.disconnect();
         socket = null;
@@ -24,7 +26,7 @@ export function useSocket() {
       return;
     }
 
-    socket = io(getMasterUrl(), {
+    socket = io(masterUrl, {
       auth: { token },
       reconnection: true,
       reconnectionDelay: 500,

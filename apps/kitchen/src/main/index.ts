@@ -1,7 +1,22 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'path';
+import { clearServerConfig, readServerConfig, writeServerConfig } from './server-config';
 
 let mainWindow: BrowserWindow | null = null;
+
+ipcMain.handle('config:get-master-url', () => readServerConfig().masterBaseUrl);
+ipcMain.handle('config:set-master-url', (_event, url: string) => {
+  if (typeof url !== 'string' || !url.startsWith('http')) {
+    throw new Error('Invalid URL');
+  }
+
+  writeServerConfig(url);
+  return true;
+});
+ipcMain.handle('config:clear-master-url', () => {
+  clearServerConfig();
+  return true;
+});
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({

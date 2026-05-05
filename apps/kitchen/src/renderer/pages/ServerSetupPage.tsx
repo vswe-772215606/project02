@@ -1,25 +1,9 @@
 import { useState } from 'react';
-import { useSettingsStore } from '../stores/settings.store';
-
-function normalizeUrl(raw: string): string {
-  let url = raw.trim();
-  if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  const withoutProto = url.replace(/^https?:\/\//i, '');
-  if (/^[^/:]+$/.test(withoutProto)) url = `${url}:4000`;
-  return url.replace(/\/$/, '');
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return 'Unknown error';
-}
+import { checkServerHealth, getErrorMessage, normalizeUrl } from '../lib/network';
+import { useMasterUrl } from '../providers/MasterUrlProvider';
 
 export function ServerSetupPage() {
-  const setServerUrl = useSettingsStore((s) => s.setServerUrl);
+  const { setMasterUrl } = useMasterUrl();
   const [input, setInput] = useState('');
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
@@ -29,19 +13,15 @@ export function ServerSetupPage() {
     if (!url) { setError('IP address kiriting'); return; }
     setError('');
     setTesting(true);
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${url}/api/health`, { signal: controller.signal });
-      if (!res.ok) throw new Error('bad status');
-      setServerUrl(url);
+      await checkServerHealth(url);
+      await setMasterUrl(url);
     } catch (err) {
       const reason = getErrorMessage(err);
       setError(
         `Ulanib bo'lmadi: ${url}\nServer yoqilganligini va IP to'g'riligini tekshiring.\nXatolik: ${reason}`,
       );
     } finally {
-      window.clearTimeout(timeoutId);
       setTesting(false);
     }
   };

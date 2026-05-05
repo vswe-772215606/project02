@@ -4,9 +4,9 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "outDir": "./out/main",
-    "rootDir": "./src/main",
+    "rootDir": "./src",
     "types": ["node", "electron"],
     "composite": true
   },
-  "include": ["src/main/**/*"]
+  "include": ["src/main/**/*", "src/preload/**/*"]
 }

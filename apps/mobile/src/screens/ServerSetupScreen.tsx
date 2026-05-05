@@ -4,24 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useSettingsStore } from '../stores/settings.store';
-
-function normalizeUrl(raw: string): string {
-  let url = raw.trim();
-  if (!url) return '';
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  // append default port if only IP or hostname given (no port, no path)
-  const withoutProto = url.replace(/^https?:\/\//i, '');
-  if (/^[^/:]+$/.test(withoutProto)) url = `${url}:4000`;
-  return url.replace(/\/$/, '');
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  return 'Unknown error';
-}
+import { checkServerHealth, getErrorMessage, normalizeUrl } from '../lib/network';
 
 export function ServerSetupScreen() {
   const setServerUrl = useSettingsStore((s) => s.setServerUrl);
@@ -34,18 +17,14 @@ export function ServerSetupScreen() {
     if (!url) { setError("IP manzilni kiriting"); return; }
     setError('');
     setTesting(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const res = await fetch(`${url}/api/health`, { signal: controller.signal });
-      if (!res.ok) throw new Error('bad status');
+      await checkServerHealth(url);
       setServerUrl(url);
     } catch (error) {
       setError(
         `Ulanib bo'lmadi: ${url}\nServer yoqilganligini va IP to'g'riligini tekshiring.\nXatolik: ${getErrorMessage(error)}`,
       );
     } finally {
-      clearTimeout(timeoutId);
       setTesting(false);
     }
   };
