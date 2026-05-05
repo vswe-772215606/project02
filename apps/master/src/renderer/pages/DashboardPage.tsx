@@ -59,7 +59,7 @@ export function DashboardPage() {
           icon={ClipboardCheck} 
           color="amber" 
           description="Hisob so'ralgan buyurtmalar"
-          link="/approval-queue"
+          link="/orders"
         />
         <StatCard 
           label="To'lov kutilmoqda" 
@@ -135,7 +135,7 @@ export function DashboardPage() {
                         <div className="flex flex-col">
                           <div className="flex items-center space-x-1 text-sm font-medium text-slate-700">
                             <TableIcon size={14} className="text-slate-400" />
-                            <span>{order.tableId || 'Olib ketish'}</span>
+                            <span>{order.tableName || (order.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan')}</span>
                           </div>
                           <div className="flex items-center space-x-1 text-xs text-slate-400 mt-0.5">
                             <UserIcon size={12} />

@@ -36,6 +36,7 @@ export interface Order {
   orderNumber: string;
   orderType: 'DINE_IN' | 'TAKEAWAY';
   tableId: string | null;
+  tableName: string | null;
   waiterId: string;
   status: 'DRAFT' | 'SENT' | 'BILL_REQUESTED' | 'PENDING_PAYMENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
   itemCount: number;
@@ -51,6 +52,13 @@ export interface Order {
   closedAt: string | null;
   canceledAt: string | null;
   cancelReason: string | null;
+  debt?: {
+    id: string;
+    debtorName: string;
+    originalAmount: number;
+    remainingAmount: number;
+    status: 'OPEN' | 'PARTIAL' | 'PAID';
+  } | null;
   lines?: OrderLine[];
   waiter?: User;
   kitchenTickets?: KitchenTicket[];
@@ -84,7 +92,10 @@ export const ordersApi = {
     api.post<Order>(`/api/orders/${id}/cancel`, { reason }),
   approve: (id: string, data: { discountId?: string; serviceChargeWaived?: boolean }) => 
     api.post<Order>(`/api/orders/${id}/approve`, data),
-  markPaid: (id: string, data: { payments: { method: string; amount: number; reference?: string }[] }) => 
+  markPaid: (id: string, data: {
+    payments: { method: string; amount: number; reference?: string }[];
+    debt?: { debtorName: string; debtorPhone?: string; note?: string };
+  }) => 
     api.post<Order>(`/api/orders/${id}/mark-paid`, data),
   markWalkout: (id: string, reason: string) => 
     api.post<Order>(`/api/orders/${id}/mark-walkout`, { reason }),

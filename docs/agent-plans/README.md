@@ -28,12 +28,13 @@ Tell the agent to chain phases until it hits a blocker. Use this prompt:
 > 6. `docs/agent-plans/01-master/05-admin-ui.md`
 > 7. `docs/agent-plans/01-master/06-stock-tracking.md`
 > 8. `docs/agent-plans/01-master/07-reports-and-audit.md`
-> 9. `docs/agent-plans/02-kitchen/00-scaffolding.md`
-> 10. `docs/agent-plans/02-kitchen/01-display-and-actions.md`
-> 11. `docs/agent-plans/03-mobile/00-scaffolding.md`
-> 12. `docs/agent-plans/03-mobile/01-pin-login.md`
-> 13. `docs/agent-plans/03-mobile/02-order-flow.md`
-> 14. `docs/agent-plans/03-mobile/03-bill-and-status.md`
+> 9. `docs/agent-plans/01-master/08-finance.md`
+> 10. `docs/agent-plans/02-kitchen/00-scaffolding.md`
+> 11. `docs/agent-plans/02-kitchen/01-display-and-actions.md`
+> 12. `docs/agent-plans/03-mobile/00-scaffolding.md`
+> 13. `docs/agent-plans/03-mobile/01-pin-login.md`
+> 14. `docs/agent-plans/03-mobile/02-order-flow.md`
+> 15. `docs/agent-plans/03-mobile/03-bill-and-status.md`
 >
 > For each phase:
 > - Read the phase file in full.
@@ -68,7 +69,7 @@ Have prerequisites ready before starting that phase to keep momentum.
   api-contract.md                   REST + socket events
   conventions.md                    Naming, error handling, patterns
 
-01-master/                          Master backend + admin desktop UI (8 phases)
+01-master/                          Master backend + admin desktop UI (9 phases)
 02-kitchen/                         Kitchen Display Electron app (2 phases)
 03-mobile/                          Waiter Android app (4 phases)
 ```

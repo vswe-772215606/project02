@@ -1,9 +1,7 @@
 import bcrypt from 'bcryptjs';
-import { TableType, UserRole } from '@prisma/client';
-import { disconnectPrisma, getPrisma } from '../src/main/server/lib/prisma';
-import { settingRepo } from '../src/main/server/repositories/setting.repo';
+import { PrismaClient, TableType, UserRole } from '@prisma/client';
 
-const prisma = getPrisma();
+const prisma = new PrismaClient();
 const BCRYPT_ROUNDS = 10;
 
 const USER_IDS = {
@@ -126,15 +124,47 @@ async function main() {
     role: UserRole.WAITER,
   });
 
-  await settingRepo.upsertMany([
+  for (const setting of [
     { key: 'service_charge_amount', value: '10000' },
     { key: 'max_discount_percent', value: '15' },
     { key: 'max_discount_amount', value: '100000' },
+    { key: 'daily_report_telegram_enabled', value: 'false' },
+    { key: 'daily_report_telegram_time', value: '23:30' },
+    { key: 'telegram_bot_token', value: '' },
+    { key: 'owner_telegram_chat_id', value: '' },
     { key: 'kitchen_printer_enabled', value: 'false' },
     { key: 'admin_printer_name', value: 'POS-80' },
     { key: 'kitchen_printer_name', value: '' },
     { key: 'store_heading', value: 'Chayxana' },
-  ]);
+  ]) {
+    await prisma.setting.upsert({
+      where: { key: setting.key },
+      create: setting,
+      update: { value: setting.value },
+    });
+  }
+
+  const expenseCategories = [
+    { name: "Go'sht", displayOrder: 0 },
+    { name: 'Sabzavot', displayOrder: 1 },
+    { name: 'Ichimlik', displayOrder: 2 },
+    { name: 'Transport', displayOrder: 3 },
+    { name: "Xo'jalik", displayOrder: 4 },
+    { name: 'Ishchilar oyligi', displayOrder: 5 },
+    { name: 'Avans', displayOrder: 6 },
+    { name: 'Boshqa', displayOrder: 7 },
+  ];
+
+  for (const category of expenseCategories) {
+    await prisma.expenseCategory.upsert({
+      where: { name: category.name },
+      create: category,
+      update: {
+        displayOrder: category.displayOrder,
+        isActive: true,
+      },
+    });
+  }
 
   const categories = [
     { id: CATEGORY_IDS.salads, name: 'Salatlar', displayOrder: 0 },
@@ -362,10 +392,10 @@ async function main() {
 
 main()
   .then(async () => {
-    await disconnectPrisma();
+    await prisma.$disconnect();
   })
   .catch(async (error: unknown) => {
     console.error(error);
-    await disconnectPrisma();
+    await prisma.$disconnect();
     process.exit(1);
   });

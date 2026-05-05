@@ -11,6 +11,7 @@ import { paymentRepo } from '../repositories/payment.repo';
 import { tableRepo } from '../repositories/table.repo';
 import { auditService } from './audit.service';
 import { billingService } from './billing.service';
+import { debtService } from './debt.service';
 import { printService } from './print.service';
 import { stockService } from './stock.service';
 
@@ -69,6 +70,7 @@ function mapToDto(order: any) {
   return {
     ...order,
     orderNumber: order.id.slice(-6).toUpperCase(),
+    tableName: order.table?.name ?? null,
     totalAmount,
     subtotalSnapshot: order.subtotalSnapshot ? decimalToInt(order.subtotalSnapshot) : null,
     discountAmountSnapshot: order.discountAmountSnapshot ? decimalToInt(order.discountAmountSnapshot) : null,
@@ -78,6 +80,15 @@ function mapToDto(order: any) {
       ...l,
       price: decimalToInt(l.unitPriceSnapshot),
     })),
+    debt: order.debt
+      ? {
+          id: order.debt.id,
+          debtorName: order.debt.debtorName,
+          originalAmount: decimalToInt(order.debt.originalAmount),
+          remainingAmount: decimalToInt(order.debt.remainingAmount),
+          status: order.debt.status,
+        }
+      : null,
   };
 }
 
@@ -726,11 +737,21 @@ export const orderService = {
     orderId: string;
     adminUserId: string;
     payments: Array<{ method: PaymentMethod; amount: number | string; reference?: string }>;
+    debt?: {
+      debtorName: string;
+      debtorPhone?: string;
+      note?: string;
+    };
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
       if (order.status !== OrderStatus.PENDING_PAYMENT) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
+      }
+
+      const debtPayment = input.payments.find((payment) => payment.method === PaymentMethod.DEBT);
+      if (debtPayment && !input.debt?.debtorName?.trim()) {
+        throw Errors.DebtMetadataRequired();
       }
 
       // Verify total
@@ -740,9 +761,22 @@ export const orderService = {
       }
 
       return getPrisma().$transaction(async (tx) => {
+        const closedAt = new Date();
         await paymentRepo.createMany(order.id, input.payments, tx);
 
-        const updated = await orderRepo.setClosed(order.id, tx);
+        if (debtPayment) {
+          await debtService.createFromClosedOrder({
+            orderId: order.id,
+            amount: debtPayment.amount,
+            debtorName: input.debt!.debtorName,
+            debtorPhone: input.debt?.debtorPhone,
+            note: input.debt?.note,
+            actorUserId: input.adminUserId,
+            openedAt: closedAt,
+          }, tx);
+        }
+
+        const updated = await orderRepo.setClosed(order.id, closedAt, tx);
         if (!updated) {
           throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
         }

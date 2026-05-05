@@ -20,10 +20,19 @@ import { PaymentModal } from '../components/PaymentModal';
 import { Modal } from '../components/Modal';
 import { summarizeOrderLines } from '../utils/order-line-summary';
 
+function localDateString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function locationLabel(order: Order) {
+  return order.tableName || (order.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan');
+}
+
 const TABS: { label: string; status: OrderStatus }[] = [
-  { label: 'SENT', status: 'SENT' },
   { label: 'BILL_REQUESTED', status: 'BILL_REQUESTED' },
   { label: 'PENDING_PAYMENT', status: 'PENDING_PAYMENT' },
+  { label: 'SENT', status: 'SENT' },
   { label: 'CLOSED', status: 'CLOSED' },
   { label: 'WALKOUT', status: 'WALKOUT' },
   { label: 'CANCELED', status: 'CANCELED' },
@@ -40,7 +49,7 @@ const TAB_LABELS: Record<OrderStatus, string> = {
 };
 
 export function OrdersPage() {
-  const [activeTab, setActiveTab] = useState<OrderStatus>('SENT');
+  const [activeTab, setActiveTab] = useState<OrderStatus>('BILL_REQUESTED');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
@@ -49,7 +58,7 @@ export function OrdersPage() {
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['orders', activeTab],
-    queryFn: () => ordersApi.list({ status: activeTab, date: activeTab === 'CLOSED' ? new Date().toISOString().split('T')[0] : undefined }),
+    queryFn: () => ordersApi.list({ status: activeTab, date: activeTab === 'CLOSED' ? localDateString() : undefined }),
   });
 
   // Fetch counts for tabs
@@ -68,7 +77,7 @@ export function OrdersPage() {
 
   const filteredOrders = orders.filter(o => 
     (o.orderNumber?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
-    (o.tableId && o.tableId.toLowerCase().includes(search.toLowerCase()))
+    (o.tableName && o.tableName.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -195,14 +204,17 @@ function OrderListItem({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
                 <Armchair size={14} />
-                <span className="text-sm font-semibold">{order.tableId || 'Olib ketish'}</span>
+                <span className="text-sm font-semibold">{locationLabel(order)}</span>
               </div>
               <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
                 <UserIcon size={14} />
                 <span className="text-sm font-semibold">{order.waiter?.fullName}</span>
+              </div>
+              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                <span className="text-xs font-bold uppercase tracking-wide">{order.orderType === 'DINE_IN' ? 'Ichkarida' : 'Olib ketish'}</span>
               </div>
             </div>
             {mealSummary && (
@@ -236,6 +248,21 @@ function OrderListItem({
         <div className="px-4 pb-4 border-t border-slate-100 pt-4 animate-in slide-in-from-top-2 duration-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Joy</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-800">{locationLabel(order)}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Ofitsiant</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-800">{order.waiter?.fullName || '—'}</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Holat</div>
+                  <div className="mt-1"><StatusBadge status={order.status} /></div>
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Mahsulotlar</h4>
                 <div className="space-y-2">
@@ -267,6 +294,15 @@ function OrderListItem({
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amallar</h4>
                 <div className="flex flex-wrap gap-2">
+                  {order.status === 'BILL_REQUESTED' && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onPay(); }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center space-x-2"
+                    >
+                      <CreditCard size={16} />
+                      <span>HISOBNI YAKUNLASH</span>
+                    </button>
+                  )}
                   {order.status === 'PENDING_PAYMENT' && (
                     <>
                       <button 
@@ -311,6 +347,26 @@ function OrderListItem({
               {order.status === 'CLOSED' && order.closedAt && (
                 <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700 font-medium">
                   Yopilgan vaqti: {formatDateTimeUZ(order.closedAt)}
+                </div>
+              )}
+              {order.status === 'PENDING_PAYMENT' && (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Oraliq jami</span>
+                    <span>{formatUZS(order.subtotalSnapshot || order.totalAmount || 0)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between text-slate-600">
+                    <span>Chegirma</span>
+                    <span>-{formatUZS(order.discountAmountSnapshot || 0)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between text-slate-600">
+                    <span>Xizmat haqi</span>
+                    <span>{formatUZS(order.serviceChargeSnapshot || 0)}</span>
+                  </div>
+                  <div className="mt-3 flex justify-between border-t border-blue-100 pt-3 font-bold text-slate-900">
+                    <span>Yakuniy summa</span>
+                    <span>{formatUZS(order.totalSnapshot || order.totalAmount || 0)}</span>
+                  </div>
                 </div>
               )}
               {order.status === 'CANCELED' && order.cancelReason && (

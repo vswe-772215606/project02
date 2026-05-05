@@ -15,6 +15,8 @@ import { SettingsPage } from './pages/SettingsPage';
 import { StockPage } from './pages/StockPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
+import { ExpensesPage } from './pages/ExpensesPage';
+import { DebtsPage } from './pages/DebtsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -33,6 +35,8 @@ function AuthedRoutes() {
         <Route path="/users" element={<UsersPage />} />
         <Route path="/discounts" element={<DiscountsPage />} />
         <Route path="/stock" element={<StockPage />} />
+        <Route path="/expenses" element={<ExpensesPage />} />
+        <Route path="/debts" element={<DebtsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage />} />

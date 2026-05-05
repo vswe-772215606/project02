@@ -1,6 +1,8 @@
 import { getPrisma } from './prisma';
+import { financeReportService } from '../services/finance-report.service';
 
-let interval: NodeJS.Timeout | null = null;
+let draftCleanupInterval: NodeJS.Timeout | null = null;
+let financeInterval: NodeJS.Timeout | null = null;
 
 export async function runDraftCleanup(): Promise<void> {
   try {
@@ -21,15 +23,28 @@ export async function runDraftCleanup(): Promise<void> {
 }
 
 export function startScheduler(): void {
-  if (interval) return;
+  if (draftCleanupInterval || financeInterval) return;
   // Run cleanup once on boot, then every 6 hours
   void runDraftCleanup();
-  interval = setInterval(() => void runDraftCleanup(), 6 * 60 * 60 * 1000);
+  draftCleanupInterval = setInterval(() => void runDraftCleanup(), 6 * 60 * 60 * 1000);
+
+  void financeReportService.runScheduledDailyTelegram().catch((error) => {
+    console.error('[scheduler] finance report send failed:', error);
+  });
+  financeInterval = setInterval(() => {
+    void financeReportService.runScheduledDailyTelegram().catch((error) => {
+      console.error('[scheduler] finance report send failed:', error);
+    });
+  }, 60 * 1000);
 }
 
 export function stopScheduler(): void {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
+  if (draftCleanupInterval) {
+    clearInterval(draftCleanupInterval);
+    draftCleanupInterval = null;
+  }
+  if (financeInterval) {
+    clearInterval(financeInterval);
+    financeInterval = null;
   }
 }

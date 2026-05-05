@@ -1,161 +1,213 @@
+import { PaymentMethod, Prisma } from '@prisma/client';
+import { expenseService } from './expense.service';
+import { debtRepo } from '../repositories/debt.repo';
 import { getPrisma } from '../lib/prisma';
+
+function dayBounds(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+function dec(value: Prisma.Decimal | null | undefined) {
+  return value ?? new Prisma.Decimal(0);
+}
+
+function decStr(value: Prisma.Decimal | null | undefined) {
+  return dec(value).toFixed(0);
+}
 
 export const reportsService = {
   async daily(date: Date) {
     const prisma = getPrisma();
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    const { start: dayStart, end: dayEnd } = dayBounds(date);
 
-    // Fetch all orders that ended (CLOSED, WALKOUT, CANCELED) within the day
-    const orders = await prisma.order.findMany({
-      where: {
-        OR: [
-          { closedAt: { gte: dayStart, lt: dayEnd } },
-          { canceledAt: { gte: dayStart, lt: dayEnd } },
-          { 
-            AND: [
-              { status: 'WALKOUT' },
-              { updatedAt: { gte: dayStart, lt: dayEnd } }
-            ] 
-          },
-        ],
-      },
-      include: {
-        payments: true,
-        waiter: { select: { id: true, fullName: true } },
-        appliedDiscount: true,
-      },
-    });
+    const [closedOrders, canceledOrders, walkoutOrders, expenseSummary, repaymentTotals, openedToday, outstandingTotal] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          status: 'CLOSED',
+          closedAt: { gte: dayStart, lt: dayEnd },
+        },
+        include: {
+          payments: true,
+          waiter: { select: { id: true, fullName: true } },
+          debt: true,
+        },
+      }),
+      prisma.order.findMany({
+        where: {
+          status: 'CANCELED',
+          canceledAt: { gte: dayStart, lt: dayEnd },
+        },
+      }),
+      prisma.order.findMany({
+        where: {
+          status: 'WALKOUT',
+          updatedAt: { gte: dayStart, lt: dayEnd },
+        },
+      }),
+      expenseService.listByDate(new Date(dayStart)),
+      debtRepo.repaymentTotalsForDate(new Date(dayStart)),
+      debtRepo.openedTodaySummary(new Date(dayStart)),
+      debtRepo.sumOutstandingAsOf(new Date(dayStart)),
+    ]);
 
-    // Buckets
-    const closed = orders.filter((o) => o.status === 'CLOSED');
-    const canceled = orders.filter((o) => o.status === 'CANCELED');
-    const walkouts = orders.filter((o) => o.status === 'WALKOUT');
+    let grossSales = new Prisma.Decimal(0);
+    let discounts = new Prisma.Decimal(0);
+    let debtSales = new Prisma.Decimal(0);
+    let serviceCharge = new Prisma.Decimal(0);
+    let orderCash = new Prisma.Decimal(0);
+    let orderCard = new Prisma.Decimal(0);
 
-    // Revenue calculations (only from CLOSED orders)
-    let gross = 0n;
-    let discountTotal = 0n;
-    let serviceTotal = 0n;
-    let cashTotal = 0n;
-    let cardTotal = 0n;
+    const perWaiterMap = new Map<string, { waiterId: string; waiterName: string; orders: number; revenue: Prisma.Decimal; serviceEarned: Prisma.Decimal }>();
 
-    for (const o of closed) {
-      gross += BigInt(o.subtotalSnapshot?.toFixed(0) ?? '0');
-      discountTotal += BigInt(o.discountAmountSnapshot?.toFixed(0) ?? '0');
-      serviceTotal += BigInt(o.serviceChargeSnapshot?.toFixed(0) ?? '0');
-      for (const p of o.payments) {
-        const amt = BigInt(p.amount.toFixed(0));
-        if (p.method === 'CASH') cashTotal += amt;
-        if (p.method === 'CARD') cardTotal += amt;
+    for (const order of closedOrders) {
+      grossSales = grossSales.plus(dec(order.subtotalSnapshot));
+      discounts = discounts.plus(dec(order.discountAmountSnapshot));
+      serviceCharge = serviceCharge.plus(dec(order.serviceChargeSnapshot));
+
+      const waiterAgg = perWaiterMap.get(order.waiterId) ?? {
+        waiterId: order.waiterId,
+        waiterName: order.waiter.fullName,
+        orders: 0,
+        revenue: new Prisma.Decimal(0),
+        serviceEarned: new Prisma.Decimal(0),
+      };
+      waiterAgg.orders += 1;
+      waiterAgg.revenue = waiterAgg.revenue.plus(dec(order.subtotalSnapshot).minus(dec(order.discountAmountSnapshot)));
+      waiterAgg.serviceEarned = waiterAgg.serviceEarned.plus(dec(order.serviceChargeSnapshot));
+      perWaiterMap.set(order.waiterId, waiterAgg);
+
+      for (const payment of order.payments) {
+        if (payment.method === PaymentMethod.CASH) {
+          orderCash = orderCash.plus(payment.amount);
+        } else if (payment.method === PaymentMethod.CARD) {
+          orderCard = orderCard.plus(payment.amount);
+        } else if (payment.method === PaymentMethod.DEBT) {
+          debtSales = debtSales.plus(payment.amount);
+        }
       }
     }
 
-    const netRevenue = gross - discountTotal;
-
-    // Per-waiter aggregation
-    const perWaiterMap = new Map<string, { waiterId: string; waiterName: string; orders: number; revenue: bigint; serviceEarned: bigint }>();
-    for (const o of closed) {
-      const w = perWaiterMap.get(o.waiterId) ?? {
-        waiterId: o.waiterId,
-        waiterName: o.waiter.fullName,
-        orders: 0,
-        revenue: 0n,
-        serviceEarned: 0n,
-      };
-      w.orders += 1;
-      w.revenue += BigInt(o.subtotalSnapshot?.toFixed(0) ?? '0') - BigInt(o.discountAmountSnapshot?.toFixed(0) ?? '0');
-      w.serviceEarned += BigInt(o.serviceChargeSnapshot?.toFixed(0) ?? '0');
-      perWaiterMap.set(o.waiterId, w);
-    }
-
-    // Cancellations log
-    const cancellationsList = canceled.map((o) => ({
-      orderId: o.id,
-      canceledAt: o.canceledAt!.toISOString(),
-      canceledBy: 'system', // TODO: enrich from audit log if needed
-      reason: o.cancelReason ?? '',
-    }));
-
-    // Walkouts log
-    const walkoutsList = walkouts.map((o) => ({
-      orderId: o.id,
-      markedAt: o.updatedAt.toISOString(),
-      markedBy: o.approvedById ?? 'unknown',
-      amount: o.totalSnapshot?.toString() ?? '0',
-      reason: o.cancelReason ?? '',
-    }));
+    const debtRepaymentsCash = repaymentTotals.CASH;
+    const debtRepaymentsCard = repaymentTotals.CARD;
+    const netSales = grossSales.minus(discounts);
+    const realCashIn = orderCash.plus(orderCard).plus(debtRepaymentsCash).plus(debtRepaymentsCard);
+    const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
+    const salesBasedProfit = netSales.minus(expenseNet);
+    const cashflowBasedNet = realCashIn.minus(expenseNet);
 
     return {
       date: dayStart.toISOString().slice(0, 10),
-      orders: {
-        closed: closed.length,
-        canceled: canceled.length,
-        walkout: walkouts.length,
-        total: orders.length,
+      sales: {
+        closedOrders: closedOrders.length,
+        canceledOrders: canceledOrders.length,
+        walkoutOrders: walkoutOrders.length,
+        grossSales: decStr(grossSales),
+        discounts: decStr(discounts),
+        netSales: decStr(netSales),
+        debtSales: decStr(debtSales),
+        serviceCharge: decStr(serviceCharge),
       },
-      revenue: {
-        gross: gross.toString(),
-        discounts: discountTotal.toString(),
-        net: netRevenue.toString(),
+      cashflow: {
+        orderCash: decStr(orderCash),
+        orderCard: decStr(orderCard),
+        debtRepaymentsCash: decStr(debtRepaymentsCash),
+        debtRepaymentsCard: decStr(debtRepaymentsCard),
+        realCashIn: decStr(realCashIn),
       },
-      serviceCollected: serviceTotal.toString(),
-      payments: {
-        cash: cashTotal.toString(),
-        card: cardTotal.toString(),
+      expenses: {
+        gross: expenseSummary.totals.gross,
+        reversal: expenseSummary.totals.reversal,
+        net: expenseSummary.totals.net,
+        byCategory: expenseSummary.byCategory,
       },
-      perWaiter: Array.from(perWaiterMap.values()).map((w) => ({
-        ...w,
-        revenue: w.revenue.toString(),
-        serviceEarned: w.serviceEarned.toString(),
+      results: {
+        salesBasedProfit: decStr(salesBasedProfit),
+        cashflowBasedNet: decStr(cashflowBasedNet),
+      },
+      debtSnapshot: {
+        openedTodayCount: openedToday.count,
+        openedTodayAmount: decStr(openedToday.amount),
+        repaidTodayAmount: decStr(debtRepaymentsCash.plus(debtRepaymentsCard)),
+        outstandingTotal: decStr(outstandingTotal),
+      },
+      perWaiter: Array.from(perWaiterMap.values()).map((item) => ({
+        waiterId: item.waiterId,
+        waiterName: item.waiterName,
+        orders: item.orders,
+        revenue: decStr(item.revenue),
+        serviceEarned: decStr(item.serviceEarned),
       })),
-      cancellations: cancellationsList,
-      walkouts: walkoutsList,
+      cancellations: canceledOrders.map((order) => ({
+        orderId: order.id,
+        canceledAt: order.canceledAt?.toISOString() ?? order.updatedAt.toISOString(),
+        canceledBy: 'system',
+        reason: order.cancelReason ?? '',
+      })),
+      walkouts: walkoutOrders.map((order) => ({
+        orderId: order.id,
+        markedAt: order.updatedAt.toISOString(),
+        markedBy: order.approvedById ?? 'unknown',
+        amount: decStr(order.totalSnapshot),
+        reason: order.cancelReason ?? '',
+      })),
     };
   },
 
   async monthly(monthStart: Date) {
-    const monthEnd = new Date(monthStart);
+    const start = new Date(monthStart);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+
+    const monthEnd = new Date(start);
     monthEnd.setMonth(monthEnd.getMonth() + 1);
 
-    // Compute per-day reports for the whole month
-    const days: Array<any> = [];
-    const cursor = new Date(monthStart);
+    const daily = [];
+    const cursor = new Date(start);
     while (cursor < monthEnd) {
-      days.push(await this.daily(new Date(cursor)));
+      daily.push(await this.daily(new Date(cursor)));
       cursor.setDate(cursor.getDate() + 1);
     }
 
-    // Aggregate
-    const agg = days.reduce(
-      (acc, d) => ({
-        ordersClosed: acc.ordersClosed + d.orders.closed,
-        ordersCanceled: acc.ordersCanceled + d.orders.canceled,
-        ordersWalkout: acc.ordersWalkout + d.orders.walkout,
-        gross: acc.gross + BigInt(d.revenue.gross),
-        discounts: acc.discounts + BigInt(d.revenue.discounts),
-        net: acc.net + BigInt(d.revenue.net),
-        service: acc.service + BigInt(d.serviceCollected),
-        cash: acc.cash + BigInt(d.payments.cash),
-        card: acc.card + BigInt(d.payments.card),
-      }),
-      { ordersClosed: 0, ordersCanceled: 0, ordersWalkout: 0, gross: 0n, discounts: 0n, net: 0n, service: 0n, cash: 0n, card: 0n },
-    );
+    const totals = daily.reduce((acc, day) => ({
+      grossSales: acc.grossSales.plus(new Prisma.Decimal(day.sales.grossSales)),
+      discounts: acc.discounts.plus(new Prisma.Decimal(day.sales.discounts)),
+      netSales: acc.netSales.plus(new Prisma.Decimal(day.sales.netSales)),
+      debtSales: acc.debtSales.plus(new Prisma.Decimal(day.sales.debtSales)),
+      realCashIn: acc.realCashIn.plus(new Prisma.Decimal(day.cashflow.realCashIn)),
+      expensesNet: acc.expensesNet.plus(new Prisma.Decimal(day.expenses.net)),
+      salesBasedProfit: acc.salesBasedProfit.plus(new Prisma.Decimal(day.results.salesBasedProfit)),
+      cashflowBasedNet: acc.cashflowBasedNet.plus(new Prisma.Decimal(day.results.cashflowBasedNet)),
+    }), {
+      grossSales: new Prisma.Decimal(0),
+      discounts: new Prisma.Decimal(0),
+      netSales: new Prisma.Decimal(0),
+      debtSales: new Prisma.Decimal(0),
+      realCashIn: new Prisma.Decimal(0),
+      expensesNet: new Prisma.Decimal(0),
+      salesBasedProfit: new Prisma.Decimal(0),
+      cashflowBasedNet: new Prisma.Decimal(0),
+    });
+
+    const monthOutstanding = await debtRepo.sumOutstandingAsOf(new Date(monthEnd.getTime() - 1));
 
     return {
-      month: `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`,
+      month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
       totals: {
-        ordersClosed: agg.ordersClosed,
-        ordersCanceled: agg.ordersCanceled,
-        ordersWalkout: agg.ordersWalkout,
-        gross: agg.gross.toString(),
-        discounts: agg.discounts.toString(),
-        net: agg.net.toString(),
-        serviceCollected: agg.service.toString(),
-        payments: { cash: agg.cash.toString(), card: agg.card.toString() },
+        grossSales: decStr(totals.grossSales),
+        discounts: decStr(totals.discounts),
+        netSales: decStr(totals.netSales),
+        debtSales: decStr(totals.debtSales),
+        realCashIn: decStr(totals.realCashIn),
+        expensesNet: decStr(totals.expensesNet),
+        salesBasedProfit: decStr(totals.salesBasedProfit),
+        cashflowBasedNet: decStr(totals.cashflowBasedNet),
+        outstandingDebtEndOfMonth: decStr(monthOutstanding),
       },
-      daily: days,
+      daily,
     };
   },
 };

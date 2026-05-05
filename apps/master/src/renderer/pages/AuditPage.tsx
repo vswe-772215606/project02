@@ -34,7 +34,7 @@ export function AuditPage() {
     retry: false,
   });
 
-  if ((error as any)?.response?.status === 403) {
+  if ((error as any)?.response?.status === 403 || (error as any)?.code === 'FORBIDDEN') {
     return <ForbiddenMessage />;
   }
 

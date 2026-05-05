@@ -15,6 +15,8 @@ export const Errors = {
   Forbidden: (msg = 'Forbidden') => new AppError('FORBIDDEN', 403, msg),
   NotFound: (entity: string) => new AppError('NOT_FOUND', 404, `${entity} not found`),
   Conflict: (msg: string) => new AppError('CONFLICT', 409, msg),
+  Business: (code: string, msg: string, httpStatus = 409, details?: unknown) =>
+    new AppError(code, httpStatus, msg, details),
   Validation: (msg: string, details?: unknown) =>
     new AppError('VALIDATION', 400, msg, details),
   IllegalStateTransition: (from: string, to: string) =>
@@ -31,4 +33,18 @@ export const Errors = {
     new AppError('LOCKED', 423, `Account locked until ${until.toISOString()}`, { until }),
   PaymentMismatch: (msg: string) =>
     new AppError('PAYMENT_MISMATCH', 400, msg),
+  DebtMetadataRequired: () =>
+    new AppError('DEBT_METADATA_REQUIRED', 400, 'Qarz uchun qarzdor ma\'lumoti kiritilishi shart'),
+  DebtAlreadyExists: () =>
+    new AppError('DEBT_ALREADY_EXISTS', 409, 'Bu buyurtma uchun qarz allaqachon yaratilgan'),
+  DebtNotOpen: () =>
+    new AppError('DEBT_NOT_OPEN', 409, 'Qarz allaqachon yopilgan yoki mavjud emas'),
+  DebtOverpay: () =>
+    new AppError('DEBT_OVERPAY', 400, 'To\'lov summasi qolgan qarzdan katta bo\'lishi mumkin emas'),
+  ExpenseImmutable: () =>
+    new AppError('EXPENSE_IMMUTABLE', 409, 'Chiqim yozuvini to\'g\'ridan-to\'g\'ri o\'zgartirib bo\'lmaydi'),
+  ExpenseAlreadyReversed: () =>
+    new AppError('EXPENSE_ALREADY_REVERSED', 409, 'Bu chiqim allaqachon bekor qilingan'),
+  ExpenseReversalInvalid: (msg = 'Chiqimni bekor qilish so\'rovi noto\'g\'ri') =>
+    new AppError('EXPENSE_REVERSAL_INVALID', 400, msg),
 };

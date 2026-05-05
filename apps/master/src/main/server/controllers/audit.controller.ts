@@ -16,8 +16,8 @@ export const auditController = {
     try {
       const query = querySchema.parse(req.query);
       res.json(await auditService.list({
-        action: query.action,
-        userId: query.userId,
+        action: query.action || undefined,
+        userId: query.userId || undefined,
         from: query.from ? new Date(query.from) : undefined,
         to: query.to ? new Date(query.to) : undefined,
         page: query.page,

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
-  ClipboardCheck,
   ReceiptText,
   BookOpen,
   Armchair,
@@ -12,11 +11,13 @@ import {
   BarChart3,
   ScrollText,
   Package,
+  HandCoins,
   Wifi,
   WifiOff,
   PanelLeft,
   LogOut,
   Monitor,
+  Wallet,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
@@ -62,10 +63,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Bosh sahifa", path: "/", icon: LayoutDashboard, roles: ['OWNER', 'ADMIN', 'WAITER', 'KITCHEN'] },
-    { label: "Tasdiqlash navbati", path: "/approval-queue", icon: ClipboardCheck, roles: ['OWNER', 'ADMIN'] },
     { label: "Buyurtmalar", path: "/orders", icon: ReceiptText, roles: ['OWNER', 'ADMIN', 'WAITER'] },
     { label: "Menyu", path: "/menu", icon: BookOpen, roles: ['OWNER', 'ADMIN'] },
     { label: "Zaxiralar", path: "/stock", icon: Package, roles: ['OWNER', 'ADMIN'] },
+    { label: "Chiqimlar", path: "/expenses", icon: Wallet, roles: ['OWNER', 'ADMIN'] },
+    { label: "Qarzlar", path: "/debts", icon: HandCoins, roles: ['OWNER', 'ADMIN'] },
     { label: "Stollar", path: "/tables", icon: Armchair, roles: ['OWNER', 'ADMIN'] },
     { label: "Foydalanuvchilar", path: "/users", icon: Users, roles: ['OWNER', 'ADMIN'] },
     { label: "Chegirmalar", path: "/discounts", icon: Percent, roles: ['OWNER', 'ADMIN'] },

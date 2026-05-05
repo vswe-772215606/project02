@@ -49,6 +49,13 @@ export const orderRepo = {
         payments: {
           orderBy: { createdAt: 'asc' },
         },
+        debt: {
+          include: {
+            repayments: {
+              orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        },
         table: true,
         waiter: {
           select: {
@@ -185,12 +192,12 @@ export const orderRepo = {
     });
   },
 
-  async setClosed(id: string, tx?: Tx) {
+  async setClosed(id: string, closedAt = new Date(), tx?: Tx) {
     return (tx ?? getPrisma()).order.update({
       where: { id },
       data: {
         status: OrderStatus.CLOSED,
-        closedAt: new Date(),
+        closedAt,
       },
     });
   },

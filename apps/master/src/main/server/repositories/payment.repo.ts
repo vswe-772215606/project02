@@ -79,6 +79,7 @@ export const paymentRepo = {
       {
         CASH: new Prisma.Decimal(0),
         CARD: new Prisma.Decimal(0),
+        DEBT: new Prisma.Decimal(0),
       },
     );
   },

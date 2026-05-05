@@ -51,6 +51,11 @@ const markPaidSchema = z.object({
     amount: z.union([z.number().int(), z.string().min(1)]),
     reference: z.string().optional(),
   })).min(1),
+  debt: z.object({
+    debtorName: z.string().trim().min(1),
+    debtorPhone: z.string().trim().optional(),
+    note: z.string().optional(),
+  }).optional(),
 });
 
 const markWalkoutSchema = z.object({
@@ -241,6 +246,7 @@ export const ordersController = {
         orderId: req.params.id,
         adminUserId: req.user!.id,
         payments: body.payments,
+        debt: body.debt,
       }));
     } catch (error) {
       next(error);

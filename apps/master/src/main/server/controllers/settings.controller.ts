@@ -11,7 +11,7 @@ const patchSchema = z.object({
 export const settingsController = {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(settingsService.getAll());
+      res.json(settingsService.getAll(req.user!.role as 'OWNER' | 'ADMIN'));
     } catch (error) {
       next(error);
     }

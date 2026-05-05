@@ -65,13 +65,20 @@ Login behavior:
 | POST | `/api/orders/:id/request-bill` | — | `Order` | WAITER (own) |
 | POST | `/api/orders/:id/cancel` | `{ reason }` | `Order` | WAITER (own) if all tickets PENDING; ADMIN/OWNER otherwise |
 | POST | `/api/orders/:id/approve` | `{ discountId?, serviceChargeWaived? }` | `Order` | ADMIN, OWNER |
-| POST | `/api/orders/:id/mark-paid` | `{ payments: [{ method, amount, reference? }] }` | `Order` | ADMIN, OWNER |
+| POST | `/api/orders/:id/mark-paid` | `{ payments: [{ method, amount, reference? }], debt?: { debtorName, debtorPhone?, note? } }` | `Order` | ADMIN, OWNER |
 | POST | `/api/orders/:id/mark-walkout` | `{ reason }` | `Order` | ADMIN, OWNER |
 | POST | `/api/orders/:id/reprint-bill` | `{ reason? }` | `PrintJob` | ADMIN, OWNER |
 
 `mine=true` filters orders to the calling waiter. Without it, ADMIN/OWNER sees all, WAITER sees their own anyway (forced).
 
 State transitions enforced by the service layer. Invalid transitions return 409 with `code: "ILLEGAL_STATE"`.
+
+`POST /api/orders/:id/mark-paid` notes:
+
+- `payments[].method` may be `CASH`, `CARD`, or `DEBT`.
+- `payments` total must still equal `Order.totalSnapshot` exactly.
+- If any payment row uses `DEBT`, request body must include `debt.debtorName`.
+- A debt sale closes the order and also creates one `Debt` record tied to that order.
 
 ## Kitchen
 
@@ -111,6 +118,44 @@ Notes:
 - `PATCH /api/stock/today/:menuItemId` updates a single row. Logs `DAILY_STOCK_ADJUSTED`.
 - WAITER role can read `GET /api/stock/today` to display "X left" hints, but cannot mutate.
 
+## Expenses & debt
+
+### Expense categories
+
+| Method | Path | Body | Response | Roles |
+|---|---|---|---|---|
+| GET | `/api/expense-categories` | — | `[ExpenseCategory]` | ADMIN, OWNER |
+
+### Expenses
+
+| Method | Path | Body | Response | Roles |
+|---|---|---|---|---|
+| GET | `/api/expenses?date=YYYY-MM-DD` | — | `{ date, items, totals }` | ADMIN, OWNER |
+| POST | `/api/expenses` | `{ categoryId, amount, reason, note?, occurredAt }` | `Expense` | ADMIN, OWNER |
+| POST | `/api/expenses/:id/reverse` | `{ note }` | `{ original, reversal }` | ADMIN, OWNER |
+
+Expense rules:
+
+- Expenses are immutable after creation.
+- There is no normal `PATCH /api/expenses/:id`.
+- There is no normal `DELETE /api/expenses/:id`.
+- Correction happens only through reversal.
+
+### Debts
+
+| Method | Path | Body | Response | Roles |
+|---|---|---|---|---|
+| GET | `/api/debts?status=&date=` | — | `{ items }` | ADMIN, OWNER |
+| GET | `/api/debts/:id` | — | `Debt detail DTO` | ADMIN, OWNER |
+| POST | `/api/debts/:id/repayments` | `{ amount, method, paidAt?, note? }` | `Debt` | ADMIN, OWNER |
+
+Debt rules:
+
+- Debt is created automatically when an order is closed with `Payment.method = DEBT`.
+- Debt repayment `method` can only be `CASH` or `CARD`.
+- Overpayment is rejected.
+- Debt repayment belongs to the date it was actually received.
+
 ## Reports & audit
 
 | Method | Path | Query | Response | Roles |
@@ -123,11 +168,44 @@ DailyReport DTO shape:
 
 ```ts
 {
-  date: string;                      // YYYY-MM-DD
-  orders: { closed: number; canceled: number; walkout: number; total: number };
-  revenue: { gross: string; discounts: string; net: string };  // UZS strings
-  serviceCollected: string;
-  payments: { cash: string; card: string };
+  date: string; // YYYY-MM-DD
+  sales: {
+    closedOrders: number;
+    canceledOrders: number;
+    walkoutOrders: number;
+    grossSales: string;
+    discounts: string;
+    netSales: string;
+    debtSales: string;
+    serviceCharge: string;
+  };
+  cashflow: {
+    orderCash: string;
+    orderCard: string;
+    debtRepaymentsCash: string;
+    debtRepaymentsCard: string;
+    realCashIn: string;
+  };
+  expenses: {
+    gross: string;
+    reversal: string;
+    net: string;
+    byCategory: Array<{
+      categoryId: string;
+      categoryName: string;
+      amount: string;
+    }>;
+  };
+  results: {
+    salesBasedProfit: string;
+    cashflowBasedNet: string;
+  };
+  debtSnapshot: {
+    openedTodayCount: number;
+    openedTodayAmount: string;
+    repaidTodayAmount: string;
+    outstandingTotal: string;
+  };
   perWaiter: Array<{
     waiterId: string;
     waiterName: string;
@@ -140,7 +218,25 @@ DailyReport DTO shape:
 }
 ```
 
-MonthlyReport DTO shape: aggregate totals (same shape as Daily but for the month) + `daily: DailyReport[]` array of per-day rows.
+MonthlyReport DTO shape:
+
+```ts
+{
+  month: string; // YYYY-MM
+  totals: {
+    grossSales: string;
+    discounts: string;
+    netSales: string;
+    debtSales: string;
+    realCashIn: string;
+    expensesNet: string;
+    salesBasedProfit: string;
+    cashflowBasedNet: string;
+    outstandingDebtEndOfMonth: string;
+  };
+  daily: DailyReport[];
+}
+```
 
 ## Settings & Users
 
@@ -224,3 +320,10 @@ Stable code strings the UI can switch on:
 | `PRINT_FAILED` | 500 | Receipt print failed (after retries) |
 | `LOCKED` | 423 | User account locked due to failed logins |
 | `PAYMENT_MISMATCH` | 400 | Payment rows do not sum to order total |
+| `DEBT_METADATA_REQUIRED` | 400 | Debt payment used without debtor info |
+| `DEBT_ALREADY_EXISTS` | 409 | Debt record already exists for the order |
+| `DEBT_NOT_OPEN` | 409 | Debt is already fully paid or unavailable |
+| `DEBT_OVERPAY` | 400 | Repayment amount exceeds remaining debt |
+| `EXPENSE_IMMUTABLE` | 409 | Expense cannot be edited directly |
+| `EXPENSE_ALREADY_REVERSED` | 409 | Expense was already reversed |
+| `EXPENSE_REVERSAL_INVALID` | 400 | Invalid reversal request |

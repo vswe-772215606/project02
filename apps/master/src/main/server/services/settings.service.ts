@@ -16,8 +16,21 @@ export const settingsService = {
     return cache.get(key);
   },
 
-  getAll(): Record<string, string> {
-    return Object.fromEntries(cache.entries());
+  getAll(role?: 'OWNER' | 'ADMIN'): Record<string, string> {
+    const entries = Array.from(cache.entries()).filter(([key]) => {
+      if (role === 'OWNER' || !role) {
+        return true;
+      }
+
+      return ![
+        'daily_report_telegram_enabled',
+        'daily_report_telegram_time',
+        'telegram_bot_token',
+        'owner_telegram_chat_id',
+      ].includes(key);
+    });
+
+    return Object.fromEntries(entries);
   },
 
   canEdit(key: string, role: 'OWNER' | 'ADMIN'): boolean {
@@ -25,6 +38,10 @@ export const settingsService = {
       'service_charge_amount',
       'max_discount_percent',
       'max_discount_amount',
+      'daily_report_telegram_enabled',
+      'daily_report_telegram_time',
+      'telegram_bot_token',
+      'owner_telegram_chat_id',
     ].includes(key)) {
       return role === 'OWNER';
     }

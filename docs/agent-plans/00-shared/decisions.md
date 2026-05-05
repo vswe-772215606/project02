@@ -13,8 +13,8 @@ Every decision in this file is final unless the human explicitly says otherwise.
 
 | Role | Capabilities |
 |---|---|
-| OWNER | Everything. Only role that sees money/revenue/analytics. |
-| ADMIN | Operations: menu CRUD, users, tables, discounts (create + apply), bill approval, mark paid, mark walkout, cancellations after kitchen started, audit log read. **Cannot see money totals** (revenue, profit, financial reports). Daily report's revenue numbers are owner-only. |
+| OWNER | Everything. Sees all revenue, debt, expense, profit, and owner-only reports. Receives the daily Telegram finance summary. |
+| ADMIN | Operations: menu CRUD, users, tables, discounts (create + apply), bill approval, mark paid, mark walkout, cancellations after kitchen started, audit log read. Can record expenses, debt sales, and debt repayments. **Cannot see owner financial reports or profit totals.** |
 | KITCHEN | Per-station account. Logs in once on the monoblock. Marks tickets `IN_PROGRESS` and `READY`. Toggles item availability. |
 | WAITER | Mobile-only. PIN auth. Creates orders, adds items, sends to kitchen, requests bills, transfers tables (own orders), cancels orders only while all tickets are still `PENDING`. |
 
@@ -110,11 +110,63 @@ Items can be added during `BILL_REQUESTED` (live bill — admin's screen updates
 
 ## Payments
 
-- Cash + card. Both supported.
-- Mixed payments supported: one bill can have multiple `Payment` rows (e.g., 150k cash + 50k card).
+- Cash + card + debt supported.
+- Mixed payments supported: one bill can have multiple `Payment` rows (e.g., 150k cash + 50k debt, or 120k cash + 80k card).
 - No tips.
 - No mobile payment methods (Click, Payme) in v1.
 - Payment rows total must equal `Order.totalSnapshot` exactly.
+- If any `Payment.method = DEBT`, the request must also include debt metadata (`debtorName`, optional phone/note).
+- A debt sale still closes the order; it does NOT leave the order open forever.
+- Debt repayments are separate financial events and do NOT modify the original order totals.
+
+## Debt tracking
+
+- Debt is created only from a closed order that contains a `Payment` row with `method = DEBT`.
+- One order can create at most one debt record.
+- Debt stores:
+  - which order it came from
+  - debtor name
+  - optional debtor phone
+  - original amount
+  - remaining amount
+  - opened timestamp
+  - status `OPEN | PARTIAL | PAID`
+- Debt repayments are append-only rows. Each repayment stores:
+  - debt id
+  - amount
+  - method (`CASH` or `CARD`)
+  - paid timestamp
+  - who received it
+- Partial repayment is allowed.
+- Overpayment is rejected.
+- When remaining amount reaches `0`, debt status becomes `PAID`.
+- Order detail may show that an old debt is now paid, but debt repayment money still belongs to the day it was actually received.
+
+## Expense tracking
+
+- Expenses are recorded by admin or owner.
+- Every expense must store:
+  - category
+  - reason
+  - amount
+  - occurred timestamp
+  - actor
+  - optional note
+- Expense categories include at least:
+  - Go'sht
+  - Sabzavot
+  - Ichimlik
+  - Transport
+  - Xo'jalik
+  - Ishchilar oyligi
+  - Avans
+  - Boshqa
+- Expense rows are immutable:
+  - no normal edit
+  - no hard delete
+  - corrections happen only by creating a reversal row
+- Reversal keeps the original row for auditability and subtracts it in reports.
+- Salary and wage payouts are expenses, not service charges.
 
 ## Stock tracking (added after main interview)
 
@@ -171,23 +223,57 @@ Items can be added during `BILL_REQUESTED` (live bill — admin's screen updates
 
 ## Reports
 
-Daily report (owner-only):
+Reports are owner-only inside the app.
+
+Daily report:
 
 - Order count broken down by `CLOSED`, `CANCELED`, `WALKOUT`.
-- Gross food revenue (sum of subtotals).
+- Gross food revenue (sum of subtotals of closed orders).
 - Total discounts applied.
-- Net food revenue (gross - discounts).
+- Net food revenue (`gross - discounts`).
+- Debt sales total for the day.
 - Service charges collected (separate from revenue, pass-through to waiters).
-- Payment breakdown: cash total / card total.
+- Order payment breakdown: cash total / card total.
+- Debt repayment breakdown: cash / card.
+- Real cash-in total:
+  - order cash
+  - order card
+  - debt repayments received that day
+- Expense totals for the day.
+- Expense breakdown by category.
+- Sales-based profit:
+  - `net sales - expense net`
+- Cashflow-based result:
+  - `real cash in - expense net`
+- Outstanding debt snapshot as of end-of-day.
 - Per-waiter breakdown (orders, revenue, service earned).
 - Cancellations log.
 - Walkouts log.
 
-Monthly report (owner-only):
+Monthly report:
 
 - Aggregate totals for the month.
 - Day-by-day table.
+- Includes monthly debt sales, debt repayments, expenses, sales-based profit, and cashflow-based result.
 - No charts.
+
+### Owner Telegram summary
+
+- Owner receives one automatic daily Telegram summary.
+- Telegram summary contains:
+  - gross sales
+  - discounts
+  - net sales
+  - debt sales
+  - real cash-in
+  - debt repaid that day
+  - daily expenses
+  - sales-based profit
+  - cashflow-based result
+  - service charge
+  - canceled and walkout counts
+- Telegram sending requires outbound internet from the Master machine.
+- No VPS is required in v1.
 
 NOT in v1: top items, hourly distribution, average order value, CSV/PDF export.
 
@@ -195,7 +281,7 @@ NOT in v1: top items, hourly distribution, average order value, CSV/PDF export.
 
 - Owner-only screen.
 - One `AuditLog` table.
-- Tracked actions: `USER_CREATED`, `USER_DEACTIVATED`, `DISCOUNT_CREATED`, `DISCOUNT_EDITED`, `DISCOUNT_DELETED`, `DISCOUNT_APPLIED`, `ORDER_CANCELED`, `WALKOUT_MARKED`, `TABLE_TRANSFERRED`, `RECEIPT_REPRINTED`, `SETTINGS_CHANGED`, `SERVICE_CHARGE_WAIVED`, `DAILY_STOCK_SET`, `DAILY_STOCK_ADJUSTED`.
+- Tracked actions: `USER_CREATED`, `USER_DEACTIVATED`, `DISCOUNT_CREATED`, `DISCOUNT_EDITED`, `DISCOUNT_DELETED`, `DISCOUNT_APPLIED`, `ORDER_CANCELED`, `WALKOUT_MARKED`, `TABLE_TRANSFERRED`, `RECEIPT_REPRINTED`, `SETTINGS_CHANGED`, `SERVICE_CHARGE_WAIVED`, `DAILY_STOCK_SET`, `DAILY_STOCK_ADJUSTED`, `EXPENSE_CREATED`, `EXPENSE_REVERSED`, `DEBT_CREATED`, `DEBT_PAYMENT_RECORDED`, `DEBT_CLOSED`, `REPORT_SENT`, `REPORT_SEND_FAILED`.
 - Paginated, filterable by action / user / date range.
 
 ## Multi-tenancy

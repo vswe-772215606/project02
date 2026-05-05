@@ -60,6 +60,7 @@ enum DiscountType {
 enum PaymentMethod {
   CASH
   CARD
+  DEBT
 }
 
 enum PrintJobType {
@@ -73,6 +74,18 @@ enum PrintJobStatus {
   PENDING
   SUCCESS
   FAILED
+}
+
+enum ExpenseStatus {
+  ACTIVE
+  REVERSED
+  REVERSAL
+}
+
+enum DebtStatus {
+  OPEN
+  PARTIAL
+  PAID
 }
 
 enum AuditAction {
@@ -90,6 +103,13 @@ enum AuditAction {
   SERVICE_CHARGE_WAIVED
   DAILY_STOCK_SET
   DAILY_STOCK_ADJUSTED
+  EXPENSE_CREATED
+  EXPENSE_REVERSED
+  DEBT_CREATED
+  DEBT_PAYMENT_RECORDED
+  DEBT_CLOSED
+  REPORT_SENT
+  REPORT_SEND_FAILED
 }
 
 // ============================================================
@@ -116,6 +136,9 @@ model User {
   discountsCreated  Discount[]   @relation("DiscountCreator")
   printJobs         PrintJob[]   @relation("PrintJobTrigger")
   dailyStocksSet    DailyStock[] @relation("DailyStockSetter")
+  expensesCreated   Expense[]    @relation("ExpenseCreator")
+  debtsCreated      Debt[]       @relation("DebtCreator")
+  debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
 
   @@index([role])
   @@index([isActive])
@@ -257,6 +280,7 @@ model Order {
   lines           OrderLine[]
   kitchenTickets  KitchenTicket[]
   payments        Payment[]
+  debt            Debt?
   printJobs       PrintJob[]
 
   @@index([status])
@@ -350,6 +374,87 @@ model Payment {
   @@index([createdAt])
 }
 
+model ExpenseCategory {
+  id           String   @id @default(cuid())
+  name         String
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  expenses     Expense[]
+
+  @@unique([name])
+  @@index([isActive])
+  @@index([displayOrder])
+}
+
+model Expense {
+  id                String        @id @default(cuid())
+  categoryId        String
+  amount            Decimal       @db.Decimal(12, 2)
+  reason            String
+  note              String?
+  occurredAt        DateTime
+  status            ExpenseStatus @default(ACTIVE)
+  reversedExpenseId String?
+  createdById       String
+  createdAt         DateTime      @default(now())
+
+  category          ExpenseCategory @relation(fields: [categoryId], references: [id])
+  reversedExpense   Expense?        @relation("ExpenseReversal", fields: [reversedExpenseId], references: [id])
+  reversals         Expense[]       @relation("ExpenseReversal")
+  createdBy         User            @relation("ExpenseCreator", fields: [createdById], references: [id])
+
+  @@index([occurredAt])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdById])
+}
+
+model Debt {
+  id              String     @id @default(cuid())
+  orderId         String     @unique
+  debtorName      String
+  debtorPhone     String?
+  note            String?
+  originalAmount  Decimal    @db.Decimal(12, 2)
+  remainingAmount Decimal    @db.Decimal(12, 2)
+  openedAt        DateTime
+  closedAt        DateTime?
+  status          DebtStatus @default(OPEN)
+  createdById     String
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  order           Order            @relation(fields: [orderId], references: [id])
+  createdBy       User             @relation("DebtCreator", fields: [createdById], references: [id])
+  repayments      DebtRepayment[]
+
+  @@index([status])
+  @@index([openedAt])
+  @@index([createdById])
+  @@index([debtorName])
+}
+
+model DebtRepayment {
+  id           String        @id @default(cuid())
+  debtId        String
+  amount        Decimal       @db.Decimal(12, 2)
+  method        PaymentMethod
+  paidAt        DateTime
+  note          String?
+  receivedById  String
+  createdAt     DateTime      @default(now())
+
+  debt          Debt          @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  receivedBy    User          @relation("DebtRepaymentReceiver", fields: [receivedById], references: [id])
+
+  @@index([debtId])
+  @@index([paidAt])
+  @@index([receivedById])
+}
+
 // ============================================================
 // STOCK
 // ============================================================
@@ -436,6 +541,10 @@ Seeded into the `Setting` table. Keys are stable strings (do not rename).
 | `service_charge_amount` | string-int (UZS) | `"10000"` | OWNER |
 | `max_discount_percent` | string-int (%) | `"15"` | OWNER |
 | `max_discount_amount` | string-int (UZS) | `"100000"` | OWNER |
+| `daily_report_telegram_enabled` | string-bool | `"false"` | OWNER |
+| `daily_report_telegram_time` | string | `"23:30"` | OWNER |
+| `telegram_bot_token` | string | `""` | OWNER |
+| `owner_telegram_chat_id` | string | `""` | OWNER |
 | `kitchen_printer_enabled` | string-bool | `"false"` | ADMIN, OWNER |
 | `admin_printer_name` | string | `"POS-80"` | ADMIN, OWNER |
 | `kitchen_printer_name` | string | `""` | ADMIN, OWNER |

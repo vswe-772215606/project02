@@ -23,8 +23,8 @@ export const auditRepo = {
     tx?: Tx,
   ) {
     const where: Prisma.AuditLogWhereInput = {
-      action: params.action,
-      userId: params.userId,
+      action: params.action || undefined,
+      userId: params.userId || undefined,
       createdAt:
         params.from || params.to
           ? {
