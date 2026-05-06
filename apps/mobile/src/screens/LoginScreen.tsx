@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../stores/auth.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { theme } from '../lib/theme';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -113,27 +115,38 @@ export function LoginScreen() {
   return (
     <View style={styles.container}>
       <TouchableOpacity onPress={() => nav.navigate('Settings')} style={styles.settingsBtn}>
-        <Text style={styles.settingsBtnText}>⚙</Text>
+        <MaterialCommunityIcons name="cog-outline" size={24} color={theme.colors.slate[600]} />
       </TouchableOpacity>
-      <Text style={styles.title}>Chayxana</Text>
-      <Text style={styles.subtitle}>PIN kodni kiriting</Text>
+
+      <View style={styles.header}>
+        <Text style={styles.title}>Chayxana</Text>
+        <Text style={styles.subtitle}>PIN kodni kiriting</Text>
+      </View>
 
       <Animated.View style={[styles.dotsContainer, { opacity: flashAnim }]}>
         {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={[styles.dot, pin.length > i && styles.dotFilled]} />
+          <View
+            key={i}
+            style={[
+              styles.dot,
+              pin.length > i && styles.dotFilled,
+              error && styles.dotError,
+            ]}
+          />
         ))}
       </Animated.View>
 
       <View style={styles.messageArea}>
         {lockedUntil ? (
-          <Text style={styles.lockedText}>
-            Hisob bloklangan.{'\n'}Yana kirish: {countdown}
-          </Text>
+          <View style={styles.lockedContainer}>
+            <Text style={styles.lockedText}>Hisob bloklangan</Text>
+            <Text style={styles.countdownText}>Qayta urinish: {countdown}</Text>
+          </View>
         ) : error ? (
           <Text style={styles.errorText}>{error}</Text>
         ) : null}
         {loading && (
-          <ActivityIndicator size="small" color="#3b82f6" />
+          <ActivityIndicator size="small" color={theme.colors.primary} />
         )}
       </View>
 
@@ -148,15 +161,19 @@ export function LoginScreen() {
           {[7, 8, 9].map(d => renderDigit(d.toString()))}
         </View>
         <View style={styles.row}>
+          <View style={styles.digitButtonPlaceholder} />
+          {renderDigit('0')}
           <TouchableOpacity
-            style={[styles.digitButton, isDisabled && styles.digitButtonDisabled]}
+            style={[styles.digitButton, styles.backspaceButton, isDisabled && styles.digitButtonDisabled]}
             onPress={handleBackspace}
             disabled={isDisabled}
           >
-            <Text style={[styles.digitText, isDisabled && styles.digitTextDisabled]}>⌫</Text>
+            <MaterialCommunityIcons 
+              name="backspace-outline" 
+              size={28} 
+              color={isDisabled ? theme.colors.slate[300] : theme.colors.slate[600]} 
+            />
           </TouchableOpacity>
-          {renderDigit('0')}
-          <View style={styles.digitButton} />
         </View>
       </View>
     </View>
@@ -168,64 +185,78 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 20,
+    backgroundColor: theme.colors.white,
+    padding: theme.spacing.xl,
   },
   settingsBtn: {
     position: 'absolute',
-    top: 56,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+    top: Platform.OS === 'ios' ? 60 : 40,
+    right: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.slate[100],
     justifyContent: 'center',
     alignItems: 'center',
   },
-  settingsBtnText: { fontSize: 18, color: '#64748b' },
+  settingsBtnText: { fontSize: 20, color: theme.colors.slate[600] },
+  header: {
+    alignItems: 'center',
+    marginBottom: theme.spacing.xl,
+  },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    ...theme.typography.h1,
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.xs,
   },
   subtitle: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 40,
+    ...theme.typography.caption,
+    fontSize: 16,
   },
   dotsContainer: {
     flexDirection: 'row',
-    marginBottom: 24,
-    gap: 20,
+    marginBottom: theme.spacing.xl,
+    gap: 24,
   },
   dot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 2,
-    borderColor: '#3b82f6',
+    borderColor: theme.colors.primary,
   },
   dotFilled: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: theme.colors.primary,
+  },
+  dotError: {
+    borderColor: theme.colors.danger,
+    backgroundColor: theme.colors.danger,
   },
   messageArea: {
-    height: 52,
+    height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing.xl,
   },
   errorText: {
-    color: '#dc2626',
+    color: theme.colors.danger,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     textAlign: 'center',
   },
+  lockedContainer: {
+    alignItems: 'center',
+  },
   lockedText: {
-    color: '#dc2626',
+    color: theme.colors.danger,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 24,
+  },
+  countdownText: {
+    color: theme.colors.slate[500],
+    fontSize: 14,
+    marginTop: 4,
   },
   pad: {
     width: '100%',
@@ -234,24 +265,35 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   digitButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#f3f4f6',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: theme.colors.slate[100],
     justifyContent: 'center',
     alignItems: 'center',
   },
+  digitButtonPlaceholder: {
+    width: 76,
+    height: 76,
+  },
+  backspaceButton: {
+    backgroundColor: 'transparent',
+  },
   digitButtonDisabled: {
-    backgroundColor: '#e5e7eb',
+    backgroundColor: theme.colors.slate[50],
   },
   digitText: {
     fontSize: 28,
     fontWeight: '600',
+    color: theme.colors.slate[900],
+  },
+  backspaceText: {
+    color: theme.colors.slate[400],
   },
   digitTextDisabled: {
-    color: '#9ca3af',
+    color: theme.colors.slate[300],
   },
 });

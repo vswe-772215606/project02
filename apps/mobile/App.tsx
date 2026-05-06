@@ -10,8 +10,6 @@ import { setUnauthorizedHandler } from './src/api/client';
 import { useSocket } from './src/hooks/useSocket';
 import { setupNotifications } from './src/lib/notifications';
 import { AppNavigator } from './src/navigation/AppNavigator';
-import { ConnectionBanner } from './src/components/ConnectionBanner';
-import { ConnectionDiagnostics } from './src/components/ConnectionDiagnostics';
 import { ToastContainer } from './src/components/Toast';
 
 SplashScreen.preventAutoHideAsync();
@@ -29,9 +27,7 @@ function Inner() {
   useSocket();
   return (
     <View style={{ flex: 1 }}>
-      <ConnectionBanner />
       <AppNavigator />
-      <ConnectionDiagnostics />
       <ToastContainer />
     </View>
   );

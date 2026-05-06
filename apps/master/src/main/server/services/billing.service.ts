@@ -59,10 +59,12 @@ export const billingService = {
 
       const maxPercent = settingsService.getInt('max_discount_percent');
       const maxAmount = settingsService.getInt('max_discount_amount');
-      const percentCapAmount = Math.round((subtotal * maxPercent) / 100);
 
-      if (discountAmount > percentCapAmount) {
-        throw Errors.DiscountCapExceeded('Discount exceeds percent cap');
+      if (discount.type === DiscountType.PERCENT) {
+        const percentCapAmount = Math.round((subtotal * maxPercent) / 100);
+        if (discountAmount > percentCapAmount) {
+          throw Errors.DiscountCapExceeded('Discount exceeds percent cap');
+        }
       }
 
       if (discountAmount > maxAmount) {

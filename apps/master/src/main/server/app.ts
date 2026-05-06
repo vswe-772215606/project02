@@ -12,6 +12,7 @@ import { kitchenRouter } from './routes/kitchen.routes';
 import { menuRouter } from './routes/menu.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { reportsRouter } from './routes/reports.routes';
+import { printersRouter } from './routes/printers.routes';
 import { settingsRouter } from './routes/settings.routes';
 import { stockRouter } from './routes/stock.routes';
 import { tablesRouter } from './routes/tables.routes';
@@ -38,6 +39,7 @@ export function createApp(): Express {
   app.use('/api/reports', reportsRouter);
   app.use('/api/audit', auditRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/printers', printersRouter);
   app.use('/api/users', usersRouter);
 
   app.use(errorHandler);

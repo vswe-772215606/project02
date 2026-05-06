@@ -1,15 +1,21 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking,
-  ActivityIndicator, Alert, TextInput,
+  ActivityIndicator, Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { getMasterUrl } from '../lib/env';
 import { checkServerHealth, getErrorMessage, normalizeUrl } from '../lib/network';
 import { useSettingsStore, VibrateMode } from '../stores/settings.store';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { fireReadyNotification } from '../lib/notifications';
+import { theme } from '../lib/theme';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { Input } from '../components/ui/Input';
+import { Badge } from '../components/ui/Badge';
 
 const VIBRATE_OPTIONS: { value: VibrateMode; label: string; sub: string }[] = [
   { value: 'off', label: "Yo'q", sub: "Titroq bo'lmaydi" },
@@ -58,8 +64,7 @@ export function SettingsScreen() {
   const nav = useNavigation();
   const { vibrateMode, setVibrateMode, serverUrl, setServerUrl } = useSettingsStore();
   const clearAuth = useAuthStore((s) => s.clearAuth);
-  const lastSuccessfulContact = useConnectionStore((s) => s.lastSuccessfulContact);
-  const markSuccessfulContact = useConnectionStore((s) => s.markSuccessfulContact);
+  const { status, lastSuccessfulContact, markSuccessfulContact } = useConnectionStore();
   const [testingNotification, setTestingNotification] = useState(false);
   const [testingServer, setTestingServer] = useState(false);
   const [editingUrl, setEditingUrl] = useState(false);
@@ -135,31 +140,46 @@ export function SettingsScreen() {
     );
   };
 
+  const connectionBadge = useMemo(() => {
+    switch (status) {
+      case 'online': return { label: 'ONLAYN', variant: 'success' as const };
+      case 'connecting': return { label: 'ULANMOQDA...', variant: 'warning' as const };
+      case 'reconnecting': return { label: 'QAYTA ULANMOQDA...', variant: 'warning' as const };
+      case 'auth-failed': return { label: 'SESSİYA TUGADI', variant: 'danger' as const };
+      default: return { label: 'OFLAYN', variant: 'danger' as const };
+    }
+  }, [status]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
+          <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Sozlamalar</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.sectionTitle}>SERVER</Text>
-        <View style={styles.card}>
+        <Text style={styles.sectionTitle}>ALOQA HOLATI</Text>
+        <Card style={styles.card}>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Hozirgi holat:</Text>
+            <Badge label={connectionBadge.label} variant={connectionBadge.variant} />
+          </View>
           <View style={styles.serverSummary}>
-            <Text style={styles.serverSummaryLabel}>Hozirgi server</Text>
+            <Text style={styles.serverSummaryLabel}>Master server:</Text>
             <Text style={styles.serverSummaryValue}>{currentUrl}</Text>
-            <Text style={styles.serverSummaryMeta}>
-              Oxirgi muvaffaqiyatli aloqa: {formatDateTime(lastSuccessfulContact)}
-            </Text>
+            <View style={styles.metaRow}>
+              <Text style={styles.serverSummaryMeta}>
+                Oxirgi aloqa: {formatDateTime(lastSuccessfulContact)}
+              </Text>
+            </View>
           </View>
 
           {editingUrl ? (
             <View style={styles.urlEditBox}>
-              <TextInput
-                style={styles.urlInput}
+              <Input
                 value={urlInput}
                 onChangeText={(value) => { setUrlInput(value); setServerResult(null); }}
                 autoCapitalize="none"
@@ -167,65 +187,87 @@ export function SettingsScreen() {
                 keyboardType="url"
                 returnKeyType="done"
                 onSubmitEditing={() => void handleSaveUrl()}
+                placeholder="192.168.1.50"
               />
               <View style={styles.urlActionRow}>
-                <TouchableOpacity style={styles.urlCancelBtn} onPress={() => { setEditingUrl(false); setUrlInput(serverUrl || getMasterUrl() || ''); }}>
-                  <Text style={styles.urlCancelText}>Bekor qilish</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.urlSaveBtn} onPress={() => void handleSaveUrl()}>
-                  <Text style={styles.urlSaveBtnText}>Saqlash</Text>
-                </TouchableOpacity>
+                <Button
+                  title="Bekor"
+                  variant="secondary"
+                  size="sm"
+                  style={styles.flex1}
+                  onPress={() => { setEditingUrl(false); setUrlInput(serverUrl || getMasterUrl() || ''); }}
+                />
+                <Button
+                  title="Saqlash"
+                  size="sm"
+                  style={styles.flex1}
+                  loading={testingServer}
+                  onPress={() => void handleSaveUrl()}
+                />
               </View>
             </View>
-          ) : null}
-
-          <View style={styles.serverActions}>
-            <TouchableOpacity style={styles.serverActionBlue} onPress={() => void handleServerTest()} disabled={testingServer}>
-              <Text style={styles.serverActionTitle}>Aloqani tekshirish</Text>
-              <Text style={styles.serverActionSub}>`/api/health` orqali</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.serverActionSky} onPress={() => setEditingUrl(true)}>
-              <Text style={styles.serverActionTitleSky}>Serverni o'zgartirish</Text>
-              <Text style={styles.serverActionSub}>Yangi manzilni saqlash</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.serverActionRed} onPress={handleResetConnection}>
-              <Text style={styles.serverActionTitleRed}>Aloqani tiklash</Text>
-              <Text style={styles.serverActionSub}>Sozlash ekraniga qaytish</Text>
-            </TouchableOpacity>
-          </View>
-
-          {serverResult && (
-            <View style={[styles.resultBox, serverResult.tone === 'success' ? styles.resultSuccess : styles.resultError]}>
-              <Text style={[styles.resultText, serverResult.tone === 'success' ? styles.resultTextSuccess : styles.resultTextError]}>
-                {serverResult.message}
-              </Text>
+          ) : (
+            <View style={styles.serverActions}>
+              <Button
+                title="Aloqani tekshirish"
+                variant="outline"
+                size="sm"
+                loading={testingServer}
+                onPress={() => void handleServerTest()}
+              />
+              <View style={styles.row}>
+                <Button
+                  title="O'zgartirish"
+                  variant="secondary"
+                  size="sm"
+                  style={styles.flex1}
+                  onPress={() => setEditingUrl(true)}
+                />
+                <Button
+                  title="Tiklash"
+                  variant="secondary"
+                  size="sm"
+                  style={styles.flex1}
+                  onPress={handleResetConnection}
+                  textStyle={{ color: theme.colors.danger }}
+                />
+              </View>
             </View>
           )}
-        </View>
 
-        <Text style={styles.sectionTitle}>OVOZ</Text>
-        <View style={styles.card}>
+          {serverResult && (
+            <Badge
+              label={serverResult.message}
+              variant={serverResult.tone === 'success' ? 'success' : 'danger'}
+              style={styles.resultBadge}
+            />
+          )}
+        </Card>
+
+        <Text style={styles.sectionTitle}>BILDIRISHNOMALAR</Text>
+        <Card style={styles.card}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoIcon}>🔔</Text>
+            <View style={styles.iconContainer}>
+              <MaterialCommunityIcons name="bell-outline" size={24} color={theme.colors.primary} />
+            </View>
             <View style={styles.infoText}>
-              <Text style={styles.infoTitle}>Telefon bildirishnoma ovozi</Text>
+              <Text style={styles.infoTitle}>Bildirishnoma ovozi</Text>
               <Text style={styles.infoDesc}>
                 Signal ovozi telefoningiz bildirishnoma sozlamalaridan olinadi.
-                O'zgartirish uchun qurilma sozlamalarini oching.
               </Text>
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.openSettingsBtn}
+          <Button
+            title="Qurilma sozlamalarini ochish"
+            variant="ghost"
+            size="sm"
             onPress={() => void Linking.openSettings()}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.openSettingsBtnText}>Qurilma sozlamalarini ochish →</Text>
-          </TouchableOpacity>
-        </View>
+            style={styles.openSettingsBtn}
+          />
+        </Card>
 
-        <Text style={styles.sectionTitle}>TITROQ</Text>
-        <View style={styles.card}>
+        <Text style={styles.sectionTitle}>TITROQ (VIBRATSIYA)</Text>
+        <Card style={styles.cardNoPadding}>
           {VIBRATE_OPTIONS.map((opt) => (
             <RadioRow
               key={opt.value}
@@ -235,120 +277,93 @@ export function SettingsScreen() {
               onPress={() => setVibrateMode(opt.value)}
             />
           ))}
+        </Card>
+
+        <View style={styles.footer}>
+          <Button
+            title="SİNAB KO'RİSH"
+            loading={testingNotification}
+            onPress={() => void handleNotificationTest()}
+            style={styles.testBtn}
+          />
+          <Text style={styles.hint}>
+            Haqiqiy "Buyurtma tayyor!" signali aynan shunday ishlaydi.
+          </Text>
         </View>
-
-        <TouchableOpacity
-          style={[styles.testBtn, testingNotification && styles.testBtnBusy]}
-          onPress={() => void handleNotificationTest()}
-          disabled={testingNotification}
-          activeOpacity={0.8}
-        >
-          {testingNotification
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.testBtnText}>🔔 Bildirishnomani sinab ko'rish</Text>}
-        </TouchableOpacity>
-
-        <Text style={styles.hint}>
-          Haqiqiy "Buyurtma tayyor!" signali aynan shunday ishlaydi.
-        </Text>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { flex: 1, backgroundColor: theme.colors.slate[50] },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 56, paddingBottom: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+    paddingHorizontal: theme.spacing.lg, paddingTop: 56, paddingBottom: 14,
+    backgroundColor: theme.colors.white, borderBottomWidth: 1, borderBottomColor: theme.colors.slate[100],
   },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  backText: { fontSize: 22, color: '#2563eb' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
-  scroll: { padding: 16, paddingBottom: 40 },
+  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.slate[900] },
+  scroll: { padding: theme.spacing.lg, paddingBottom: 60 },
   sectionTitle: {
-    fontSize: 11, fontWeight: '700', color: '#9ca3af',
-    letterSpacing: 1, marginBottom: 8, marginTop: 20, paddingLeft: 4,
+    fontSize: 12, fontWeight: '700', color: theme.colors.slate[500],
+    letterSpacing: 1, marginBottom: 10, marginTop: 24, paddingLeft: 4,
   },
   card: {
-    backgroundColor: '#fff', borderRadius: 14,
-    overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb',
-    paddingBottom: 14,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
   },
-  serverSummary: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  serverSummaryLabel: { fontSize: 13, color: '#64748b', marginBottom: 6 },
-  serverSummaryValue: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  serverSummaryMeta: { marginTop: 8, fontSize: 12, color: '#94a3b8' },
-  serverActions: { paddingHorizontal: 12, gap: 10 },
-  serverActionBlue: { borderRadius: 12, backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', padding: 14 },
-  serverActionSky: { borderRadius: 12, backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', padding: 14 },
-  serverActionRed: { borderRadius: 12, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', padding: 14 },
-  serverActionTitle: { fontSize: 14, fontWeight: '700', color: '#1d4ed8' },
-  serverActionTitleSky: { fontSize: 14, fontWeight: '700', color: '#0369a1' },
-  serverActionTitleRed: { fontSize: 14, fontWeight: '700', color: '#dc2626' },
-  serverActionSub: { marginTop: 4, fontSize: 12, color: '#64748b' },
-  urlEditBox: { paddingHorizontal: 12, paddingBottom: 12, gap: 8 },
-  urlInput: {
-    borderWidth: 1.5, borderColor: '#2563eb', borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 15, color: '#111827',
+  cardNoPadding: {
+    padding: 0,
+    marginBottom: theme.spacing.md,
+    overflow: 'hidden',
   },
-  urlActionRow: { flexDirection: 'row', gap: 8 },
-  urlCancelBtn: {
-    flex: 1, backgroundColor: '#e5e7eb', borderRadius: 10,
-    paddingVertical: 11, alignItems: 'center',
+  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.lg, paddingBottom: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.slate[50] },
+  statusLabel: { fontSize: 14, color: theme.colors.slate[700], fontWeight: '600' },
+  serverSummary: { marginBottom: theme.spacing.lg },
+  serverSummaryLabel: { fontSize: 13, color: theme.colors.slate[500], marginBottom: 4 },
+  serverSummaryValue: { fontSize: 16, fontWeight: '700', color: theme.colors.slate[900] },
+  metaRow: { marginTop: 8 },
+  serverSummaryMeta: { fontSize: 12, color: theme.colors.slate[400] },
+  serverActions: { gap: 10 },
+  row: { flexDirection: 'row', gap: 10 },
+  flex1: { flex: 1 },
+  urlEditBox: { gap: 10 },
+  urlActionRow: { flexDirection: 'row', gap: 10 },
+  resultBadge: {
+    marginTop: theme.spacing.lg,
+    alignSelf: 'stretch',
+    paddingVertical: theme.spacing.sm,
   },
-  urlCancelText: { color: '#475569', fontWeight: '700', fontSize: 14 },
-  urlSaveBtn: {
-    flex: 1, backgroundColor: '#2563eb', borderRadius: 10,
-    paddingVertical: 11, alignItems: 'center',
-  },
-  urlSaveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  resultBox: {
-    marginTop: 12, marginHorizontal: 12, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-  },
-  resultSuccess: { backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#bbf7d0' },
-  resultError: { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
-  resultText: { fontSize: 13, fontWeight: '600' },
-  resultTextSuccess: { color: '#15803d' },
-  resultTextError: { color: '#b91c1c' },
-  infoRow: { flexDirection: 'row', alignItems: 'flex-start', padding: 16, gap: 12 },
-  infoIcon: { fontSize: 22, marginTop: 1 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.md, gap: 16 },
+  iconContainer: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primaryLight, justifyContent: 'center', alignItems: 'center' },
   infoText: { flex: 1 },
-  infoTitle: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 3 },
-  infoDesc: { fontSize: 13, color: '#6b7280', lineHeight: 19 },
+  infoTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.slate[800], marginBottom: 2 },
+  infoDesc: { fontSize: 14, color: theme.colors.slate[500], lineHeight: 20 },
   openSettingsBtn: {
-    marginHorizontal: 16, marginBottom: 14, paddingVertical: 12,
-    borderRadius: 10, backgroundColor: '#eff6ff',
-    borderWidth: 1, borderColor: '#bfdbfe', alignItems: 'center',
+    alignSelf: 'flex-start',
   },
-  openSettingsBtnText: { fontSize: 14, fontWeight: '600', color: '#2563eb' },
   radioRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#f3f4f6', gap: 14,
+    paddingHorizontal: theme.spacing.lg, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: theme.colors.slate[50], gap: 14,
   },
-  radioRowSelected: { backgroundColor: '#eff6ff' },
+  radioRowSelected: { backgroundColor: theme.colors.primaryLight },
   radioCircle: {
-    width: 22, height: 22, borderRadius: 11,
-    borderWidth: 2, borderColor: '#d1d5db',
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 2, borderColor: theme.colors.slate[300],
     justifyContent: 'center', alignItems: 'center',
   },
-  radioCircleOn: { borderColor: '#2563eb' },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#2563eb' },
+  radioCircleOn: { borderColor: theme.colors.primary },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.primary },
   radioText: { flex: 1 },
-  radioLabel: { fontSize: 15, fontWeight: '600', color: '#374151' },
-  radioLabelOn: { color: '#1d4ed8' },
-  radioSub: { fontSize: 12, color: '#9ca3af', marginTop: 1 },
-  testBtn: {
-    marginTop: 28, backgroundColor: '#2563eb',
-    borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-  },
-  testBtnBusy: { backgroundColor: '#93c5fd' },
-  testBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  radioLabel: { fontSize: 15, fontWeight: '600', color: theme.colors.slate[800] },
+  radioLabelOn: { color: theme.colors.primary },
+  radioSub: { fontSize: 12, color: theme.colors.slate[400], marginTop: 1 },
+  footer: { marginTop: 40, alignItems: 'center' },
+  testBtn: { width: '100%', marginBottom: theme.spacing.md },
   hint: {
-    marginTop: 12, fontSize: 12, color: '#9ca3af',
-    textAlign: 'center', lineHeight: 18,
+    fontSize: 13, color: theme.colors.slate[400],
+    textAlign: 'center', lineHeight: 20,
   },
 });

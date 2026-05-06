@@ -4,6 +4,7 @@ import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { reportsService } from './reports.service';
 import { settingsService } from './settings.service';
+import { telegramBotService } from './telegram-bot.service';
 
 function formatMoney(value: string) {
   return new Intl.NumberFormat('uz-UZ', {
@@ -63,49 +64,21 @@ export const financeReportService = {
     }
 
     const report = await reportsService.daily(date);
-    const message = [
-      `${formatDateLabel(date)} kunlik hisobot`,
-      '',
-      `Brutto savdo: ${formatMoney(report.sales.grossSales)} so'm`,
-      `Chegirmalar: ${formatMoney(report.sales.discounts)} so'm`,
-      `Sof savdo: ${formatMoney(report.sales.netSales)} so'm`,
-      `Qarzga savdo: ${formatMoney(report.sales.debtSales)} so'm`,
-      `Real tushgan pul: ${formatMoney(report.cashflow.realCashIn)} so'm`,
-      `Qaytgan qarz: ${formatMoney(report.debtSnapshot.repaidTodayAmount)} so'm`,
-      `Kunlik chiqimlar: ${formatMoney(report.expenses.net)} so'm`,
-      `Savdo foydasi: ${formatMoney(report.results.salesBasedProfit)} so'm`,
-      `Pul oqimi natijasi: ${formatMoney(report.results.cashflowBasedNet)} so'm`,
-      `Xizmat haqi: ${formatMoney(report.sales.serviceCharge)} so'm`,
-      '',
-      `Bekor qilinganlar: ${report.sales.canceledOrders}`,
-      `To'lovsiz ketganlar: ${report.sales.walkoutOrders}`,
-      `Ochiq qarz qoldig'i: ${formatMoney(report.debtSnapshot.outstandingTotal)} so'm`,
-    ].join('\n');
+    const message = telegramBotService.formatReportMessage(date, report);
 
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
+    try {
+      await telegramBotService.sendMessage(message);
+    } catch (error) {
       await auditService.log({
         userId: ownerUserId,
         action: 'REPORT_SEND_FAILED',
         entityType: 'Report',
         metadata: {
           date: date.toISOString().slice(0, 10),
-          status: response.status,
-          body,
+          reason: error instanceof Error ? error.message : 'Unknown error',
         },
       });
-      throw new Error(`Telegram send failed: HTTP ${response.status}`);
+      throw error;
     }
 
     await settingRepo.upsert('daily_report_last_sent_date', date.toISOString().slice(0, 10));

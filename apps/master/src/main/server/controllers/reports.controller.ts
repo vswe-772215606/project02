@@ -25,7 +25,7 @@ export const reportsController = {
     try {
       const { month } = monthlyQuery.parse(req.query);
       const [y, m] = month.split('-').map((s) => parseInt(s, 10));
-      if (!y || !m) throw Errors.Validation('Invalid month');
+      if (!y || !m) throw Errors.Validation('Oy formati noto\'g\'ri');
       const report = await reportsService.monthly(new Date(y, m - 1, 1));
       res.json(report);
     } catch (e) {

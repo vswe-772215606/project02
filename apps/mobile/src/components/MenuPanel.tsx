@@ -6,57 +6,57 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  TextInput,
   ActivityIndicator,
   FlatList,
   Alert,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { menuApi, MenuItem, Combo } from "../api/menu";
 import { ordersApi } from "../api/orders";
 import { useToastStore } from "../stores/toast.store";
 import { formatUZS } from "../lib/format";
+import { theme } from "../lib/theme";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Badge } from "../components/ui/Badge";
+import { Input } from "../components/ui/Input";
 
-function stockLabel(item: MenuItem): string | null {
+function stockLabel(item: MenuItem): { label: string; variant: 'danger' | 'warning' } | null {
   if (!item.trackStock || item.todayCurrentCount === null) return null;
-  if (item.todayCurrentCount <= 0) return "Tugagan";
-  if (item.todayCurrentCount <= 5) return `${item.todayCurrentCount} ta qoldi`;
+  if (item.todayCurrentCount <= 0) return { label: "Tugagan", variant: 'danger' };
+  if (item.todayCurrentCount <= 5) return { label: `${item.todayCurrentCount} ta qoldi`, variant: 'warning' };
   return null;
 }
 
 function ItemCard({ item, onPress }: { item: MenuItem; onPress: () => void }) {
   const available = item.effectivelyAvailable;
-  const label = stockLabel(item);
+  const stock = stockLabel(item);
+  
   return (
-    <TouchableOpacity
+    <Card
       style={[styles.itemCard, !available && styles.itemCardUnavailable]}
       onPress={available ? onPress : undefined}
-      activeOpacity={available ? 0.75 : 1}
+      variant={available ? 'elevated' : 'outlined'}
     >
-      <Text style={[styles.itemName, !available && styles.textMuted]}>
-        {item.name}
-      </Text>
-      <Text style={[styles.itemPrice, !available && styles.textMuted]}>
-        {formatUZS(item.price)} so'm
-      </Text>
-      {label && (
-        <View style={[styles.stockBadge, !available && styles.stockBadgeOut]}>
-          <Text
-            style={[
-              styles.stockBadgeText,
-              !available && styles.stockBadgeTextOut,
-            ]}
-          >
-            {label}
-          </Text>
-        </View>
-      )}
-      {!available && (
-        <View style={styles.soldOut}>
-          <Text style={styles.soldOutText}>Mavjud emas</Text>
-        </View>
-      )}
-    </TouchableOpacity>
+      <View style={styles.itemContent}>
+        <Text style={[styles.itemName, !available && styles.textMuted]} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <Text style={[styles.itemPrice, !available && styles.textMuted]}>
+          {formatUZS(item.price)}
+        </Text>
+      </View>
+      
+      <View style={styles.itemFooter}>
+        {stock && (
+          <Badge label={stock.label} variant={stock.variant} style={styles.stockBadge} />
+        )}
+        {!available && !stock && (
+          <Badge label="Mavjud emas" variant="slate" style={styles.stockBadge} />
+        )}
+      </View>
+    </Card>
   );
 }
 
@@ -66,21 +66,22 @@ function ComboCard({ combo, onPress }: { combo: Combo; onPress: () => void }) {
     0,
   );
   return (
-    <TouchableOpacity
-      style={styles.comboCard}
-      onPress={onPress}
-      activeOpacity={0.75}
-    >
-      <View style={styles.comboRow}>
-        <Text style={styles.comboName}>{combo.name}</Text>
-        <Text style={styles.comboPrice}>{formatUZS(total)} so'm</Text>
+    <Card style={styles.comboCard} onPress={onPress}>
+      <View style={styles.comboHeader}>
+        <Text style={styles.comboName} numberOfLines={1}>{combo.name}</Text>
+        <Badge label="SET" variant="info" />
       </View>
-      <Text style={styles.comboItems} numberOfLines={1}>
+      
+      <Text style={styles.comboItems} numberOfLines={2}>
         {combo.components
-          .map((c) => `${c.menuItem.name} ×${c.quantity}`)
+          .map((c) => `${c.menuItem.name} × ${c.quantity}`)
           .join("  ·  ")}
       </Text>
-    </TouchableOpacity>
+      
+      <View style={styles.comboFooter}>
+        <Text style={styles.comboPrice}>{formatUZS(total)} so'm</Text>
+      </View>
+    </Card>
   );
 }
 
@@ -191,7 +192,7 @@ export function MenuPanel({
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
@@ -207,114 +208,125 @@ export function MenuPanel({
   return (
     <View style={styles.root}>
       {/* Category tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.catBar}
-        contentContainerStyle={styles.catBarContent}
-      >
-        {activeCombos.length > 0 && (
-          <TouchableOpacity
-            style={[styles.catTab, showCombos && styles.catTabActive]}
-            onPress={() => setShowCombos(true)}
-          >
-            <Text
-              style={[styles.catTabText, showCombos && styles.catTabTextActive]}
-            >
-              Set menyu
-            </Text>
-          </TouchableOpacity>
-        )}
-        {categories.map((cat) => {
-          const active = !showCombos && currentCatId === cat.id;
-          return (
+      <View style={styles.catBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.catBar}
+          contentContainerStyle={styles.catBarContent}
+        >
+          {activeCombos.length > 0 && (
             <TouchableOpacity
-              key={cat.id}
-              style={[styles.catTab, active && styles.catTabActive]}
-              onPress={() => {
-                setActiveCatId(cat.id);
-                setShowCombos(false);
-              }}
+              style={[styles.catTab, showCombos && styles.catTabActive]}
+              onPress={() => setShowCombos(true)}
             >
               <Text
-                style={[styles.catTabText, active && styles.catTabTextActive]}
+                style={[styles.catTabText, showCombos && styles.catTabTextActive]}
               >
-                {cat.name}
+                Set menyu
               </Text>
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+          )}
+          {categories.map((cat) => {
+            const active = !showCombos && currentCatId === cat.id;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[styles.catTab, active && styles.catTabActive]}
+                onPress={() => {
+                  setActiveCatId(cat.id);
+                  setShowCombos(false);
+                }}
+              >
+                <Text
+                  style={[styles.catTabText, active && styles.catTabTextActive]}
+                >
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-      {/* Items */}
-      {showCombos ? (
-        <FlatList
-          key="combos"
-          data={activeCombos}
-          keyExtractor={(c) => c.id}
-          contentContainerStyle={styles.grid}
-          renderItem={({ item }) => (
-            <ComboCard combo={item} onPress={() => handleAddCombo(item)} />
-          )}
-        />
-      ) : (
-        <FlatList
-          key="items"
-          data={currentCat?.items ?? []}
-          keyExtractor={(i) => i.id}
-          numColumns={2}
-          contentContainerStyle={styles.grid}
-          renderItem={({ item }) => (
-            <ItemCard item={item} onPress={() => openItem(item)} />
-          )}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>Bu kategoriyada mahsulot yo'q</Text>
-          }
-        />
-      )}
+      {/* Items Grid */}
+      <View style={styles.gridContainer}>
+        {showCombos ? (
+          <FlatList
+            key="combos"
+            data={activeCombos}
+            keyExtractor={(c) => c.id}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <ComboCard combo={item} onPress={() => handleAddCombo(item)} />
+            )}
+          />
+        ) : (
+          <FlatList
+            key="items"
+            data={currentCat?.items ?? []}
+            keyExtractor={(i) => i.id}
+            numColumns={2}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <ItemCard item={item} onPress={() => openItem(item)} />
+            )}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>Bu kategoriyada mahsulot yo'q</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
 
       {/* Add item modal */}
       <Modal visible={!!itemModal} transparent animationType="fade">
         <View style={styles.overlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalName}>{itemModal?.name}</Text>
-            <Text style={styles.modalPrice}>
-              {formatUZS((itemModal?.price ?? 0) * quantity)} so'm
-            </Text>
+          <Card style={styles.modalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalName}>{itemModal?.name}</Text>
+              <Text style={styles.modalPrice}>
+                {formatUZS((itemModal?.price ?? 0) * quantity)} so'm
+              </Text>
+            </View>
+
             <View style={styles.qtyRow}>
               <TouchableOpacity
                 style={styles.qtyBtn}
                 onPress={() => setQuantity((q) => Math.max(1, q - 1))}
               >
-                <Text style={styles.qtyBtnText}>−</Text>
+                <MaterialCommunityIcons name="minus" size={32} color={theme.colors.slate[800]} />
               </TouchableOpacity>
-              <Text style={styles.qtyVal}>{quantity}</Text>
+              <View style={styles.qtyValContainer}>
+                <Text style={styles.qtyVal}>{quantity}</Text>
+              </View>
               <TouchableOpacity
                 style={styles.qtyBtn}
                 onPress={() => setQuantity((q) => q + 1)}
               >
-                <Text style={styles.qtyBtnText}>+</Text>
+                <MaterialCommunityIcons name="plus" size={32} color={theme.colors.slate[800]} />
               </TouchableOpacity>
             </View>
-            <TextInput
-              style={styles.noteInput}
+
+            <Input
               value={itemNote}
               onChangeText={setItemNote}
-              placeholder="Eslatma (ixtiyoriy)"
-              placeholderTextColor="#9ca3af"
+              placeholder="Eslatma (masalan: piyozsiz)"
+              containerStyle={styles.noteInput}
             />
+
             <View style={styles.modalBtns}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
+              <Button
+                title="Bekor"
+                variant="secondary"
                 onPress={dismissModal}
-              >
-                <Text style={styles.modalCancelText}>✕</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalAddBtn,
-                  (addItemMutation.isPending || offline) && styles.btnDisabled,
-                ]}
+                style={styles.flex1}
+              />
+              <Button
+                title="Qo'shish"
+                variant="primary"
+                loading={addItemMutation.isPending}
                 onPress={() =>
                   itemModal &&
                   addItemMutation.mutate({
@@ -323,16 +335,10 @@ export function MenuPanel({
                     notes: itemNote,
                   })
                 }
-                disabled={addItemMutation.isPending || offline}
-              >
-                {addItemMutation.isPending ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.modalAddText}>Qo'shish</Text>
-                )}
-              </TouchableOpacity>
+                style={styles.flex2}
+              />
             </View>
-          </View>
+          </Card>
         </View>
       </Modal>
     </View>
@@ -340,171 +346,117 @@ export function MenuPanel({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f3f4f6" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 8 },
-  errText: { fontSize: 16, fontWeight: "700", color: "#dc2626" },
-  errSub: { fontSize: 13, color: "#9ca3af" },
+  root: { flex: 1, backgroundColor: theme.colors.slate[50] },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
+  errText: { ...theme.typography.h3, color: theme.colors.danger },
+  errSub: { ...theme.typography.caption, marginTop: 4 },
 
-  catBar: {
-    backgroundColor: "#fff",
+  catBarContainer: {
+    backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    flexShrink: 0,
+    borderBottomColor: theme.colors.slate[100],
   },
-  catBarContent: {
-    paddingHorizontal: 8,
-    alignItems: "stretch",
-  },
+  catBar: { flexShrink: 0 },
+  catBarContent: { paddingHorizontal: theme.spacing.md },
   catTab: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderBottomWidth: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 3,
     borderBottomColor: "transparent",
   },
-  catTabActive: { borderBottomColor: "#2563eb" },
-  catTabText: { fontSize: 14, fontWeight: "600", color: "#6b7280" },
-  catTabTextActive: { color: "#2563eb" },
+  catTabActive: { borderBottomColor: theme.colors.primary },
+  catTabText: { fontSize: 14, fontWeight: "700", color: theme.colors.slate[500] },
+  catTabTextActive: { color: theme.colors.primary },
 
-  grid: { padding: 10, paddingBottom: 16 },
+  gridContainer: { flex: 1 },
+  list: { padding: theme.spacing.md, paddingBottom: 40 },
+  
   itemCard: {
     flex: 1,
-    margin: 5,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
+    margin: 6,
+    padding: theme.spacing.md,
+    height: 120,
+    justifyContent: 'space-between',
   },
-  itemCardUnavailable: { opacity: 0.5 },
+  itemCardUnavailable: { opacity: 0.5, backgroundColor: theme.colors.slate[50] },
+  itemContent: { flex: 1 },
   itemName: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 5,
-  },
-  itemPrice: { fontSize: 13, fontWeight: "700", color: "#2563eb" },
-  textMuted: { color: "#9ca3af" },
-  stockBadge: {
-    marginTop: 5,
-    alignSelf: "flex-start",
-    backgroundColor: "#dcfce7",
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  stockBadgeOut: { backgroundColor: "#fee2e2" },
-  stockBadgeText: { fontSize: 10, fontWeight: "700", color: "#15803d" },
-  stockBadgeTextOut: { color: "#dc2626" },
-  soldOut: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  soldOutText: { fontSize: 12, fontWeight: "700", color: "#dc2626" },
-
-  comboCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1.5,
-    borderColor: "#e9d5ff",
-  },
-  comboRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.slate[900],
     marginBottom: 4,
   },
-  comboName: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#111827",
-    flex: 1,
-    marginRight: 8,
-  },
-  comboPrice: { fontSize: 14, fontWeight: "700", color: "#7c3aed" },
-  comboItems: { fontSize: 12, color: "#6b7280" },
+  itemPrice: { fontSize: 14, fontWeight: "800", color: theme.colors.primary },
+  textMuted: { color: theme.colors.slate[400] },
+  itemFooter: { height: 24, justifyContent: 'flex-end' },
+  stockBadge: { paddingHorizontal: 6, paddingVertical: 2 },
 
-  emptyText: {
-    textAlign: "center",
-    color: "#9ca3af",
-    marginTop: 40,
-    fontSize: 14,
+  comboCard: {
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    borderColor: theme.colors.info + '40',
+    borderWidth: 1,
   },
+  comboHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  comboName: {
+    ...theme.typography.bodyBold,
+    color: theme.colors.slate[900],
+    flex: 1,
+    marginRight: 12,
+  },
+  comboItems: { fontSize: 13, color: theme.colors.slate[500], lineHeight: 18 },
+  comboFooter: { marginTop: 12, alignItems: 'flex-end' },
+  comboPrice: { fontSize: 16, fontWeight: "900", color: theme.colors.info },
+
+  empty: { flex: 1, alignItems: 'center', paddingTop: 60 },
+  emptyText: { color: theme.colors.slate[400], fontSize: 15 },
 
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: theme.colors.slate[900],
     justifyContent: "center",
     padding: 24,
   },
-  modalBox: { backgroundColor: "#fff", borderRadius: 18, padding: 22 },
+  modalBox: { padding: 24 },
+  modalHeader: { alignItems: 'center', marginBottom: 24 },
   modalName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 4,
+    ...theme.typography.h2,
+    color: theme.colors.slate[900],
+    textAlign: 'center',
+    marginBottom: 8,
   },
   modalPrice: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#2563eb",
-    marginBottom: 20,
+    ...theme.typography.h3,
+    color: theme.colors.primary,
   },
   qtyRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 28,
-    marginBottom: 18,
+    gap: 24,
+    marginBottom: 24,
   },
   qtyBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#f3f4f6",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme.colors.slate[100],
     justifyContent: "center",
     alignItems: "center",
   },
-  qtyBtnText: { fontSize: 28, color: "#111827", lineHeight: 34 },
+  qtyValContainer: { minWidth: 60, alignItems: 'center' },
   qtyVal: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: "#111827",
-    minWidth: 44,
-    textAlign: "center",
+    fontSize: 36,
+    fontWeight: "900",
+    color: theme.colors.slate[900],
   },
-  noteInput: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 14,
-    marginBottom: 18,
-    color: "#111827",
-  },
-  modalBtns: { flexDirection: "row", gap: 10 },
-  modalCancelBtn: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 14,
-    backgroundColor: "#f3f4f6",
-    alignItems: "center",
-  },
-  modalCancelText: { color: "#374151", fontWeight: "600", fontSize: 15 },
-  modalAddBtn: {
-    flex: 2,
-    borderRadius: 10,
-    paddingVertical: 14,
-    backgroundColor: "#16a34a",
-    alignItems: "center",
-  },
-  modalAddText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  btnDisabled: { backgroundColor: "#9ca3af" },
+  noteInput: { marginBottom: 24 },
+  modalBtns: { flexDirection: "row", gap: 12 },
+  flex1: { flex: 1 },
+  flex2: { flex: 2 },
 });

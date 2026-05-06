@@ -113,6 +113,14 @@ function getStoreHeading(): string {
   return settingsService.get('store_heading') || 'Chayxana';
 }
 
+function getStorePhone(): string | undefined {
+  return settingsService.get('store_phone');
+}
+
+function getStoreAddress(): string | undefined {
+  return settingsService.get('store_address');
+}
+
 export const printService = {
   async printBill(order: PrintableOrder) {
     const printerName = settingsService.get('admin_printer_name') || '';
@@ -120,7 +128,11 @@ export const printService = {
       throw Errors.PrintFailed('Admin printer not configured');
     }
 
-    const args = buildBillArgs(order, { storeHeading: getStoreHeading() });
+    const args = buildBillArgs(order, {
+      storeHeading: getStoreHeading(),
+      storePhone: getStorePhone(),
+      storeAddress: getStoreAddress(),
+    });
     const job = await printJobRepo.create({
       type: PrintJobType.BILL,
       printerName,
@@ -191,7 +203,11 @@ export const printService = {
       throw Errors.PrintFailed('Admin printer not configured');
     }
 
-    const args = buildBillArgs(order, { storeHeading: getStoreHeading() });
+    const args = buildBillArgs(order, {
+      storeHeading: getStoreHeading(),
+      storePhone: getStorePhone(),
+      storeAddress: getStoreAddress(),
+    });
     const job = await printJobRepo.create({
       type: PrintJobType.BILL_REPRINT,
       printerName,

@@ -15,6 +15,7 @@ import {
 import { discountsApi, Discount } from '../api/discounts';
 import { settingsApi } from '../api/settings';
 import { formatUZS } from '../utils/format';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 const discountSchema = z.object({
@@ -30,6 +31,7 @@ export function DiscountsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editDiscount, setEditDiscount] = useState<Discount | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: discounts = [], isLoading } = useQuery({
     queryKey: ['discounts', showInactive],
@@ -64,13 +66,15 @@ export function DiscountsPage() {
 
   const handleToggleActive = (discount: Discount) => {
     if (discount.isActive) {
-      if (confirm(`"${discount.name}" chegirmasini faolsizlantirmoqchimisiz?`)) {
-        deleteMutation.mutate(discount.id);
-      }
+      setPendingConfirm({
+        message: `"${discount.name}" chegirmasini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => deleteMutation.mutate(discount.id),
+      });
     } else {
-      if (confirm(`"${discount.name}" chegirmasini qayta faollashtirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: discount.id, data: { isActive: true } });
-      }
+      setPendingConfirm({
+        message: `"${discount.name}" chegirmasini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => updateMutation.mutate({ id: discount.id, data: { isActive: true } }),
+      });
     }
   };
 
@@ -152,7 +156,7 @@ export function DiscountsPage() {
       </div>
 
       {(isAdding || editDiscount) && (
-        <DiscountModal 
+        <DiscountModal
           discount={editDiscount}
           settings={settings}
           onClose={() => { setIsAdding(false); setEditDiscount(null); }}
@@ -162,11 +166,21 @@ export function DiscountsPage() {
           }
         />
       )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={pendingConfirm.message}
+          variant="danger"
+          onConfirm={() => { pendingConfirm.onConfirm(); setPendingConfirm(null); }}
+          onCancel={() => setPendingConfirm(null)}
+        />
+      )}
     </div>
   );
 }
 
 function DiscountModal({ discount, settings, onClose, onSave }: any) {
+  const [formError, setFormError] = useState<string | null>(null);
   const { register, handleSubmit, watch, formState: { errors } } = useForm<DiscountForm>({
     resolver: zodResolver(discountSchema),
     defaultValues: discount || { name: '', type: 'PERCENT', value: 0 }
@@ -178,11 +192,11 @@ function DiscountModal({ discount, settings, onClose, onSave }: any) {
 
   const onSubmit = (data: DiscountForm) => {
     if (data.type === 'PERCENT' && data.value > maxPercent) {
-      alert(`Chegirma foizi ${maxPercent}% dan oshmasligi kerak`);
+      setFormError(`Chegirma foizi ${maxPercent}% dan oshmasligi kerak`);
       return;
     }
     if (data.type === 'FIXED' && data.value > maxAmount) {
-      alert(`Chegirma summasi ${formatUZS(maxAmount)} dan oshmasligi kerak`);
+      setFormError(`Chegirma summasi ${formatUZS(maxAmount)} dan oshmasligi kerak`);
       return;
     }
     onSave(data);
@@ -232,16 +246,18 @@ function DiscountModal({ discount, settings, onClose, onSave }: any) {
           </div>
         </div>
 
+        {formError && <p className="text-xs text-red-600 font-semibold rounded-lg bg-red-50 px-3 py-2">{formError}</p>}
+
         <div className="flex space-x-3 pt-4">
-          <button 
-            type="button" 
-            onClick={onClose} 
+          <button
+            type="button"
+            onClick={onClose}
             className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
           >
             Bekor qilish
           </button>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-100 transition-all"
           >
             Saqlash

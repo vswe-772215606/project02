@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useToastStore } from '../stores/toast.store';
+import { theme } from '../lib/theme';
 
 export function ToastContainer() {
   const toasts = useToastStore((s) => s.toasts);
@@ -32,30 +33,26 @@ export function ToastContainer() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 60,
-    left: 16,
-    right: 16,
+    bottom: Platform.OS === 'ios' ? 100 : 80,
+    left: 24,
+    right: 24,
     zIndex: 9999,
     gap: 8,
   },
   toast: {
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    backgroundColor: theme.colors.slate[800],
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    ...theme.shadows.md,
   },
-  success: { backgroundColor: '#15803d' },
-  warning: { backgroundColor: '#b45309' },
-  error: { backgroundColor: '#b91c1c' },
+  success: { backgroundColor: theme.colors.success },
+  warning: { backgroundColor: theme.colors.warning },
+  error: { backgroundColor: theme.colors.danger },
   text: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '700',
     textAlign: 'center',
   },
 });

@@ -51,6 +51,8 @@ export const settingsService = {
       'admin_printer_name',
       'kitchen_printer_name',
       'store_heading',
+      'store_phone',
+      'store_address',
     ].includes(key);
   },
 

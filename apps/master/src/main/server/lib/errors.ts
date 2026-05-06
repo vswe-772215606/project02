@@ -45,6 +45,8 @@ export const Errors = {
     new AppError('EXPENSE_IMMUTABLE', 409, 'Chiqim yozuvini to\'g\'ridan-to\'g\'ri o\'zgartirib bo\'lmaydi'),
   ExpenseAlreadyReversed: () =>
     new AppError('EXPENSE_ALREADY_REVERSED', 409, 'Bu chiqim allaqachon bekor qilingan'),
+  ExpenseReversalSameDayOnly: () =>
+    new AppError('EXPENSE_REVERSAL_SAME_DAY_ONLY', 409, 'Chiqimni faqat u kiritilgan kunning o\'zida bekor qilish mumkin'),
   ExpenseReversalInvalid: (msg = 'Chiqimni bekor qilish so\'rovi noto\'g\'ri') =>
     new AppError('EXPENSE_REVERSAL_INVALID', 400, msg),
 };

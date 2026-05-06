@@ -1,33 +1,36 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, Pressable,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, Platform,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/auth.store';
 import { authApi } from '../api/auth';
 import { ordersApi, WORK_STATUSES, BILL_STATUSES, STATUS_LABELS, Order } from '../api/orders';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { elapsed, formatUZS } from '../lib/format';
+import { theme } from '../lib/theme';
+import { Card } from '../components/ui/Card';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
-const WORK_COLORS: Record<string, string> = {
-  DRAFT: '#d97706',
-  SENT: '#2563eb',
-};
-const BILL_COLORS: Record<string, string> = {
-  BILL_REQUESTED: '#7c3aed',
-  PENDING_PAYMENT: '#475569',
+const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate'> = {
+  DRAFT: 'warning',
+  SENT: 'primary',
+  BILL_REQUESTED: 'info',
+  PENDING_PAYMENT: 'slate',
 };
 
 function WorkOrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
   const hasReady = order.kitchenTickets.some((t) => t.status === 'READY');
   const activeLines = order.lines.filter((l) => !l.isCanceled);
-  const color = WORK_COLORS[order.status] ?? '#475569';
+  const variant = STATUS_VARIANTS[order.status] || 'slate';
 
   const mealPreview = (() => {
     const names = activeLines.map((l) => l.name);
@@ -37,39 +40,40 @@ function WorkOrderCard({ order, onPress }: { order: Order; onPress: () => void }
   })();
 
   return (
-    <TouchableOpacity
-      style={[styles.workCard, hasReady && styles.workCardReady]}
+    <Card
+      style={[styles.card, hasReady && styles.cardReady]}
       onPress={onPress}
-      activeOpacity={0.75}
     >
-      <View style={styles.cardTopRow}>
+      <View style={styles.cardHeader}>
         <Text style={styles.cardTable}>{tableLabel}</Text>
         <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
       </View>
+      
       {mealPreview ? (
         <Text style={styles.cardMeals} numberOfLines={1}>{mealPreview}</Text>
       ) : (
         <Text style={styles.cardMealsEmpty}>Mahsulot yo'q</Text>
       )}
-      <View style={styles.cardBottomRow}>
+
+      <View style={styles.cardFooter}>
         <Text style={styles.cardAmount}>{formatUZS(order.totalAmount)} so'm</Text>
-        <View style={[styles.statusBadge, { backgroundColor: color }]}>
-          <Text style={styles.statusBadgeText}>{STATUS_LABELS[order.status]}</Text>
-        </View>
+        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
       </View>
+
       {hasReady && (
         <View style={styles.readyBanner}>
-          <Text style={styles.readyBannerText}>✓ TAYYOR — OLIB KELING!</Text>
+          <MaterialCommunityIcons name="check-bold" size={16} color={theme.colors.white} style={{ marginRight: 6 }} />
+          <Text style={styles.readyBannerText}>TAYYOR — OLIB KELING!</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </Card>
   );
 }
 
 function BillOrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
   const activeLines = order.lines.filter((l) => !l.isCanceled);
-  const color = BILL_COLORS[order.status] ?? '#475569';
+  const variant = STATUS_VARIANTS[order.status] || 'slate';
 
   const mealPreview = (() => {
     const names = activeLines.map((l) => l.name);
@@ -79,21 +83,21 @@ function BillOrderCard({ order, onPress }: { order: Order; onPress: () => void }
   })();
 
   return (
-    <TouchableOpacity style={styles.billCard} onPress={onPress} activeOpacity={0.75}>
-      <View style={styles.cardTopRow}>
+    <Card style={styles.card} onPress={onPress}>
+      <View style={styles.cardHeader}>
         <Text style={styles.cardTable}>{tableLabel}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: color }]}>
-          <Text style={styles.statusBadgeText}>{STATUS_LABELS[order.status]}</Text>
-        </View>
+        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
       </View>
+
       {mealPreview && (
         <Text style={styles.cardMeals} numberOfLines={1}>{mealPreview}</Text>
       )}
-      <View style={styles.billAmountRow}>
-        <Text style={styles.billAmount}>{formatUZS(order.totalAmount)} so'm</Text>
+
+      <View style={styles.cardFooter}>
+        <Text style={[styles.cardAmount, styles.billAmount]}>{formatUZS(order.totalAmount)} so'm</Text>
         <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
       </View>
-    </TouchableOpacity>
+    </Card>
   );
 }
 
@@ -108,7 +112,7 @@ export function HomeScreen() {
   const { data: orders = [], isLoading, refetch } = useQuery({
     queryKey: ['orders', 'mine'],
     queryFn: () => ordersApi.list({ mine: true }),
-    refetchInterval: 20_000,
+    refetchInterval: 15_000,
   });
 
   const workOrders = orders.filter((o) => WORK_STATUSES.includes(o.status));
@@ -138,56 +142,58 @@ export function HomeScreen() {
           <Text style={styles.subtitle}>{user?.fullName}</Text>
         </View>
         <View style={styles.headerRight}>
-          <Pressable onPress={() => nav.navigate('Settings')} style={styles.iconBtn} hitSlop={8}>
-            <Text style={styles.iconBtnText}>⚙</Text>
-          </Pressable>
+          <TouchableOpacity onPress={() => nav.navigate('Settings')} style={styles.headerIconBtn}>
+            <MaterialCommunityIcons name="cog-outline" size={24} color={theme.colors.slate[600]} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-            <Text style={styles.logoutText}>Chiqish</Text>
+            <MaterialCommunityIcons name="logout" size={20} color={theme.colors.danger} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Tab bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tabBtn, tab === 'work' && styles.tabBtnActive, hasReadyAny && tab !== 'work' && styles.tabBtnAlert]}
-          onPress={() => setTab('work')}
-        >
-          <Text style={[styles.tabLabel, tab === 'work' && styles.tabLabelActive]}>
-            Faol
-          </Text>
-          {workOrders.length > 0 && (
-            <View style={[styles.tabCount, tab === 'work' && styles.tabCountActive, hasReadyAny && styles.tabCountReady]}>
-              <Text style={[styles.tabCountText, tab === 'work' && styles.tabCountTextActive]}>
-                {workOrders.length}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      {/* Modern Tab Bar */}
+      <View style={styles.tabBarContainer}>
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabItem, tab === 'work' && styles.tabItemActive]}
+            onPress={() => setTab('work')}
+          >
+            <Text style={[styles.tabText, tab === 'work' && styles.tabTextActive]}>Faol</Text>
+            {workOrders.length > 0 && (
+              <View style={[
+                styles.tabBadge,
+                tab === 'work' ? styles.tabBadgeActive : styles.tabBadgeInactive,
+                hasReadyAny && styles.tabBadgeReady
+              ]}>
+                <Text style={[styles.tabBadgeText, tab === 'work' && styles.tabBadgeTextActive]}>
+                  {workOrders.length}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tabBtn, tab === 'bill' && styles.tabBtnActive]}
-          onPress={() => setTab('bill')}
-        >
-          <Text style={[styles.tabLabel, tab === 'bill' && styles.tabLabelActive]}>
-            Hisob
-          </Text>
-          {billOrders.length > 0 && (
-            <View style={[styles.tabCount, tab === 'bill' && styles.tabCountActive]}>
-              <Text style={[styles.tabCountText, tab === 'bill' && styles.tabCountTextActive]}>
-                {billOrders.length}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabItem, tab === 'bill' && styles.tabItemActive]}
+            onPress={() => setTab('bill')}
+          >
+            <Text style={[styles.tabText, tab === 'bill' && styles.tabTextActive]}>Hisob</Text>
+            {billOrders.length > 0 && (
+              <View style={[styles.tabBadge, tab === 'bill' ? styles.tabBadgeActive : styles.tabBadgeInactive]}>
+                <Text style={[styles.tabBadgeText, tab === 'bill' && styles.tabBadgeTextActive]}>
+                  {billOrders.length}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.newOrderBtn, actionsDisabled && styles.btnDisabled]}
+        <Button
+          title="+ Yangi"
+          size="sm"
           onPress={() => nav.navigate('NewOrder')}
           disabled={actionsDisabled}
-        >
-          <Text style={styles.newOrderText}>+ Yangi</Text>
-        </TouchableOpacity>
+          style={styles.newBtn}
+        />
       </View>
 
       {/* Order list */}
@@ -200,7 +206,7 @@ export function HomeScreen() {
             : <BillOrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
         }
         contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={theme.colors.primary} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
@@ -214,116 +220,169 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { flex: 1, backgroundColor: theme.colors.slate[50] },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 56,
-    paddingBottom: 10,
-    backgroundColor: '#fff',
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: Platform.OS === 'ios' ? 60 : 44,
+    paddingBottom: theme.spacing.md,
+    backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: theme.colors.slate[100],
   },
-  title: { fontSize: 20, fontWeight: '800', color: '#111827' },
-  subtitle: { fontSize: 13, color: '#6b7280', marginTop: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  iconBtn: { padding: 8 },
-  iconBtnText: { fontSize: 20, color: '#6b7280' },
-  logoutBtn: { padding: 8 },
-  logoutText: { color: '#dc2626', fontWeight: '600', fontSize: 14 },
-  offlineBanner: { backgroundColor: '#dc2626', paddingVertical: 6, alignItems: 'center' },
-  offlineText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  title: { ...theme.typography.h2, color: theme.colors.slate[900] },
+  subtitle: { ...theme.typography.small, color: theme.colors.slate[500], marginTop: 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.slate[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoutBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.dangerLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
+  tabBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    backgroundColor: theme.colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.slate[100],
+  },
   tabBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    gap: 8,
+    backgroundColor: theme.colors.slate[100],
+    borderRadius: 12,
+    padding: 4,
+    flex: 1,
+    marginRight: theme.spacing.md,
   },
-  tabBtn: {
+  tabItem: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    justifyContent: 'center',
     paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
     gap: 6,
   },
-  tabBtnActive: { backgroundColor: '#2563eb' },
-  tabBtnAlert: { backgroundColor: '#fef9c3' },
-  tabLabel: { fontSize: 15, fontWeight: '700', color: '#374151' },
-  tabLabelActive: { color: '#fff' },
-  tabCount: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#d1d5db',
+  tabItemActive: {
+    backgroundColor: theme.colors.white,
+    ...theme.shadows.sm,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.slate[500],
+  },
+  tabTextActive: {
+    color: theme.colors.primary,
+  },
+  tabBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
   },
-  tabCountActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
-  tabCountReady: { backgroundColor: '#16a34a' },
-  tabCountText: { fontSize: 12, fontWeight: '800', color: '#374151' },
-  tabCountTextActive: { color: '#fff' },
-  newOrderBtn: {
-    marginLeft: 'auto',
-    backgroundColor: '#2563eb',
-    borderRadius: 20,
+  tabBadgeInactive: {
+    backgroundColor: theme.colors.slate[200],
+  },
+  tabBadgeActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  tabBadgeReady: {
+    backgroundColor: theme.colors.success,
+  },
+  tabBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: theme.colors.slate[600],
+  },
+  tabBadgeTextActive: {
+    color: theme.colors.white,
+  },
+  newBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  btnDisabled: { backgroundColor: '#9ca3af' },
-  newOrderText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
-  list: { padding: 12, paddingBottom: 24 },
-
-  workCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
+  list: { padding: theme.spacing.lg, paddingBottom: 40 },
+  card: {
+    marginBottom: theme.spacing.md,
+    padding: theme.spacing.lg,
   },
-  workCardReady: { borderColor: '#16a34a', borderWidth: 2.5, backgroundColor: '#f0fdf4' },
-  billCard: {
-    backgroundColor: '#faf5ff',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: '#e9d5ff',
+  cardReady: {
+    borderColor: theme.colors.success,
+    borderWidth: 2,
+    backgroundColor: theme.colors.successLight,
   },
-
-  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
-  cardTable: { fontSize: 19, fontWeight: '800', color: '#111827' },
-  cardTime: { fontSize: 13, color: '#9ca3af' },
-  cardMeals: { fontSize: 13, color: '#374151', marginBottom: 8 },
-  cardMealsEmpty: { fontSize: 13, color: '#d1d5db', fontStyle: 'italic', marginBottom: 8 },
-  cardBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardAmount: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  statusBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-
-  readyBanner: {
-    marginTop: 10,
-    backgroundColor: '#16a34a',
-    borderRadius: 8,
-    paddingVertical: 8,
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  cardTable: {
+    ...theme.typography.h3,
+    color: theme.colors.slate[900],
+  },
+  cardTime: {
+    ...theme.typography.small,
+  },
+  cardMeals: {
+    fontSize: 14,
+    color: theme.colors.slate[600],
+    marginBottom: theme.spacing.md,
+  },
+  cardMealsEmpty: {
+    fontSize: 14,
+    color: theme.colors.slate[300],
+    fontStyle: 'italic',
+    marginBottom: theme.spacing.md,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  readyBannerText: { color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 },
+  cardAmount: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: theme.colors.slate[900],
+  },
+  billAmount: {
+    color: theme.colors.info,
+    fontSize: 18,
+  },
+  readyBanner: {
+    marginTop: theme.spacing.md,
+    backgroundColor: theme.colors.success,
+    borderRadius: 8,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readyBannerText: {
+    color: theme.colors.white,
+    fontWeight: '800',
+    fontSize: 13,
+  },
 
-  billAmountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  billAmount: { fontSize: 20, fontWeight: '800', color: '#7c3aed' },
-
-  empty: { flex: 1, alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#9ca3af', fontSize: 15 },
+  empty: { flex: 1, alignItems: 'center', paddingTop: 80 },
+  emptyText: { color: theme.colors.slate[400], fontSize: 16 },
 });

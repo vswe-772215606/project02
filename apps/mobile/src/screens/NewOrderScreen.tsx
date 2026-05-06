@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert,
+  View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { tablesApi } from '../api/tables';
 import { ordersApi } from '../api/orders';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { theme } from '../lib/theme';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'NewOrder'>;
 
@@ -48,47 +52,45 @@ export function NewOrderScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => (step === 'table' ? setStep('type') : nav.goBack())} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
+        <TouchableOpacity onPress={() => (step === 'table' ? setStep('type') : nav.goBack())} style={styles.headerIconBtn}>
+          <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
           {step === 'type' ? 'Yangi buyurtma' : 'Stol tanlang'}
         </Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 44 }} />
       </View>
 
       {createMutation.isPending && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       )}
 
       {step === 'type' ? (
         <View style={styles.typeContainer}>
-          <TouchableOpacity
+          <Card
             style={[styles.typeBtn, actionsDisabled && styles.btnDisabled]}
             onPress={() => setStep('table')}
-            disabled={actionsDisabled}
           >
-            <Text style={styles.typeBtnIcon}>🍽</Text>
+            <MaterialCommunityIcons name="silverware-fork-knife" size={48} color={theme.colors.primary} style={styles.typeIcon} />
             <Text style={styles.typeBtnText}>Zalda</Text>
             <Text style={styles.typeBtnSub}>Dine-in</Text>
-          </TouchableOpacity>
+          </Card>
 
-          <TouchableOpacity
+          <Card
             style={[styles.typeBtn, actionsDisabled && styles.btnDisabled]}
             onPress={handleTakeaway}
-            disabled={actionsDisabled || createMutation.isPending}
           >
-            <Text style={styles.typeBtnIcon}>🛍</Text>
+            <MaterialCommunityIcons name="shopping-outline" size={48} color={theme.colors.primary} style={styles.typeIcon} />
             <Text style={styles.typeBtnText}>Olib ketish</Text>
             <Text style={styles.typeBtnSub}>Takeaway</Text>
-          </TouchableOpacity>
+          </Card>
         </View>
       ) : (
         <View style={styles.tableContainer}>
           {loadingTables ? (
-            <ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 40 }} />
+            <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
           ) : (
             <FlatList
               data={activeTables}
@@ -122,23 +124,22 @@ export function NewOrderScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { flex: 1, backgroundColor: theme.colors.slate[50] },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 56,
-    paddingBottom: 14,
-    backgroundColor: '#fff',
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: Platform.OS === 'ios' ? 60 : 44,
+    paddingBottom: theme.spacing.md,
+    backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: theme.colors.slate[100],
   },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  backText: { fontSize: 22, color: '#2563eb' },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#111827' },
-  offlineBanner: { backgroundColor: '#dc2626', paddingVertical: 6, alignItems: 'center' },
-  offlineText: { color: '#fff', fontWeight: '600' },
+  headerIconBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  headerIconText: { fontSize: 24, color: theme.colors.primary },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.slate[900] },
+  
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.7)',
@@ -149,42 +150,41 @@ const styles = StyleSheet.create({
   typeContainer: {
     flex: 1,
     flexDirection: 'row',
-    gap: 16,
+    gap: 20,
     padding: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   typeBtn: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 16,
     padding: 24,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
     maxWidth: 160,
+    height: 180,
+    justifyContent: 'center',
   },
-  btnDisabled: { backgroundColor: '#f3f4f6', borderColor: '#d1d5db' },
-  typeBtnIcon: { fontSize: 40, marginBottom: 10 },
-  typeBtnText: { fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  typeBtnSub: { fontSize: 13, color: '#6b7280' },
+  btnDisabled: { opacity: 0.5 },
+  typeIcon: { marginBottom: 12 },
+  typeBtnText: { fontSize: 18, fontWeight: '800', color: theme.colors.slate[900], marginBottom: 4 },
+  typeBtnSub: { fontSize: 13, color: theme.colors.slate[400] },
   tableContainer: { flex: 1 },
   tableGrid: { padding: 16, gap: 10 },
   tableCell: {
     flex: 1,
-    margin: 5,
+    margin: 6,
     aspectRatio: 1,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: theme.colors.white,
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: '#2563eb',
+    borderColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     maxWidth: '30%',
+    ...theme.shadows.sm,
   },
-  tableCellOccupied: { backgroundColor: '#f3f4f6', borderColor: '#d1d5db' },
-  tableName: { fontSize: 15, fontWeight: '700', color: '#1e40af' },
-  tableNameOccupied: { color: '#9ca3af' },
-  tableStatus: { fontSize: 12, color: '#2563eb', marginTop: 4 },
-  tableStatusOccupied: { color: '#9ca3af' },
+  tableCellOccupied: { backgroundColor: theme.colors.slate[50], borderColor: theme.colors.slate[200], elevation: 0, shadowOpacity: 0 },
+  tableName: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
+  tableNameOccupied: { color: theme.colors.slate[300] },
+  tableStatus: { fontSize: 12, color: theme.colors.primary, marginTop: 4, fontWeight: '600' },
+  tableStatusOccupied: { color: theme.colors.slate[300] },
 });

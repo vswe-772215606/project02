@@ -17,6 +17,16 @@ function signedAmount(status: ExpenseStatus, amount: Prisma.Decimal): Prisma.Dec
   return amount;
 }
 
+function startOfLocalDay(date: Date) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function isSameLocalDay(left: Date, right: Date) {
+  return startOfLocalDay(left).getTime() === startOfLocalDay(right).getTime();
+}
+
 function mapExpense(item: Awaited<ReturnType<typeof expenseRepo.findById>>) {
   if (!item) {
     return null;
@@ -52,7 +62,7 @@ export const expenseService = {
     const byCategoryMap = new Map<string, { categoryId: string; categoryName: string; amount: Prisma.Decimal }>();
 
     for (const item of items) {
-      if (item.status === ExpenseStatus.ACTIVE) {
+      if (item.status === ExpenseStatus.ACTIVE || item.status === ExpenseStatus.REVERSED) {
         gross = gross.plus(item.amount);
       } else if (item.status === ExpenseStatus.REVERSAL) {
         reversal = reversal.plus(item.amount);
@@ -154,6 +164,9 @@ export const expenseService = {
         throw Errors.ExpenseAlreadyReversed();
       }
       throw Errors.ExpenseReversalInvalid();
+    }
+    if (!isSameLocalDay(original.occurredAt, new Date())) {
+      throw Errors.ExpenseReversalSameDayOnly();
     }
     if (original.reversals.length > 0) {
       throw Errors.ExpenseAlreadyReversed();

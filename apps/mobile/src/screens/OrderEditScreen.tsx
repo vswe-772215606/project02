@@ -1,35 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal,
-  TextInput, ActivityIndicator, FlatList,
+  ActivityIndicator, FlatList, Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ordersApi, Order, OrderLine, STATUS_LABELS, TICKET_LABELS, TicketStatus } from '../api/orders';
 import { tablesApi } from '../api/tables';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatUZS } from '../lib/format';
 import { MenuPanel } from '../components/MenuPanel';
+import { theme } from '../lib/theme';
+import { Card } from '../components/ui/Card';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OrderEdit'>;
 type Route = RouteProp<RootStackParamList, 'OrderEdit'>;
 
-const TICKET_COLORS: Record<TicketStatus, string> = {
-  PENDING: '#6b7280',
-  IN_PROGRESS: '#d97706',
-  READY: '#16a34a',
-  CANCELED: '#dc2626',
+const TICKET_VARIANTS: Record<TicketStatus, 'slate' | 'warning' | 'success' | 'danger'> = {
+  PENDING: 'slate',
+  IN_PROGRESS: 'warning',
+  READY: 'success',
+  CANCELED: 'danger',
 };
-const STATUS_BADGE_COLORS: Record<string, string> = {
-  DRAFT: '#d97706',
-  SENT: '#2563eb',
-  BILL_REQUESTED: '#7c3aed',
-  PENDING_PAYMENT: '#475569',
-  CLOSED: '#15803d',
-  WALKOUT: '#dc2626',
-  CANCELED: '#9ca3af',
+
+const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate' | 'success' | 'danger'> = {
+  DRAFT: 'warning',
+  SENT: 'primary',
+  BILL_REQUESTED: 'info',
+  PENDING_PAYMENT: 'slate',
+  CLOSED: 'success',
+  WALKOUT: 'danger',
+  CANCELED: 'slate',
 };
 
 function LineRow({
@@ -58,20 +65,39 @@ function LineRow({
           { text: '✕', style: 'cancel' },
         ]);
       }}
+      activeOpacity={0.7}
     >
       <View style={styles.lineMain}>
-        <Text style={styles.lineName}>{line.name} × {line.quantity}</Text>
+        <View style={styles.lineLeft}>
+          <Text style={styles.lineName}>{line.name}</Text>
+          <Text style={styles.lineQty}>× {line.quantity}</Text>
+        </View>
         {ticketStatus && (
-          <View style={[styles.ticketBadge, { backgroundColor: TICKET_COLORS[ticketStatus] }]}>
-            <Text style={styles.ticketBadgeText}>{TICKET_LABELS[ticketStatus]}</Text>
-          </View>
+          <Badge label={TICKET_LABELS[ticketStatus]} variant={TICKET_VARIANTS[ticketStatus]} />
         )}
       </View>
-      <Text style={styles.linePrice}>
-        {formatUZS(line.price)} × {line.quantity} = {formatUZS(line.price * line.quantity)} so'm
-      </Text>
-      {line.notes ? <Text style={styles.lineNote}>📝 {line.notes}</Text> : null}
-      {line.comboNameSnapshot ? <Text style={styles.lineCombo}>Set: {line.comboNameSnapshot}</Text> : null}
+      
+      <View style={styles.linePriceRow}>
+        <Text style={styles.linePriceDetails}>
+          {formatUZS(line.price)} × {line.quantity}
+        </Text>
+        <Text style={styles.lineTotal}>
+          {formatUZS(line.price * line.quantity)} so'm
+        </Text>
+      </View>
+
+      {line.notes ? (
+        <View style={styles.lineNoteContainer}>
+          <MaterialCommunityIcons name="note-text-outline" size={16} color={theme.colors.primary} style={{ marginRight: 4 }} />
+          <Text style={styles.lineNote}>{line.notes}</Text>
+        </View>
+      ) : null}
+      
+      {line.comboNameSnapshot ? (
+        <View style={styles.lineComboContainer}>
+          <Text style={styles.lineCombo}>Set: {line.comboNameSnapshot}</Text>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -93,7 +119,7 @@ export function OrderEditScreen() {
   const { data: order, isLoading } = useQuery({
     queryKey: ['orders', orderId],
     queryFn: () => ordersApi.getById(orderId),
-    refetchInterval: 15_000,
+    refetchInterval: 10_000,
   });
   const { data: tables = [] } = useQuery({
     queryKey: ['tables'],
@@ -148,7 +174,7 @@ export function OrderEditScreen() {
   if (isLoading || !order) {
     return (
       <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
@@ -159,7 +185,7 @@ export function OrderEditScreen() {
   const canCancel = allTicketsPending && ['DRAFT', 'SENT', 'BILL_REQUESTED'].includes(order.status);
   const isEditable = ['DRAFT', 'SENT', 'BILL_REQUESTED'].includes(order.status);
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
-  const badgeColor = STATUS_BADGE_COLORS[order.status] ?? '#475569';
+  const badgeVariant = STATUS_VARIANTS[order.status] || 'slate';
 
   const openNoteModal = (line: OrderLine) => {
     setNoteText(line.notes ?? '');
@@ -187,137 +213,145 @@ export function OrderEditScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>←</Text>
+        <TouchableOpacity onPress={() => nav.goBack()} style={styles.headerIconBtn}>
+          <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.primary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTable}>{tableLabel}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
-            <Text style={styles.statusBadgeText}>{STATUS_LABELS[order.status]}</Text>
-          </View>
+          <Badge label={STATUS_LABELS[order.status]} variant={badgeVariant} />
         </View>
         {isEditable ? (
-          <TouchableOpacity onPress={showOrderMenu} style={styles.moreBtn}>
-            <Text style={styles.moreBtnText}>···</Text>
+          <TouchableOpacity onPress={showOrderMenu} style={styles.headerIconBtn}>
+            <MaterialCommunityIcons name="dots-horizontal" size={24} color={theme.colors.slate[600]} />
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 40 }} />
+          <View style={{ width: 44 }} />
         )}
       </View>
 
-      {/* Tabs */}
+      {/* Modern Tabs */}
       {isEditable && (
-        <View style={styles.tabBar}>
-          <TouchableOpacity
-            style={[styles.tabBtn, tab === 'order' && styles.tabBtnActive]}
-            onPress={() => setTab('order')}
-          >
-            <Text style={[styles.tabLabel, tab === 'order' && styles.tabLabelActive]}>
-              Buyurtma
-            </Text>
-            {activeLines.length > 0 && (
-              <View style={[styles.tabBadge, tab === 'order' && styles.tabBadgeActive]}>
-                <Text style={[styles.tabBadgeText, tab === 'order' && styles.tabBadgeTextActive]}>
-                  {activeLines.length}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, tab === 'menu' && styles.tabBtnActive]}
-            onPress={() => setTab('menu')}
-          >
-            <Text style={[styles.tabLabel, tab === 'menu' && styles.tabLabelActive]}>Menyu</Text>
-          </TouchableOpacity>
+        <View style={styles.tabBarContainer}>
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabItem, tab === 'order' && styles.tabItemActive]}
+              onPress={() => setTab('order')}
+            >
+              <Text style={[styles.tabText, tab === 'order' && styles.tabTextActive]}>Buyurtma</Text>
+              {activeLines.length > 0 && (
+                <View style={[styles.tabBadge, tab === 'order' ? styles.tabBadgeActive : styles.tabBadgeInactive]}>
+                  <Text style={[styles.tabBadgeText, tab === 'order' && styles.tabBadgeTextActive]}>
+                    {activeLines.length}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabItem, tab === 'menu' && styles.tabItemActive]}
+              onPress={() => setTab('menu')}
+            >
+              <Text style={[styles.tabText, tab === 'menu' && styles.tabTextActive]}>Menyu</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
       {/* Content */}
-      {tab === 'menu' && isEditable ? (
-        <MenuPanel orderId={orderId} offline={offline} />
-      ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {order.lines.length === 0 ? (
-            <View style={styles.emptyOrder}>
-              <Text style={styles.emptyOrderText}>Mahsulot qo'shilmagan</Text>
-              {isEditable && (
-                <TouchableOpacity style={styles.emptyAddBtn} onPress={() => setTab('menu')}>
-                  <Text style={styles.emptyAddBtnText}>Menyudan tanlash →</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            order.lines.map((line) => {
-              const canEditNote = !line.isCanceled &&
-                (!line.kitchenTicket || line.kitchenTicket.status === 'PENDING');
-              return (
-                <LineRow
-                  key={line.id}
-                  line={line}
-                  canEditNote={canEditNote && !offline}
-                  canCancelLine={!line.isCanceled && allTicketsPending && !offline}
-                  onNote={() => openNoteModal(line)}
-                  onCancel={() => openCancelLine(line)}
-                />
-              );
-            })
-          )}
-          {activeLines.length > 0 && (
-            <View style={styles.subtotalRow}>
-              <Text style={styles.subtotalLabel}>Jami:</Text>
-              <Text style={styles.subtotalValue}>{formatUZS(subtotal)} so'm</Text>
-            </View>
-          )}
-        </ScrollView>
-      )}
+      <View style={styles.content}>
+        {tab === 'menu' && isEditable ? (
+          <MenuPanel orderId={orderId} offline={offline} />
+        ) : (
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+            {order.lines.length === 0 ? (
+              <View style={styles.emptyOrder}>
+                <Text style={styles.emptyOrderText}>Mahsulot qo'shilmagan</Text>
+                {isEditable && (
+                  <Button
+                    title="Menyudan tanlash →"
+                    variant="outline"
+                    onPress={() => setTab('menu')}
+                  />
+                )}
+              </View>
+            ) : (
+              order.lines.map((line) => {
+                const canEditNote = !line.isCanceled &&
+                  (!line.kitchenTicket || line.kitchenTicket.status === 'PENDING');
+                return (
+                  <LineRow
+                    key={line.id}
+                    line={line}
+                    canEditNote={canEditNote && !offline}
+                    canCancelLine={!line.isCanceled && allTicketsPending && !offline}
+                    onNote={() => openNoteModal(line)}
+                    onCancel={() => openCancelLine(line)}
+                  />
+                );
+              })
+            )}
+            
+            {activeLines.length > 0 && (
+              <View style={styles.subtotalContainer}>
+                <View style={styles.subtotalDivider} />
+                <View style={styles.subtotalRow}>
+                  <Text style={styles.subtotalLabel}>Jami:</Text>
+                  <Text style={styles.subtotalValue}>{formatUZS(subtotal)} so'm</Text>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        )}
+      </View>
 
-      {/* Action footer */}
+      {/* Modern Footer Actions */}
       <View style={styles.footer}>
         {isEditable && tab === 'menu' && (
-          <TouchableOpacity style={styles.footerOrderBtn} onPress={() => setTab('order')}>
-            <Text style={styles.footerOrderBtnText}>
-              Buyurtma{activeLines.length > 0 ? ` (${activeLines.length})` : ''}
-            </Text>
-          </TouchableOpacity>
+          <Button
+            title={`Savat${activeLines.length > 0 ? ` (${activeLines.length})` : ''}`}
+            variant="secondary"
+            onPress={() => setTab('order')}
+            style={styles.footerSecondaryBtn}
+          />
         )}
 
         {order.status === 'DRAFT' && (
-          <TouchableOpacity
-            style={[styles.footerActionBtn, styles.sendBtn,
-              (activeLines.length === 0 || offline || sendMutation.isPending) && styles.btnDisabled]}
+          <Button
+            title="Oshxonaga yuborish"
+            variant="primary"
+            disabled={activeLines.length === 0 || offline}
+            loading={sendMutation.isPending}
             onPress={() => Alert.alert('Yuborish', 'Buyurtmani oshxonaga yuborasizmi?', [
               { text: "Yo'q", style: 'cancel' },
               { text: 'Ha', onPress: () => sendMutation.mutate() },
             ])}
-            disabled={activeLines.length === 0 || offline || sendMutation.isPending}
-          >
-            {sendMutation.isPending
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.footerActionText}>Yuborish</Text>}
-          </TouchableOpacity>
+            style={styles.footerMainBtn}
+          />
         )}
+        
         {order.status === 'SENT' && (
-          <TouchableOpacity
-            style={[styles.footerActionBtn, styles.billBtn, (offline || billMutation.isPending) && styles.btnDisabled]}
+          <Button
+            title="Hisob so'rash"
+            variant="info"
+            disabled={offline}
+            loading={billMutation.isPending}
             onPress={() => Alert.alert("Hisob so'rash", "Tasdiqlaysizmi?", [
               { text: "Yo'q", style: 'cancel' },
               { text: 'Ha', onPress: () => billMutation.mutate() },
             ])}
-            disabled={offline || billMutation.isPending}
-          >
-            {billMutation.isPending
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.footerActionText}>Hisob so'rash</Text>}
-          </TouchableOpacity>
+            style={styles.footerMainBtn}
+          />
         )}
+
         {order.status === 'BILL_REQUESTED' && (
-          <View style={[styles.footerActionBtn, styles.waitingBtn]}>
+          <View style={styles.waitingContainer}>
+            <ActivityIndicator size="small" color={theme.colors.slate[400]} style={{ marginRight: 8 }} />
             <Text style={styles.waitingText}>Kassir tasdiqlashi kutilmoqda</Text>
           </View>
         )}
+        
         {!isEditable && (
-          <View style={[styles.footerActionBtn, styles.waitingBtn]}>
-            <Text style={styles.waitingText}>{STATUS_LABELS[order.status]}</Text>
+          <View style={styles.waitingContainer}>
+            <Badge label={STATUS_LABELS[order.status]} variant={badgeVariant} outline />
           </View>
         )}
       </View>
@@ -325,61 +359,61 @@ export function OrderEditScreen() {
       {/* Note modal */}
       <Modal visible={!!noteModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Eslatma</Text>
-            <TextInput
-              style={styles.noteInput}
+          <Card style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Eslatma qo'shish</Text>
+            <Input
               value={noteText}
               onChangeText={setNoteText}
-              placeholder="Masalan: Tuz kam, achchiq emas..."
+              placeholder="Masalan: Tuz kam bo'lsin, achchiq emas..."
               multiline
               autoFocus
+              inputStyle={{ minHeight: 100, textAlignVertical: 'top' }}
             />
             <View style={styles.modalBtns}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setNoteModal(null)}>
-                <Text style={styles.modalCancelText}>Bekor</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSaveBtn, editNoteMutation.isPending && styles.btnDisabled]}
+              <Button
+                title="Bekor"
+                variant="secondary"
+                onPress={() => setNoteModal(null)}
+                style={styles.flex1}
+              />
+              <Button
+                title="Saqlash"
+                loading={editNoteMutation.isPending}
                 onPress={() => noteModal && editNoteMutation.mutate({ lineId: noteModal.lineId, notes: noteText })}
-                disabled={editNoteMutation.isPending}
-              >
-                {editNoteMutation.isPending
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.modalSaveText}>Saqlash</Text>}
-              </TouchableOpacity>
+                style={styles.flex1}
+              />
             </View>
-          </View>
+          </Card>
         </View>
       </Modal>
 
       {/* Cancel order modal */}
       <Modal visible={cancelOrderModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
+          <Card style={styles.modalBox}>
             <Text style={styles.modalTitle}>Buyurtmani bekor qilish</Text>
-            <TextInput
-              style={styles.noteInput}
+            <Input
               value={cancelReason}
               onChangeText={setCancelReason}
-              placeholder="Sabab (ixtiyoriy)"
+              placeholder="Bekor qilish sababini kiriting..."
               autoFocus
             />
             <View style={styles.modalBtns}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { setCancelOrderModal(false); setCancelReason(''); }}>
-                <Text style={styles.modalCancelText}>Bekor</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalDeleteBtn, cancelOrderMutation.isPending && styles.btnDisabled]}
+              <Button
+                title="Orqaga"
+                variant="secondary"
+                onPress={() => { setCancelOrderModal(false); setCancelReason(''); }}
+                style={styles.flex1}
+              />
+              <Button
+                title="Bekor qilish"
+                variant="danger"
+                loading={cancelOrderMutation.isPending}
                 onPress={() => cancelOrderMutation.mutate(cancelReason || 'Sabab ko\'rsatilmadi')}
-                disabled={cancelOrderMutation.isPending}
-              >
-                {cancelOrderMutation.isPending
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.modalSaveText}>Bekor qilish</Text>}
-              </TouchableOpacity>
+                style={styles.flex1}
+              />
             </View>
-          </View>
+          </Card>
         </View>
       </Modal>
 
@@ -388,16 +422,16 @@ export function OrderEditScreen() {
         <View style={styles.transferOverlay}>
           <View style={styles.transferBox}>
             <View style={styles.transferHeader}>
-              <Text style={styles.modalTitle}>Stol tanlang</Text>
-              <TouchableOpacity onPress={() => setTransferModal(false)}>
-                <Text style={styles.closeText}>✕</Text>
+              <Text style={styles.modalTitle}>Stolni o'zgartirish</Text>
+              <TouchableOpacity onPress={() => setTransferModal(false)} style={styles.closeBtn}>
+                <MaterialCommunityIcons name="close" size={24} color={theme.colors.slate[400]} />
               </TouchableOpacity>
             </View>
             <FlatList
               data={tables.filter((t) => t.isActive && t.id !== order.tableId)}
               keyExtractor={(t) => t.id}
               numColumns={3}
-              contentContainerStyle={{ paddingBottom: 20 }}
+              contentContainerStyle={{ paddingBottom: 40 }}
               renderItem={({ item }) => {
                 const occupied = !!item.activeOrderId;
                 return (
@@ -423,154 +457,145 @@ export function OrderEditScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+  container: { flex: 1, backgroundColor: theme.colors.slate[50] },
   loadingScreen: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingTop: 56, paddingBottom: 12,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb',
+    paddingHorizontal: theme.spacing.lg, paddingTop: Platform.OS === 'ios' ? 60 : 44, paddingBottom: theme.spacing.md,
+    backgroundColor: theme.colors.white, borderBottomWidth: 1, borderBottomColor: theme.colors.slate[100],
   },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  backText: { fontSize: 22, color: '#2563eb' },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerTable: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  statusBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  moreBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-end' },
-  moreBtnText: { fontSize: 22, color: '#374151', letterSpacing: 2 },
+  headerIconBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  headerIconText: { fontSize: 24, color: theme.colors.primary },
+  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerTable: { ...theme.typography.h3, color: theme.colors.slate[900] },
 
-  offlineBanner: { backgroundColor: '#dc2626', paddingVertical: 6, alignItems: 'center' },
-  offlineText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-
+  tabBarContainer: {
+    backgroundColor: theme.colors.white,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.slate[100],
+  },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    paddingHorizontal: 12,
+    backgroundColor: theme.colors.slate[100],
+    borderRadius: 12,
+    padding: 4,
+  },
+  tabItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 8,
-    gap: 8,
+    borderRadius: 8,
+    gap: 6,
   },
-  tabBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 20, backgroundColor: '#f3f4f6',
+  tabItemActive: {
+    backgroundColor: theme.colors.white,
+    ...theme.shadows.sm,
   },
-  tabBtnActive: { backgroundColor: '#2563eb' },
-  tabLabel: { fontSize: 14, fontWeight: '700', color: '#374151' },
-  tabLabelActive: { color: '#fff' },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.slate[500],
+  },
+  tabTextActive: {
+    color: theme.colors.primary,
+  },
   tabBadge: {
     minWidth: 20, height: 20, borderRadius: 10,
-    backgroundColor: '#d1d5db',
     justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
   },
-  tabBadgeActive: { backgroundColor: 'rgba(255,255,255,0.3)' },
-  tabBadgeText: { fontSize: 11, fontWeight: '800', color: '#374151' },
-  tabBadgeTextActive: { color: '#fff' },
+  tabBadgeInactive: { backgroundColor: theme.colors.slate[200] },
+  tabBadgeActive: { backgroundColor: theme.colors.primary },
+  tabBadgeText: { fontSize: 11, fontWeight: '800', color: theme.colors.slate[600] },
+  tabBadgeTextActive: { color: theme.colors.white },
 
+  content: { flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 16 },
+  scrollContent: { padding: theme.spacing.lg, paddingBottom: 32 },
 
-  emptyOrder: { alignItems: 'center', paddingTop: 60, gap: 16 },
-  emptyOrderText: { color: '#9ca3af', fontSize: 16 },
-  emptyAddBtn: {
-    backgroundColor: '#2563eb', borderRadius: 12,
-    paddingHorizontal: 24, paddingVertical: 12,
-  },
-  emptyAddBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  emptyOrder: { alignItems: 'center', paddingTop: 80, gap: 24 },
+  emptyOrderText: { ...theme.typography.body, color: theme.colors.slate[400] },
 
   lineRow: {
-    backgroundColor: '#fff', borderRadius: 10, padding: 12,
-    marginBottom: 8, borderWidth: 1, borderColor: '#e5e7eb',
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.slate[200],
   },
-  lineRowCanceled: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-  lineMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  lineName: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1 },
-  lineCanceledText: { color: '#9ca3af', fontSize: 13, fontStyle: 'italic' },
-  linePrice: { fontSize: 13, color: '#6b7280' },
-  lineNote: { fontSize: 12, color: '#7c3aed', marginTop: 4, fontStyle: 'italic' },
-  lineCombo: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
-  ticketBadge: { borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 },
-  ticketBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  lineRowCanceled: { backgroundColor: theme.colors.dangerLight, borderColor: theme.colors.danger + '20' },
+  lineMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.xs },
+  lineLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  lineName: { fontSize: 16, fontWeight: '700', color: theme.colors.slate[900], flexShrink: 1 },
+  lineQty: { fontSize: 16, fontWeight: '600', color: theme.colors.primary },
+  lineCanceledText: { color: theme.colors.slate[400], fontSize: 14, fontStyle: 'italic' },
+  
+  linePriceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  linePriceDetails: { fontSize: 14, color: theme.colors.slate[500] },
+  lineTotal: { fontSize: 15, fontWeight: '700', color: theme.colors.slate[800] },
+  
+  lineNoteContainer: { marginTop: 8, padding: 8, backgroundColor: theme.colors.primaryLight, borderRadius: 6, flexDirection: 'row', alignItems: 'center' },
+  lineNote: { fontSize: 13, color: theme.colors.primary, fontStyle: 'italic', flex: 1 },
+  lineComboContainer: { marginTop: 4 },
+  lineCombo: { fontSize: 12, color: theme.colors.slate[400] },
 
-  subtotalRow: {
-    flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
-    paddingVertical: 12, paddingHorizontal: 4, gap: 8,
-  },
-  subtotalLabel: { fontSize: 15, color: '#374151', fontWeight: '600' },
-  subtotalValue: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  subtotalContainer: { marginTop: theme.spacing.lg },
+  subtotalDivider: { height: 1, backgroundColor: theme.colors.slate[200], marginBottom: theme.spacing.lg },
+  subtotalRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 12 },
+  subtotalLabel: { fontSize: 16, color: theme.colors.slate[600], fontWeight: '600' },
+  subtotalValue: { fontSize: 22, fontWeight: '900', color: theme.colors.slate[900] },
 
   footer: {
-    flexDirection: 'row', padding: 12, gap: 8,
-    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb',
+    flexDirection: 'row', padding: theme.spacing.lg, gap: 12,
+    backgroundColor: theme.colors.white, borderTopWidth: 1, borderTopColor: theme.colors.slate[100],
+    paddingBottom: Platform.OS === 'ios' ? 34 : theme.spacing.lg,
   },
-  footerOrderBtn: {
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderRadius: 10, backgroundColor: '#f3f4f6',
-    borderWidth: 1, borderColor: '#d1d5db',
-    justifyContent: 'center', alignItems: 'center',
+  footerSecondaryBtn: { flex: 0.4 },
+  footerMainBtn: { flex: 1 },
+  waitingContainer: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.slate[50],
+    borderWidth: 1, borderColor: theme.colors.slate[100],
   },
-  footerOrderBtnText: { fontSize: 13, fontWeight: '700', color: '#374151' },
-  footerActionBtn: {
-    flex: 1, borderRadius: 10, paddingVertical: 14, alignItems: 'center',
-  },
-  footerActionText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  sendBtn: { backgroundColor: '#16a34a' },
-  billBtn: { backgroundColor: '#7c3aed' },
-  waitingBtn: { backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#d1d5db' },
-  waitingText: { color: '#6b7280', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  btnDisabled: { backgroundColor: '#9ca3af' },
+  waitingText: { color: theme.colors.slate[500], fontSize: 14, fontWeight: '600' },
 
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.slate[900],
     justifyContent: 'center', padding: 24,
   },
-  modalBox: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 14 },
-  noteInput: {
-    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
-    padding: 12, fontSize: 15, minHeight: 80,
-    textAlignVertical: 'top', marginBottom: 16,
-  },
-  modalBtns: { flexDirection: 'row', gap: 10 },
-  modalCancelBtn: {
-    flex: 1, borderRadius: 8, paddingVertical: 12,
-    backgroundColor: '#f3f4f6', alignItems: 'center',
-  },
-  modalCancelText: { color: '#374151', fontWeight: '600' },
-  modalSaveBtn: {
-    flex: 1, borderRadius: 8, paddingVertical: 12,
-    backgroundColor: '#2563eb', alignItems: 'center',
-  },
-  modalSaveText: { color: '#fff', fontWeight: '700' },
-  modalDeleteBtn: {
-    flex: 1, borderRadius: 8, paddingVertical: 12,
-    backgroundColor: '#dc2626', alignItems: 'center',
-  },
+  modalBox: { padding: 24 },
+  modalTitle: { ...theme.typography.h3, color: theme.colors.slate[900], marginBottom: 20 },
+  modalBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  flex1: { flex: 1 },
 
   transferOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end',
+    backgroundColor: theme.colors.slate[900], justifyContent: 'flex-end',
   },
   transferBox: {
-    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, maxHeight: '80%',
+    backgroundColor: theme.colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, maxHeight: '85%',
   },
   transferHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 16,
+    alignItems: 'center', marginBottom: 24,
   },
-  closeText: { fontSize: 20, color: '#6b7280', padding: 4 },
+  closeBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 22, backgroundColor: theme.colors.slate[50] },
+  closeBtnText: { fontSize: 18, color: theme.colors.slate[400] },
   tableCell: {
-    flex: 1, margin: 5, aspectRatio: 1,
-    backgroundColor: '#eff6ff', borderRadius: 12,
-    borderWidth: 2, borderColor: '#2563eb',
+    flex: 1, margin: 6, aspectRatio: 1,
+    backgroundColor: theme.colors.primaryLight, borderRadius: 16,
+    borderWidth: 2, borderColor: theme.colors.primary,
     justifyContent: 'center', alignItems: 'center', maxWidth: '30%',
   },
-  tableCellOccupied: { backgroundColor: '#f3f4f6', borderColor: '#d1d5db' },
-  tableCellName: { fontSize: 14, fontWeight: '700', color: '#1e40af' },
-  tableCellMuted: { color: '#9ca3af' },
-  tableCellStatus: { fontSize: 11, color: '#2563eb', marginTop: 2 },
+  tableCellOccupied: { backgroundColor: theme.colors.slate[50], borderColor: theme.colors.slate[200] },
+  tableCellName: { fontSize: 16, fontWeight: '800', color: theme.colors.primary },
+  tableCellMuted: { color: theme.colors.slate[300] },
+  tableCellStatus: { fontSize: 12, color: theme.colors.primary, marginTop: 4, fontWeight: '600' },
 });

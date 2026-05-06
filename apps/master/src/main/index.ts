@@ -61,17 +61,24 @@ async function startServer(): Promise<void> {
       { attachSocket },
       { settingsService },
       { startScheduler },
+      { telegramBotService },
     ] = await Promise.all([
       import('./server/app'),
       import('./server/socket'),
       import('./server/services/settings.service'),
       import('./server/lib/scheduler'),
+      import('./server/services/telegram-bot.service'),
     ]);
 
     await settingsService.loadAll();
     const expressApp = createApp();
     const httpServer = createServer(expressApp);
     attachSocket(httpServer);
+    
+    // Start bot in background to not block UI/Server startup
+    telegramBotService.start().catch((err) => {
+      logger.error(`[TelegramBot] Startup failed: ${err.message}`);
+    });
 
     await new Promise<void>((resolve) => {
       httpServer.listen(PORT, '0.0.0.0', () => {

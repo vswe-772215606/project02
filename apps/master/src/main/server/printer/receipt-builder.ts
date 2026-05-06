@@ -11,7 +11,7 @@ const safe = (value: string) => value.replace(/[|;\r\n]/g, ' ').trim();
 
 export function buildBillArgs(
   order: OrderForReceipt,
-  opts: { storeHeading: string },
+  opts: { storeHeading: string; storePhone?: string; storeAddress?: string },
 ): string[] {
   const subtotal = order.subtotalSnapshot?.toString() ?? '0';
   const discount = order.discountAmountSnapshot?.toString() ?? '0';
@@ -34,8 +34,12 @@ export function buildBillArgs(
     ].join('|'))
     .join(';');
 
+  const headingParts = [opts.storeHeading];
+  if (opts.storeAddress) headingParts.push(opts.storeAddress);
+  if (opts.storePhone) headingParts.push(`Tel: ${opts.storePhone}`);
+
   return [
-    opts.storeHeading,
+    headingParts.map(safe).join('\n'),
     orderInfoLines.map(safe).join('\n'),
     items,
     formatUZS(subtotal),

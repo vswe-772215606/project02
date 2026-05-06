@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { Errors } from '../lib/errors';
 import { z } from 'zod';
 import { settingsService } from '../services/settings.service';
+import { telegramBotService } from '../services/telegram-bot.service';
 
 const patchSchema = z.object({
   key: z.string().min(1),
@@ -24,6 +25,11 @@ export const settingsController = {
         throw Errors.Forbidden();
       }
       await settingsService.set(body.key, body.value, req.user!.id);
+
+      if (['telegram_bot_token', 'owner_telegram_chat_id'].includes(body.key)) {
+        void telegramBotService.restart();
+      }
+
       res.json({ key: body.key, value: body.value });
     } catch (error) {
       next(error);

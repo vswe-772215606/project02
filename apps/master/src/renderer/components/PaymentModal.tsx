@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { 
+  CheckCircle2, 
+  Plus, 
+  Trash2, 
+  ReceiptText, 
+  User as UserIcon, 
+  Armchair, 
+  ShoppingBag,
+  CreditCard,
+  Banknote,
+  UserPlus,
+  Info
+} from 'lucide-react';
 import { discountsApi } from '../api/discounts';
 import { ordersApi, Order } from '../api/orders';
 import { settingsApi } from '../api/settings';
@@ -31,6 +43,7 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
   const [debtorName, setDebtorName] = useState(order.debt?.debtorName ?? '');
   const [debtorPhone, setDebtorPhone] = useState('');
   const [debtNote, setDebtNote] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const lastSyncedTotal = useRef(order.totalSnapshot || order.totalAmount);
 
   const { data: discounts = [] } = useQuery({
@@ -115,7 +128,7 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       onClose();
     },
-    onError: (error: any) => alert(error.message || 'Hisobni yakunlab bo\'lmadi'),
+    onError: (error: any) => setSubmitError(error.message || "Hisobni yakunlab bo'lmadi"),
   });
 
   const addPayment = () => {
@@ -136,57 +149,90 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
 
   return (
     <Modal
-      title={needsApproval ? `Buyurtma #${order.orderNumber} hisobini yakunlash` : `Buyurtma #${order.orderNumber} to'lovi`}
+      title={needsApproval ? `To'lovni tasdiqlash: #${order.orderNumber}` : `To'lovni qabul qilish: #${order.orderNumber}`}
       onClose={onClose}
-      maxWidth="max-w-4xl"
+      maxWidth="max-w-5xl"
     >
-      <div className="space-y-6">
-        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Joy</div>
-            <div className="mt-1 font-semibold text-slate-800">{locationLabel(order)}</div>
+      <div className="flex flex-col gap-6">
+        {/* Strict Grid Header Summary */}
+        <div className="grid grid-cols-4 bg-slate-900 text-white rounded-md overflow-hidden divide-x divide-slate-800 border border-slate-800">
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Armchair size={14} className="text-slate-500" />
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Joy / Stol</span>
+            </div>
+            <div className="text-base font-black truncate">{locationLabel(order)}</div>
           </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Ofitsiant</div>
-            <div className="mt-1 font-semibold text-slate-800">{order.waiter?.fullName || '—'}</div>
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <UserIcon size={14} className="text-slate-500" />
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ofitsiant</span>
+            </div>
+            <div className="text-sm font-bold text-slate-200 truncate">{order.waiter?.fullName || '—'}</div>
           </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Buyurtma turi</div>
-            <div className="mt-1 font-semibold text-slate-800">{order.orderType === 'DINE_IN' ? 'Ichkarida' : 'Olib ketish'}</div>
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <ShoppingBag size={14} className="text-slate-500" />
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Turi</span>
+            </div>
+            <div className="text-sm font-bold text-slate-200">{order.orderType === 'DINE_IN' ? 'Zalda' : 'Olib ketish'}</div>
           </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Mahsulotlar</div>
-            <div className="mt-1 font-semibold text-slate-800">{order.itemCount} ta</div>
+          <div className="p-4 bg-blue-600/10">
+            <div className="flex items-center gap-2 mb-2">
+              <ReceiptText size={14} className="text-blue-400" />
+              <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Pozitsiyalar</span>
+            </div>
+            <div className="text-lg font-black text-blue-400">{order.itemCount} ta</div>
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 px-4 py-3">
-                <div className="text-sm font-bold text-slate-800">Buyurtma tarkibi</div>
+        <div className="grid grid-cols-12 gap-6">
+          {/* Left: Order Content & Settings */}
+          <div className="col-span-7 space-y-6">
+            <div className="bg-white rounded-md border border-slate-200 overflow-hidden">
+              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <ReceiptText size={14} className="text-slate-400" />
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Buyurtma tarkibi</span>
+                </div>
+                <span className="text-[10px] font-black text-slate-400 uppercase">Oraliq: {formatUZS(subtotal)}</span>
               </div>
-              <div className="divide-y divide-slate-100">
+              <div className="max-h-[350px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
                 {order.lines?.map((line) => (
-                  <div key={line.id} className={`flex items-start justify-between px-4 py-3 text-sm ${line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                    <div>
-                      <div className="font-medium">{line.quantity}x {line.nameSnapshot}</div>
-                      {line.notes && <div className="mt-1 text-xs text-slate-500">Qayd: {line.notes}</div>}
+                  <div key={line.id} className={`grid grid-cols-12 gap-3 p-3 items-start transition-colors ${line.isCanceled ? 'bg-red-50/30' : 'hover:bg-slate-50/50'}`}>
+                    <div className={`col-span-1 text-xs font-black ${line.isCanceled ? 'text-red-300' : 'text-slate-400'}`}>
+                      {line.quantity}×
                     </div>
-                    <div className="font-semibold">{formatUZS(line.price * line.quantity)}</div>
+                    <div className="col-span-8">
+                      <div className={`text-sm font-bold ${line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {line.nameSnapshot}
+                      </div>
+                      {line.notes && (
+                        <div className="mt-1 flex items-center gap-1">
+                          <Info size={10} className="text-blue-500" />
+                          <span className="text-[10px] text-blue-600 font-bold uppercase tracking-tighter">Qayd: {line.notes}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className={`col-span-3 text-right text-sm font-black ${line.isCanceled ? 'text-slate-300 line-through' : 'text-slate-700'}`}>
+                      {formatUZS(line.price * line.quantity)}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
             {needsApproval && (
-              <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="mb-4 text-sm font-bold text-slate-800">Hisob sozlamalari</div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Chegirma</label>
+              <div className="bg-blue-50/30 rounded-md border border-blue-100 p-4">
+                <div className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Info size={14} />
+                  <span>Hisob sozlamalari</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Chegirma</label>
                     <select
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs font-black uppercase outline-none focus:border-blue-500 transition-colors"
                       value={discountId}
                       onChange={(e) => setDiscountId(e.target.value)}
                     >
@@ -198,159 +244,198 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
                       ))}
                     </select>
                   </div>
-                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={waiveService}
-                      onChange={(e) => setWaiveService(e.target.checked)}
-                    />
-                    Xizmat haqini bekor qilish
-                  </label>
+                  <div className="flex items-end">
+                    <label className="flex items-center gap-3 w-full cursor-pointer select-none rounded-md border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-600 uppercase hover:bg-slate-50 transition-colors">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        checked={waiveService}
+                        onChange={(e) => setWaiveService(e.target.checked)}
+                      />
+                      <span>Xizmat haqini bekor qilish</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 text-sm font-bold text-slate-800">Hisob yakuni</div>
-              <div className="space-y-2 text-sm">
-                {needsApproval ? (
-                  <>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Oraliq jami</span>
-                      <span>{formatUZS(subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Chegirma</span>
-                      <span>-{formatUZS(previewDiscount)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Xizmat haqi</span>
-                      <span>{formatUZS(previewServiceCharge)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Oraliq jami</span>
-                      <span>{formatUZS(order.subtotalSnapshot || order.totalAmount)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Chegirma</span>
-                      <span>-{formatUZS(order.discountAmountSnapshot || 0)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Xizmat haqi</span>
-                      <span>{formatUZS(order.serviceChargeSnapshot || 0)}</span>
-                    </div>
-                  </>
+          {/* Right: Totals & Payments */}
+          <div className="col-span-5 space-y-6">
+            <div className="bg-slate-900 text-white rounded-md p-5 border-b-2 border-blue-600 shadow-inner">
+              <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">To'lov ma'lumotlari</div>
+              <div className="space-y-3">
+                <div className="flex justify-between text-xs font-bold uppercase tracking-tight">
+                  <span className="text-slate-500">Jami</span>
+                  <span>{formatUZS(needsApproval ? subtotal : (order.subtotalSnapshot || order.totalAmount))}</span>
+                </div>
+                {(needsApproval ? previewDiscount : (order.discountAmountSnapshot || 0)) > 0 && (
+                  <div className="flex justify-between text-xs font-bold uppercase tracking-tight">
+                    <span className="text-red-500">Chegirma</span>
+                    <span className="text-red-500">-{formatUZS(needsApproval ? previewDiscount : (order.discountAmountSnapshot || 0))}</span>
+                  </div>
                 )}
-                <div className="flex justify-between border-t border-slate-200 pt-3 text-base font-black text-slate-900">
-                  <span>To'lanadi</span>
-                  <span>{formatUZS(payableTotal)}</span>
+                <div className="flex justify-between text-xs font-bold uppercase tracking-tight">
+                  <span className="text-slate-500">Xizmat haqi</span>
+                  <span>{formatUZS(needsApproval ? previewServiceCharge : (order.serviceChargeSnapshot || 0))}</span>
+                </div>
+                <div className="pt-4 mt-2 border-t border-slate-800 flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">To'lanadi</span>
+                  <span className="text-3xl font-black text-blue-400 tracking-tighter">
+                    {formatUZS(payableTotal)}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-bold text-slate-800">To'lov turlari</div>
-                <button onClick={addPayment} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:text-blue-700">
-                  <Plus size={16} />
-                  Qo'shish
+            <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-sm">
+              <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  <CreditCard size={14} className="text-slate-400" />
+                  <span>To'lov turlari</span>
+                </div>
+                <button 
+                  onClick={addPayment} 
+                  className="flex items-center gap-1 text-[10px] font-black text-blue-600 hover:text-blue-700 border border-blue-100 px-2 py-1 rounded transition-colors"
+                >
+                  <Plus size={12} />
+                  QO'SHISH
                 </button>
               </div>
 
-              <div className="space-y-2">
+              <div className="p-4 space-y-3">
                 {payments.map((payment) => (
-                  <div key={payment.id} className="flex items-center gap-2">
-                    <select
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                      value={payment.method}
-                      onChange={(e) => updatePayment(payment.id, { method: e.target.value as PaymentLine['method'] })}
-                    >
-                      <option value="CASH">NAQD</option>
-                      <option value="CARD">KARTA</option>
-                      <option value="DEBT">QARZ</option>
-                    </select>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                      value={payment.amount || ''}
-                      onChange={(e) => updatePayment(payment.id, { amount: Number(e.target.value) })}
-                      onFocus={(e) => e.target.select()}
-                    />
-                    <button
-                      type="button"
-                      disabled={payments.length === 1}
-                      onClick={() => removePayment(payment.id)}
-                      className="p-2 text-slate-400 hover:text-red-500 disabled:opacity-30"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                  <div key={payment.id} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-6 relative">
+                      {payment.method === 'CASH' && <Banknote size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+                      {payment.method === 'CARD' && <CreditCard size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+                      {payment.method === 'DEBT' && <UserIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+                      <select
+                        className="w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs font-black uppercase outline-none focus:border-blue-500 transition-all"
+                        value={payment.method}
+                        onChange={(e) => updatePayment(payment.id, { method: e.target.value as PaymentLine['method'] })}
+                      >
+                        <option value="CASH">NAQD</option>
+                        <option value="CARD">KARTA</option>
+                        <option value="DEBT">QARZ</option>
+                      </select>
+                    </div>
+                    <div className="col-span-5">
+                      <input
+                        type="number"
+                        min="0"
+                        className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-black text-right outline-none focus:border-blue-500 transition-all"
+                        value={payment.amount || ''}
+                        onChange={(e) => updatePayment(payment.id, { amount: Number(e.target.value) })}
+                        onFocus={(e) => e.target.select()}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      <button
+                        type="button"
+                        disabled={payments.length === 1}
+                        onClick={() => removePayment(payment.id)}
+                        className="text-slate-300 hover:text-red-500 disabled:opacity-0 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
-              </div>
 
-              <div className={`mt-4 rounded-lg border p-3 ${isBalanced ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-                <div className="flex justify-between text-sm font-semibold">
-                  <span className={isBalanced ? 'text-green-700' : 'text-red-700'}>Kiritilgan jami</span>
-                  <span className={isBalanced ? 'text-green-700' : 'text-red-700'}>{formatUZS(totalPaid)}</span>
-                </div>
-                {!isBalanced && (
-                  <div className="mt-1 text-xs font-medium text-red-600">
-                    Farq: {formatUZS(payableTotal - totalPaid)}
+                <div className={`mt-4 rounded-md border p-4 transition-colors ${
+                  isBalanced ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+                }`}>
+                  <div className="flex justify-between items-center">
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${isBalanced ? 'text-green-600' : 'text-red-600'}`}>
+                      Kiritilgan jami
+                    </span>
+                    <span className={`text-lg font-black ${isBalanced ? 'text-green-700' : 'text-red-700'}`}>
+                      {formatUZS(totalPaid)}
+                    </span>
                   </div>
-                )}
+                  {!isBalanced && (
+                    <div className="mt-2 pt-2 border-t border-red-100 flex justify-between items-center text-[10px] font-black text-red-600 uppercase tracking-tight">
+                      <span>FARQ:</span>
+                      <span>{formatUZS(payableTotal - totalPaid)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
             {hasDebt && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div className="mb-3 text-sm font-bold text-amber-800">Qarz ma'lumoti</div>
+              <div className="bg-amber-50 rounded-md border border-amber-200 p-4 animate-in zoom-in-95 duration-200">
+                <div className="flex items-center gap-2 mb-4 border-b border-amber-200 pb-2">
+                  <UserPlus size={14} className="text-amber-600" />
+                  <h4 className="text-[10px] font-black text-amber-800 uppercase tracking-widest">Qarz ma'lumotlari</h4>
+                </div>
                 <div className="space-y-3">
-                  <input
-                    className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500"
-                    placeholder="Qarzdor ismi"
-                    value={debtorName}
-                    onChange={(e) => setDebtorName(e.target.value)}
-                  />
-                  <input
-                    className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500"
-                    placeholder="Telefon (ixtiyoriy)"
-                    value={debtorPhone}
-                    onChange={(e) => setDebtorPhone(e.target.value)}
-                  />
-                  <textarea
-                    className="min-h-24 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500"
-                    placeholder="Izoh (ixtiyoriy)"
-                    value={debtNote}
-                    onChange={(e) => setDebtNote(e.target.value)}
-                  />
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-amber-700 uppercase tracking-tighter">Qarzdor ismi</label>
+                    <input
+                      className="w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-black text-slate-800 outline-none focus:border-amber-500"
+                      placeholder="Masalan: Aziz aka"
+                      value={debtorName}
+                      onChange={(e) => setDebtorName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-amber-700 uppercase tracking-tighter">Telefon raqami</label>
+                    <input
+                      className="w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-black text-slate-800 outline-none focus:border-amber-500"
+                      placeholder="+998 90 123 45 67"
+                      value={debtorPhone}
+                      onChange={(e) => setDebtorPhone(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-amber-700 uppercase tracking-tighter">Izoh</label>
+                    <textarea
+                      className="min-h-[60px] w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 resize-none"
+                      placeholder="Qo'shimcha ma'lumot..."
+                      value={debtNote}
+                      onChange={(e) => setDebtNote(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex gap-3 border-t border-slate-100 pt-2">
+        {/* Action Footer */}
+        <div className="flex gap-3 border-t border-slate-100 pt-6">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-slate-200 py-2.5 font-semibold text-slate-600 hover:bg-slate-50"
+            className="px-8 py-3 rounded text-[10px] font-black text-slate-400 uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-colors"
           >
-            Yopish
+            BEKOR QILISH
           </button>
           <button
             disabled={!canSubmit || settlementMutation.isPending}
             onClick={() => settlementMutation.mutate()}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-green-600 py-2.5 font-bold text-white hover:bg-green-700 disabled:opacity-50"
+            className={`flex-1 flex items-center justify-center gap-3 rounded py-4 font-black text-white shadow-sm transition-all ${
+              canSubmit && !settlementMutation.isPending
+                ? 'bg-blue-600 hover:bg-blue-700 active:translate-y-px'
+                : 'bg-slate-300 cursor-not-allowed text-slate-400'
+            }`}
           >
-            <CheckCircle2 size={18} />
-            <span>{needsApproval ? 'TASDIQLASH VA TO\'LOVNI YAKUNLASH' : 'TO\'LOVNI YAKUNLASH'}</span>
+            {settlementMutation.isPending ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            ) : (
+              <>
+                <CheckCircle2 size={18} />
+                <span className="text-sm uppercase tracking-widest">
+                  {needsApproval ? 'TASDIQLASH VA HISOBNI YOPISH' : 'TO\'LOVNI QABUL QILISH'}
+                </span>
+              </>
+            )}
           </button>
         </div>
+        {submitError && (
+          <p className="mt-3 text-xs font-semibold text-red-600 rounded-lg bg-red-50 px-4 py-2">{submitError}</p>
+        )}
       </div>
     </Modal>
   );

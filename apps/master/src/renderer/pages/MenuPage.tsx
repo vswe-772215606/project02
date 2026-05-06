@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { menuApi, Category, MenuItem, Combo } from '../api/menu';
 import { formatUZS } from '../utils/format';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 const categorySchema = z.object({
@@ -43,6 +44,7 @@ export function MenuPage() {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [view, setView] = useState<'items' | 'combos'>('items');
   const [showInactive, setShowInactive] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: menuData } = useQuery({
     queryKey: ['menu', 'full', showInactive],
@@ -99,25 +101,29 @@ export function MenuPage() {
 
   const handleToggleCategoryActive = (category: Category) => {
     if (category.isActive) {
-      if (confirm(`"${category.name}" kategoriyasini faolsizlantirmoqchimisiz?`)) {
-        updateCategoryMutation.mutate({ id: category.id, data: { isActive: false } });
-      }
+      setPendingConfirm({
+        message: `"${category.name}" kategoriyasini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => updateCategoryMutation.mutate({ id: category.id, data: { isActive: false } }),
+      });
     } else {
-      if (confirm(`"${category.name}" kategoriyasini qayta faollashtirmoqchimisiz?`)) {
-        updateCategoryMutation.mutate({ id: category.id, data: { isActive: true } });
-      }
+      setPendingConfirm({
+        message: `"${category.name}" kategoriyasini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => updateCategoryMutation.mutate({ id: category.id, data: { isActive: true } }),
+      });
     }
   };
 
   const handleToggleItemActive = (item: MenuItem) => {
     if (item.isActive) {
-      if (confirm(`"${item.name}" mahsulotini faolsizlantirmoqchimisiz?`)) {
-        updateItemMutation.mutate({ id: item.id, data: { isActive: false } });
-      }
+      setPendingConfirm({
+        message: `"${item.name}" mahsulotini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => updateItemMutation.mutate({ id: item.id, data: { isActive: false } }),
+      });
     } else {
-      if (confirm(`"${item.name}" mahsulotini qayta faollashtirmoqchimisiz?`)) {
-        updateItemMutation.mutate({ id: item.id, data: { isActive: true } });
-      }
+      setPendingConfirm({
+        message: `"${item.name}" mahsulotini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => updateItemMutation.mutate({ id: item.id, data: { isActive: true } }),
+      });
     }
   };
 
@@ -335,7 +341,7 @@ export function MenuPage() {
       )}
 
       {(isAddingItem || editItem) && (
-        <ItemModal 
+        <ItemModal
           item={editItem}
           categories={categories}
           initialCategoryId={activeCategory?.id}
@@ -344,6 +350,15 @@ export function MenuPage() {
             ? updateItemMutation.mutate({ id: editItem.id, data })
             : createItemMutation.mutate(data)
           }
+        />
+      )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={pendingConfirm.message}
+          variant="danger"
+          onConfirm={() => { pendingConfirm.onConfirm(); setPendingConfirm(null); }}
+          onCancel={() => setPendingConfirm(null)}
         />
       )}
     </div>
@@ -465,6 +480,7 @@ function CombosSection({ combos, categories, showInactive }: any) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [selectedComponents, setSelectedComponents] = useState<any[]>([]);
+  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => menuApi.createCombo(data),
@@ -482,13 +498,15 @@ function CombosSection({ combos, categories, showInactive }: any) {
 
   const handleToggleComboActive = (combo: Combo) => {
     if (combo.isActive) {
-      if (confirm(`"${combo.name}" kombosini faolsizlantirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: combo.id, data: { isActive: false } });
-      }
+      setPendingConfirm({
+        message: `"${combo.name}" kombosini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => updateMutation.mutate({ id: combo.id, data: { isActive: false } }),
+      });
     } else {
-      if (confirm(`"${combo.name}" kombosini qayta faollashtirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: combo.id, data: { isActive: true } });
-      }
+      setPendingConfirm({
+        message: `"${combo.name}" kombosini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => updateMutation.mutate({ id: combo.id, data: { isActive: true } }),
+      });
     }
   };
 
@@ -618,6 +636,15 @@ function CombosSection({ combos, categories, showInactive }: any) {
             </div>
           </form>
         </Modal>
+      )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={pendingConfirm.message}
+          variant="danger"
+          onConfirm={() => { pendingConfirm.onConfirm(); setPendingConfirm(null); }}
+          onCancel={() => setPendingConfirm(null)}
+        />
       )}
     </div>
   );

@@ -14,6 +14,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { tablesApi, Table } from '../api/tables';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 const tableSchema = z.object({
@@ -29,6 +30,7 @@ export function TablesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editTable, setEditTable] = useState<Table | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: tables = [], isLoading } = useQuery({
     queryKey: ['tables', showInactive],
@@ -55,13 +57,15 @@ export function TablesPage() {
 
   const handleToggleActive = (table: Table) => {
     if (table.isActive) {
-      if (confirm(`"${table.name}" stolini faolsizlantirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: table.id, data: { isActive: false } });
-      }
+      setPendingConfirm({
+        message: `"${table.name}" stolini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => updateMutation.mutate({ id: table.id, data: { isActive: false } }),
+      });
     } else {
-      if (confirm(`"${table.name}" stolini qayta faollashtirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: table.id, data: { isActive: true } });
-      }
+      setPendingConfirm({
+        message: `"${table.name}" stolini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => updateMutation.mutate({ id: table.id, data: { isActive: true } }),
+      });
     }
   };
 
@@ -165,13 +169,22 @@ export function TablesPage() {
       )}
 
       {(isAdding || editTable) && (
-        <TableModal 
+        <TableModal
           table={editTable}
           onClose={() => { setIsAdding(false); setEditTable(null); }}
-          onSave={(data: TableForm) => editTable 
+          onSave={(data: TableForm) => editTable
             ? updateMutation.mutate({ id: editTable.id, data })
             : createMutation.mutate(data)
           }
+        />
+      )}
+
+      {pendingConfirm && (
+        <ConfirmDialog
+          message={pendingConfirm.message}
+          variant="danger"
+          onConfirm={() => { pendingConfirm.onConfirm(); setPendingConfirm(null); }}
+          onCancel={() => setPendingConfirm(null)}
         />
       )}
     </div>

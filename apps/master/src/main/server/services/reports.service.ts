@@ -1,7 +1,59 @@
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { expenseService } from './expense.service';
-import { debtRepo } from '../repositories/debt.repo';
 import { getPrisma } from '../lib/prisma';
+
+const reportOrderInclude = {
+  payments: true,
+  debt: true,
+  table: true,
+  waiter: {
+    select: {
+      id: true,
+      fullName: true,
+    },
+  },
+  lines: {
+    include: {
+      menuItem: {
+        include: {
+          category: true,
+        },
+      },
+      kitchenTicket: true,
+    },
+    orderBy: {
+      createdAt: 'asc' as const,
+    },
+  },
+} satisfies Prisma.OrderInclude;
+
+const reportDebtInclude = {
+  order: {
+    include: {
+      table: true,
+      waiter: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+    },
+  },
+  repayments: {
+    include: {
+      receivedBy: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+    },
+    orderBy: [{ paidAt: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
+} satisfies Prisma.DebtInclude;
+
+type ReportOrder = Prisma.OrderGetPayload<{ include: typeof reportOrderInclude }>;
+type ReportDebt = Prisma.DebtGetPayload<{ include: typeof reportDebtInclude }>;
 
 function dayBounds(date: Date) {
   const start = new Date(date);
@@ -19,39 +71,246 @@ function decStr(value: Prisma.Decimal | null | undefined) {
   return dec(value).toFixed(0);
 }
 
+function shortOrderNumber(id: string) {
+  return id.slice(-6).toUpperCase();
+}
+
+function isWithinDay(value: Date | null | undefined, dayStart: Date, dayEnd: Date) {
+  if (!value) return false;
+  return value >= dayStart && value < dayEnd;
+}
+
+function paymentBreakdown(payments: Array<{ method: PaymentMethod; amount: Prisma.Decimal }>) {
+  let cash = new Prisma.Decimal(0);
+  let card = new Prisma.Decimal(0);
+  let debt = new Prisma.Decimal(0);
+
+  for (const payment of payments) {
+    if (payment.method === PaymentMethod.CASH) {
+      cash = cash.plus(payment.amount);
+    } else if (payment.method === PaymentMethod.CARD) {
+      card = card.plus(payment.amount);
+    } else if (payment.method === PaymentMethod.DEBT) {
+      debt = debt.plus(payment.amount);
+    }
+  }
+
+  return { cash, card, debt };
+}
+
+function terminalMoment(order: ReportOrder) {
+  return order.closedAt ?? order.canceledAt ?? order.updatedAt;
+}
+
+function buildOrdersTable(orders: ReportOrder[], status: 'CLOSED' | 'CANCELED' | 'WALKOUT') {
+  return orders.map((order) => {
+    const payments = paymentBreakdown(order.payments);
+    const gross = dec(order.subtotalSnapshot);
+    const discount = dec(order.discountAmountSnapshot);
+
+    return {
+      orderId: order.id,
+      orderNumber: shortOrderNumber(order.id),
+      at: terminalMoment(order).toISOString(),
+      tableName: order.table?.name ?? null,
+      waiterName: order.waiter.fullName,
+      status,
+      gross: decStr(gross),
+      discount: decStr(discount),
+      net: decStr(gross.minus(discount)),
+      service: decStr(order.serviceChargeSnapshot),
+      cash: decStr(payments.cash),
+      card: decStr(payments.card),
+      debt: decStr(payments.debt),
+    };
+  });
+}
+
+function buildMealSales(closedOrders: ReportOrder[]) {
+  const mealMap = new Map<string, {
+    mealName: string;
+    categoryName: string | null;
+    orderIds: Set<string>;
+    qtyOrdered: number;
+    grossSales: Prisma.Decimal;
+  }>();
+
+  for (const order of closedOrders) {
+    for (const line of order.lines) {
+      if (line.isCanceled) continue;
+
+      const key = `${line.nameSnapshot}::${line.menuItem.category.name}`;
+      const existing = mealMap.get(key) ?? {
+        mealName: line.nameSnapshot,
+        categoryName: line.menuItem.category.name,
+        orderIds: new Set<string>(),
+        qtyOrdered: 0,
+        grossSales: new Prisma.Decimal(0),
+      };
+
+      existing.orderIds.add(order.id);
+      existing.qtyOrdered += line.quantity;
+      existing.grossSales = existing.grossSales.plus(line.unitPriceSnapshot.mul(line.quantity));
+      mealMap.set(key, existing);
+    }
+  }
+
+  return Array.from(mealMap.values())
+    .map((item) => ({
+      mealName: item.mealName,
+      categoryName: item.categoryName,
+      ordersCount: item.orderIds.size,
+      qtyOrdered: item.qtyOrdered,
+      grossSales: decStr(item.grossSales),
+      avgPerOrder: (item.qtyOrdered / item.orderIds.size).toFixed(2),
+    }))
+    .sort((a, b) => {
+      if (b.qtyOrdered !== a.qtyOrdered) return b.qtyOrdered - a.qtyOrdered;
+      return Number(b.grossSales) - Number(a.grossSales);
+    });
+}
+
+function buildKitchenProduction(orders: ReportOrder[]) {
+  const kitchenMap = new Map<string, {
+    mealName: string;
+    qtyOrdered: number;
+    qtySent: number;
+    qtyStarted: number;
+    qtyReady: number;
+    qtyCanceledBeforeCooking: number;
+    qtyCanceledAfterStart: number;
+  }>();
+
+  for (const order of orders) {
+    for (const line of order.lines) {
+      const existing = kitchenMap.get(line.nameSnapshot) ?? {
+        mealName: line.nameSnapshot,
+        qtyOrdered: 0,
+        qtySent: 0,
+        qtyStarted: 0,
+        qtyReady: 0,
+        qtyCanceledBeforeCooking: 0,
+        qtyCanceledAfterStart: 0,
+      };
+
+      const ticket = line.kitchenTicket;
+      const started = Boolean(ticket?.startedAt) || ticket?.status === 'IN_PROGRESS' || ticket?.status === 'READY';
+      const ready = Boolean(ticket?.readyAt) || ticket?.status === 'READY';
+      const sent = Boolean(line.kitchenTicketId);
+
+      existing.qtyOrdered += line.quantity;
+      if (sent) existing.qtySent += line.quantity;
+      if (started) existing.qtyStarted += line.quantity;
+      if (ready) existing.qtyReady += line.quantity;
+
+      if (line.isCanceled) {
+        if (!sent || (!started && (ticket?.status === 'PENDING' || ticket?.status === 'CANCELED' || !ticket))) {
+          existing.qtyCanceledBeforeCooking += line.quantity;
+        } else {
+          existing.qtyCanceledAfterStart += line.quantity;
+        }
+      }
+
+      kitchenMap.set(line.nameSnapshot, existing);
+    }
+  }
+
+  return Array.from(kitchenMap.values()).sort((a, b) => {
+    if (b.qtyReady !== a.qtyReady) return b.qtyReady - a.qtyReady;
+    return b.qtyOrdered - a.qtyOrdered;
+  });
+}
+
+function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
+  const rows = debts
+    .map((debt) => {
+      const repaidToday = debt.repayments
+        .filter((repayment) => isWithinDay(repayment.paidAt, dayStart, dayEnd))
+        .reduce((sum, repayment) => sum.plus(repayment.amount), new Prisma.Decimal(0));
+
+      const repaidUpToDayEnd = debt.repayments
+        .filter((repayment) => repayment.paidAt < dayEnd)
+        .reduce((sum, repayment) => sum.plus(repayment.amount), new Prisma.Decimal(0));
+
+      const remainingAtDayEnd = dec(debt.originalAmount).minus(repaidUpToDayEnd);
+      const totalRepaidAtDayEnd = dec(debt.originalAmount).minus(remainingAtDayEnd);
+      const lastRepaymentAt = debt.repayments
+        .filter((repayment) => repayment.paidAt < dayEnd)
+        .at(-1)?.paidAt ?? null;
+
+      let statusAsOfDay: 'OPEN' | 'PARTIAL' | 'PAID' = 'OPEN';
+      if (remainingAtDayEnd.lte(0)) {
+        statusAsOfDay = 'PAID';
+      } else if (totalRepaidAtDayEnd.gt(0)) {
+        statusAsOfDay = 'PARTIAL';
+      }
+
+      return {
+        debtId: debt.id,
+        openedAt: debt.openedAt.toISOString(),
+        orderNumber: shortOrderNumber(debt.orderId),
+        debtorName: debt.debtorName,
+        debtorPhone: debt.debtorPhone,
+        orderTotal: decStr(debt.order.totalSnapshot),
+        originalAmount: decStr(debt.originalAmount),
+        repaidToday: decStr(repaidToday),
+        totalRepaid: decStr(totalRepaidAtDayEnd),
+        remainingAmount: decStr(remainingAtDayEnd),
+        status: statusAsOfDay,
+        lastRepaymentAt: lastRepaymentAt?.toISOString() ?? null,
+        openedToday: isWithinDay(debt.openedAt, dayStart, dayEnd),
+      };
+    })
+    .filter((debt) => debt.openedToday || debt.repaidToday !== '0' || debt.remainingAmount !== '0');
+
+  return rows.sort((a, b) => {
+    if (a.remainingAmount !== b.remainingAmount) {
+      return Number(b.remainingAmount) - Number(a.remainingAmount);
+    }
+    return a.openedAt.localeCompare(b.openedAt);
+  });
+}
+
 export const reportsService = {
   async daily(date: Date) {
     const prisma = getPrisma();
     const { start: dayStart, end: dayEnd } = dayBounds(date);
 
-    const [closedOrders, canceledOrders, walkoutOrders, expenseSummary, repaymentTotals, openedToday, outstandingTotal] = await Promise.all([
+    const [closedOrders, canceledOrders, walkoutOrders, expenseSummary, debts] = await Promise.all([
       prisma.order.findMany({
         where: {
           status: 'CLOSED',
           closedAt: { gte: dayStart, lt: dayEnd },
         },
-        include: {
-          payments: true,
-          waiter: { select: { id: true, fullName: true } },
-          debt: true,
-        },
+        include: reportOrderInclude,
+        orderBy: { closedAt: 'asc' },
       }),
       prisma.order.findMany({
         where: {
           status: 'CANCELED',
           canceledAt: { gte: dayStart, lt: dayEnd },
         },
+        include: reportOrderInclude,
+        orderBy: { canceledAt: 'asc' },
       }),
       prisma.order.findMany({
         where: {
           status: 'WALKOUT',
           updatedAt: { gte: dayStart, lt: dayEnd },
         },
+        include: reportOrderInclude,
+        orderBy: { updatedAt: 'asc' },
       }),
       expenseService.listByDate(new Date(dayStart)),
-      debtRepo.repaymentTotalsForDate(new Date(dayStart)),
-      debtRepo.openedTodaySummary(new Date(dayStart)),
-      debtRepo.sumOutstandingAsOf(new Date(dayStart)),
+      prisma.debt.findMany({
+        where: {
+          openedAt: {
+            lt: dayEnd,
+          },
+        },
+        include: reportDebtInclude,
+        orderBy: [{ openedAt: 'asc' }],
+      }),
     ]);
 
     let grossSales = new Prisma.Decimal(0);
@@ -61,12 +320,23 @@ export const reportsService = {
     let orderCash = new Prisma.Decimal(0);
     let orderCard = new Prisma.Decimal(0);
 
-    const perWaiterMap = new Map<string, { waiterId: string; waiterName: string; orders: number; revenue: Prisma.Decimal; serviceEarned: Prisma.Decimal }>();
+    const perWaiterMap = new Map<string, {
+      waiterId: string;
+      waiterName: string;
+      orders: number;
+      revenue: Prisma.Decimal;
+      serviceEarned: Prisma.Decimal;
+    }>();
 
     for (const order of closedOrders) {
+      const payments = paymentBreakdown(order.payments);
+
       grossSales = grossSales.plus(dec(order.subtotalSnapshot));
       discounts = discounts.plus(dec(order.discountAmountSnapshot));
       serviceCharge = serviceCharge.plus(dec(order.serviceChargeSnapshot));
+      orderCash = orderCash.plus(payments.cash);
+      orderCard = orderCard.plus(payments.card);
+      debtSales = debtSales.plus(payments.debt);
 
       const waiterAgg = perWaiterMap.get(order.waiterId) ?? {
         waiterId: order.waiterId,
@@ -75,29 +345,65 @@ export const reportsService = {
         revenue: new Prisma.Decimal(0),
         serviceEarned: new Prisma.Decimal(0),
       };
+
       waiterAgg.orders += 1;
       waiterAgg.revenue = waiterAgg.revenue.plus(dec(order.subtotalSnapshot).minus(dec(order.discountAmountSnapshot)));
       waiterAgg.serviceEarned = waiterAgg.serviceEarned.plus(dec(order.serviceChargeSnapshot));
       perWaiterMap.set(order.waiterId, waiterAgg);
-
-      for (const payment of order.payments) {
-        if (payment.method === PaymentMethod.CASH) {
-          orderCash = orderCash.plus(payment.amount);
-        } else if (payment.method === PaymentMethod.CARD) {
-          orderCard = orderCard.plus(payment.amount);
-        } else if (payment.method === PaymentMethod.DEBT) {
-          debtSales = debtSales.plus(payment.amount);
-        }
-      }
     }
 
-    const debtRepaymentsCash = repaymentTotals.CASH;
-    const debtRepaymentsCard = repaymentTotals.CARD;
+    const terminalOrders = [...closedOrders, ...canceledOrders, ...walkoutOrders];
+    const ordersTable = [
+      ...buildOrdersTable(closedOrders, 'CLOSED'),
+      ...buildOrdersTable(canceledOrders, 'CANCELED'),
+      ...buildOrdersTable(walkoutOrders, 'WALKOUT'),
+    ].sort((a, b) => a.at.localeCompare(b.at));
+
+    const mealSales = buildMealSales(closedOrders);
+    const kitchenProduction = buildKitchenProduction(terminalOrders);
+    const debtLedger = buildDebtLedger(debts, dayStart, dayEnd);
+
+    const debtRepaymentRows = debts
+      .flatMap((debt) =>
+        debt.repayments
+          .filter((repayment) => isWithinDay(repayment.paidAt, dayStart, dayEnd))
+          .map((repayment) => ({
+            id: repayment.id,
+            amount: decStr(repayment.amount),
+            method: repayment.method,
+            debtorName: debt.debtorName,
+            orderNumber: shortOrderNumber(debt.orderId),
+            paidAt: repayment.paidAt.toISOString(),
+            receivedByName: repayment.receivedBy.fullName,
+          })),
+      )
+      .sort((a, b) => a.paidAt.localeCompare(b.paidAt));
+
+    const debtRepaymentsCash = debtRepaymentRows
+      .filter((row) => row.method === PaymentMethod.CASH)
+      .reduce((sum, row) => sum.plus(new Prisma.Decimal(row.amount)), new Prisma.Decimal(0));
+    const debtRepaymentsCard = debtRepaymentRows
+      .filter((row) => row.method === PaymentMethod.CARD)
+      .reduce((sum, row) => sum.plus(new Prisma.Decimal(row.amount)), new Prisma.Decimal(0));
+
+    const openedTodayDebts = debts.filter((debt) => isWithinDay(debt.openedAt, dayStart, dayEnd));
+    const openedTodayAmount = openedTodayDebts.reduce(
+      (sum, debt) => sum.plus(dec(debt.originalAmount)),
+      new Prisma.Decimal(0),
+    );
+    const outstandingTotal = debtLedger.reduce(
+      (sum, debt) => sum.plus(new Prisma.Decimal(debt.remainingAmount)),
+      new Prisma.Decimal(0),
+    );
+
     const netSales = grossSales.minus(discounts);
     const realCashIn = orderCash.plus(orderCard).plus(debtRepaymentsCash).plus(debtRepaymentsCard);
     const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
     const salesBasedProfit = netSales.minus(expenseNet);
     const cashflowBasedNet = realCashIn.minus(expenseNet);
+    const billedTotal = netSales.plus(serviceCharge);
+    const paymentTotal = orderCash.plus(orderCard).plus(debtSales);
+    const paymentDifference = billedTotal.minus(paymentTotal);
 
     return {
       date: dayStart.toISOString().slice(0, 10),
@@ -123,15 +429,38 @@ export const reportsService = {
         reversal: expenseSummary.totals.reversal,
         net: expenseSummary.totals.net,
         byCategory: expenseSummary.byCategory,
+        items: expenseSummary.items,
       },
       results: {
         salesBasedProfit: decStr(salesBasedProfit),
         cashflowBasedNet: decStr(cashflowBasedNet),
       },
+      checks: {
+        salesVsPayments: {
+          subtotal: decStr(grossSales),
+          discounts: decStr(discounts),
+          netSales: decStr(netSales),
+          serviceCharge: decStr(serviceCharge),
+          billedTotal: decStr(billedTotal),
+          paymentTotal: decStr(paymentTotal),
+          difference: decStr(paymentDifference),
+        },
+        expenses: {
+          recordedExpense: expenseSummary.totals.gross,
+          reversalAmount: expenseSummary.totals.reversal,
+          netExpense: expenseSummary.totals.net,
+        },
+        debts: {
+          openedTodayAmount: decStr(openedTodayAmount),
+          repaidTodayAmount: decStr(debtRepaymentsCash.plus(debtRepaymentsCard)),
+          outstandingTotal: decStr(outstandingTotal),
+        },
+      },
       debtSnapshot: {
-        openedTodayCount: openedToday.count,
-        openedTodayAmount: decStr(openedToday.amount),
+        openedTodayCount: openedTodayDebts.length,
+        openedTodayAmount: decStr(openedTodayAmount),
         repaidTodayAmount: decStr(debtRepaymentsCash.plus(debtRepaymentsCard)),
+        repayments: debtRepaymentRows,
         outstandingTotal: decStr(outstandingTotal),
       },
       perWaiter: Array.from(perWaiterMap.values()).map((item) => ({
@@ -154,6 +483,10 @@ export const reportsService = {
         amount: decStr(order.totalSnapshot),
         reason: order.cancelReason ?? '',
       })),
+      ordersTable,
+      mealSales,
+      kitchenProduction,
+      debtLedger,
     };
   },
 
@@ -173,6 +506,9 @@ export const reportsService = {
     }
 
     const totals = daily.reduce((acc, day) => ({
+      closedOrders: acc.closedOrders + day.sales.closedOrders,
+      canceledOrders: acc.canceledOrders + day.sales.canceledOrders,
+      walkoutOrders: acc.walkoutOrders + day.sales.walkoutOrders,
       grossSales: acc.grossSales.plus(new Prisma.Decimal(day.sales.grossSales)),
       discounts: acc.discounts.plus(new Prisma.Decimal(day.sales.discounts)),
       netSales: acc.netSales.plus(new Prisma.Decimal(day.sales.netSales)),
@@ -182,6 +518,9 @@ export const reportsService = {
       salesBasedProfit: acc.salesBasedProfit.plus(new Prisma.Decimal(day.results.salesBasedProfit)),
       cashflowBasedNet: acc.cashflowBasedNet.plus(new Prisma.Decimal(day.results.cashflowBasedNet)),
     }), {
+      closedOrders: 0,
+      canceledOrders: 0,
+      walkoutOrders: 0,
       grossSales: new Prisma.Decimal(0),
       discounts: new Prisma.Decimal(0),
       netSales: new Prisma.Decimal(0),
@@ -192,11 +531,18 @@ export const reportsService = {
       cashflowBasedNet: new Prisma.Decimal(0),
     });
 
-    const monthOutstanding = await debtRepo.sumOutstandingAsOf(new Date(monthEnd.getTime() - 1));
+    const monthDebtRows = daily.at(-1)?.debtLedger ?? [];
+    const monthOutstanding = monthDebtRows.reduce(
+      (sum, row) => sum.plus(new Prisma.Decimal(row.remainingAmount)),
+      new Prisma.Decimal(0),
+    );
 
     return {
       month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
       totals: {
+        closedOrders: totals.closedOrders,
+        canceledOrders: totals.canceledOrders,
+        walkoutOrders: totals.walkoutOrders,
         grossSales: decStr(totals.grossSales),
         discounts: decStr(totals.discounts),
         netSales: decStr(totals.netSales),

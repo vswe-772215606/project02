@@ -136,6 +136,8 @@ async function main() {
     { key: 'admin_printer_name', value: 'POS-80' },
     { key: 'kitchen_printer_name', value: '' },
     { key: 'store_heading', value: 'Chayxana' },
+    { key: 'store_phone', value: '' },
+    { key: 'store_address', value: '' },
   ]) {
     await prisma.setting.upsert({
       where: { key: setting.key },

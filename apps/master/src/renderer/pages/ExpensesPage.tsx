@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ReceiptText, RefreshCw } from 'lucide-react';
+import { ReceiptText, RefreshCw, Calendar } from 'lucide-react';
 import { expensesApi } from '../api/expenses';
+import { Modal } from '../components/Modal';
 import { formatDateTimeUZ, formatUZS } from '../utils/format';
 
 function localDateString() {
@@ -9,8 +10,17 @@ function localDateString() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
+function isToday(date: string | Date) {
+  const value = new Date(date);
+  const now = new Date();
+  return value.getFullYear() === now.getFullYear()
+    && value.getMonth() === now.getMonth()
+    && value.getDate() === now.getDate();
+}
+
 export function ExpensesPage() {
   const queryClient = useQueryClient();
+  const reversalNoteRef = useRef<HTMLTextAreaElement | null>(null);
   const [date, setDate] = useState(localDateString);
   const [categoryId, setCategoryId] = useState('');
   const [amount, setAmount] = useState('');
@@ -18,6 +28,8 @@ export function ExpensesPage() {
   const [note, setNote] = useState('');
   const [reversalTarget, setReversalTarget] = useState<null | { id: string; reason: string; amount: string }>(null);
   const [reversalNote, setReversalNote] = useState('');
+  const [reversalError, setReversalError] = useState('');
+  const [feedback, setFeedback] = useState<null | { type: 'success' | 'error'; message: string }>(null);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['expense-categories'],
@@ -41,9 +53,10 @@ export function ExpensesPage() {
       setAmount('');
       setReason('');
       setNote('');
+      setFeedback({ type: 'success', message: 'Chiqim saqlandi' });
       queryClient.invalidateQueries({ queryKey: ['expenses', date] });
     },
-    onError: (error: any) => alert(error.message || 'Chiqimni saqlab bo\'lmadi'),
+    onError: (error: any) => setFeedback({ type: 'error', message: error.message || 'Chiqimni saqlab bo\'lmadi' }),
   });
 
   const reverseMutation = useMutation({
@@ -52,16 +65,19 @@ export function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ['expenses', date] });
       setReversalTarget(null);
       setReversalNote('');
-      alert('Chiqim bekor qilindi');
+      setReversalError('');
+      setFeedback({ type: 'success', message: 'Chiqim bekor qilindi' });
     },
-    onError: (error: any) => alert(error.message || 'Chiqimni bekor qilib bo\'lmadi'),
+    onError: (error: any) => setReversalError(error.message || 'Chiqimni bekor qilib bo\'lmadi'),
   });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!categoryId || !amount || !reason.trim()) {
+      setFeedback({ type: 'error', message: 'Kategoriya, summa va sababni to\'ldiring' });
       return;
     }
+    setFeedback(null);
     createMutation.mutate();
   };
 
@@ -71,9 +87,12 @@ export function ExpensesPage() {
     }
     const trimmed = reversalNote.trim();
     if (trimmed.length < 3) {
-      alert('Bekor qilish sababini kamida 3 ta harf bilan yozing');
+      setReversalError('Bekor qilish sababini kamida 3 ta harf bilan yozing');
+      reversalNoteRef.current?.focus();
       return;
     }
+    setReversalError('');
+    setFeedback(null);
     reverseMutation.mutate({ id: reversalTarget.id, reversalNote: trimmed });
   };
 
@@ -83,116 +102,213 @@ export function ExpensesPage() {
     }
   }, [categories, categoryId]);
 
+  React.useEffect(() => {
+    if (reversalTarget) {
+      setReversalError('');
+    }
+  }, [reversalTarget]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-            <ReceiptText size={24} />
+        <div className="flex items-center space-x-4">
+          <div className="p-3 bg-slate-900 text-white rounded-xl shadow-lg border-b-4 border-red-600">
+            <ReceiptText size={28} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Chiqimlar</h1>
-            <p className="text-slate-500">Kunlik xarajatlarni ro'yxatga olish</p>
+            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Xarajatlar</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Calendar size={12} />
+              Kunlik chiqimlarni ro'yxatga olish
+            </p>
           </div>
         </div>
-        {isFetching && <RefreshCw className="animate-spin text-slate-400" size={18} />}
+        {isFetching && (
+          <div className="flex items-center gap-2 text-blue-600 font-bold text-xs">
+            <RefreshCw size={14} className="animate-spin" />
+            YUKLANMOQDA...
+          </div>
+        )}
       </div>
 
-      <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-white p-4 rounded-2xl border border-slate-200">
-        <input type="date" className="rounded-lg border border-slate-300 px-3 py-2" value={date} onChange={(e) => setDate(e.target.value)} />
-        <select className="rounded-lg border border-slate-300 px-3 py-2" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-        </select>
-        <input type="number" min="1" className="rounded-lg border border-slate-300 px-3 py-2" placeholder="Summa" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <input className="rounded-lg border border-slate-300 px-3 py-2" placeholder="Sababi" value={reason} onChange={(e) => setReason(e.target.value)} />
-        <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700 disabled:opacity-50" disabled={createMutation.isPending}>
-          {createMutation.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
-        </button>
-        <input className="md:col-span-5 rounded-lg border border-slate-300 px-3 py-2" placeholder="Izoh (ixtiyoriy)" value={note} onChange={(e) => setNote(e.target.value)} />
-      </form>
+      {feedback ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm font-bold ${
+            feedback.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-rose-200 bg-rose-50 text-rose-700'
+          }`}
+        >
+          {feedback.message}
+        </div>
+      ) : null}
+
+      {/* Form Section */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-slate-50 px-6 py-3 border-b border-slate-200">
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Yangi xarajat qo'shish</span>
+        </div>
+        <form onSubmit={handleCreate} className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SANA</label>
+              <input type="date" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">TUR / KATEGORIYA</label>
+              <select className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black uppercase outline-none focus:border-slate-800" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SUMMA</label>
+              <input type="number" min="1" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SABAB / MAQSAD</label>
+              <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" placeholder="Masalan: Bozorlik" value={reason} onChange={(e) => setReason(e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <div className="md:col-span-10 space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">IZOH (IXTIYORIY)</label>
+              <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-bold outline-none focus:border-slate-800" placeholder="..." value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="md:col-span-2">
+              <button type="submit" className="w-full rounded-md bg-slate-900 px-4 py-2 text-xs font-black text-white uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50" disabled={createMutation.isPending}>
+                {createMutation.isPending ? 'SAQLANMOQDA...' : 'SAQLASH'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-500">Jami chiqim</div>
-          <div className="text-2xl font-bold text-slate-800">{formatUZS(data?.totals.net ?? 0)}</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Netto chiqim</div>
+          <div className="text-2xl font-black text-slate-900">{formatUZS(data?.totals.net ?? 0)}</div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-500">Bekor qilinganlar</div>
-          <div className="text-2xl font-bold text-slate-800">{formatUZS(data?.totals.reversal ?? 0)}</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm border-l-4 border-red-500">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bekor qilingan</div>
+          <div className="text-2xl font-black text-red-600">{formatUZS(data?.totals.reversal ?? 0)}</div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-500">Brutto chiqim</div>
-          <div className="text-2xl font-bold text-slate-800">{formatUZS(data?.totals.gross ?? 0)}</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Brutto chiqim</div>
+          <div className="text-2xl font-black text-slate-500">{formatUZS(data?.totals.gross ?? 0)}</div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-500">
-            <tr>
-              <th className="px-4 py-3 text-left">Vaqt</th>
-              <th className="px-4 py-3 text-left">Tur</th>
-              <th className="px-4 py-3 text-left">Sabab</th>
-              <th className="px-4 py-3 text-right">Summa</th>
-              <th className="px-4 py-3 text-left">Holat</th>
-              <th className="px-4 py-3 text-left">Amal</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr><td className="px-4 py-8 text-center text-slate-400" colSpan={6}>Yuklanmoqda...</td></tr>
-            )}
-            {!isLoading && data?.items.map((item) => (
-              <tr key={item.id} className="border-t border-slate-100">
-                <td className="px-4 py-3">{formatDateTimeUZ(item.occurredAt)}</td>
-                <td className="px-4 py-3">{item.categoryName}</td>
-                <td className="px-4 py-3">
-                  <div className="font-medium text-slate-800">{item.reason}</div>
-                  {item.note && <div className="text-xs text-slate-500">{item.note}</div>}
-                </td>
-                <td className="px-4 py-3 text-right font-semibold">{formatUZS(item.signedAmount)}</td>
-                <td className="px-4 py-3">{item.status}</td>
-                <td className="px-4 py-3">
-                  {item.status === 'ACTIVE' ? (
-                    <button
-                      onClick={() => {
-                        setReversalTarget({ id: item.id, reason: item.reason, amount: item.signedAmount });
-                        setReversalNote('');
-                      }}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      Bekor qilish
-                    </button>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </td>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+              <tr>
+                <th className="px-6 py-4">Vaqt</th>
+                <th className="px-6 py-4">Kategoriya</th>
+                <th className="px-6 py-4">Sabab</th>
+                <th className="px-6 py-4 text-right">Summa</th>
+                <th className="px-6 py-4">Holat</th>
+                <th className="px-6 py-4 text-right">Amal</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading && (
+                <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={6}>MA'LUMOTLAR YUKLANMOQDA...</td></tr>
+              )}
+              {!isLoading && data?.items.map((item) => (
+                <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-6 py-4 text-xs font-bold text-slate-500">{formatDateTimeUZ(item.occurredAt)}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-2 py-1 bg-slate-100 rounded text-[10px] font-black text-slate-600 uppercase">{item.categoryName}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className={`text-xs font-black ${item.status === 'REVERSED' ? 'line-through text-slate-400' : 'text-slate-800'}`}>{item.reason}</div>
+                    {item.note && <div className="text-[10px] text-slate-400 font-medium italic">{item.note}</div>}
+                  </td>
+                  <td className={`px-6 py-4 text-right text-sm font-black ${item.status === 'REVERSAL' ? 'text-red-600' : 'text-slate-900'}`}>
+                    {item.status === 'REVERSAL' ? '-' : ''}{formatUZS(item.amount)}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                      item.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 
+                      item.status === 'REVERSED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {item.status === 'ACTIVE' ? 'FAOAL' : item.status === 'REVERSED' ? 'BEKOR QILINGAN' : 'QAYTARILISH'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {item.status === 'ACTIVE' ? (
+                      isToday(item.occurredAt) ? (
+                        <button
+                          onClick={() => {
+                            setReversalTarget({ id: item.id, reason: item.reason, amount: item.signedAmount });
+                            setReversalNote('');
+                            setReversalError('');
+                            setFeedback(null);
+                          }}
+                          className="text-[10px] font-black text-red-600 uppercase tracking-widest hover:underline"
+                        >
+                          Bekor qilish
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">
+                          Faqat bugun
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {reversalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-bold text-slate-800">Chiqimni bekor qilish</h2>
-            <p className="mt-2 text-sm text-slate-500">
+        <Modal
+          title="Chiqimni bekor qilish"
+          onClose={() => {
+            setReversalTarget(null);
+            setReversalNote('');
+            setReversalError('');
+          }}
+          maxWidth="max-w-md"
+          initialFocusRef={reversalNoteRef}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
               {formatUZS(reversalTarget.amount)} summalik `{reversalTarget.reason}` chiqimi bekor qilinadi.
             </p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
+              Faqat bugun kiritilgan chiqimni bekor qilish mumkin.
+            </p>
             <textarea
-              className="mt-4 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2"
+              ref={reversalNoteRef}
+              className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2"
               placeholder="Bekor qilish sababi"
               value={reversalNote}
-              onChange={(e) => setReversalNote(e.target.value)}
+              onChange={(e) => {
+                setReversalNote(e.target.value);
+                if (reversalError) {
+                  setReversalError('');
+                }
+              }}
             />
-            <div className="mt-4 flex justify-end gap-3">
+            {reversalError ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+                {reversalError}
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-3">
               <button
                 type="button"
                 className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
                 onClick={() => {
                   setReversalTarget(null);
                   setReversalNote('');
+                  setReversalError('');
                 }}
               >
                 Yopish
@@ -207,7 +323,7 @@ export function ExpensesPage() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

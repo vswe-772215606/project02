@@ -14,6 +14,7 @@ export function StockPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [successId, setSuccessId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data: stockItems = [], isLoading, isFetching } = useQuery({
     queryKey: ['stock', 'today'],
@@ -29,7 +30,7 @@ export function StockPage() {
       setTimeout(() => setSuccessId(null), 1000);
     },
     onError: (err: any) => {
-      alert(err.message || "Xatolik yuz berdi");
+      setSaveError(err.message || "Xatolik yuz berdi");
     }
   });
 
@@ -73,6 +74,15 @@ export function StockPage() {
 
         {isFetching && <RefreshCw className="animate-spin text-slate-400" size={18} />}
       </div>
+
+      {saveError && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm font-semibold text-red-700 flex items-center justify-between">
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="ml-4 text-red-400 hover:text-red-600">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="divide-y divide-slate-100">

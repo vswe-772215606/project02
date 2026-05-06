@@ -13,6 +13,7 @@ import { auditService } from './audit.service';
 import { billingService } from './billing.service';
 import { debtService } from './debt.service';
 import { printService } from './print.service';
+import { settingsService } from './settings.service';
 import { stockService } from './stock.service';
 
 type Tx = Prisma.TransactionClient;
@@ -59,11 +60,8 @@ function mapToDto(order: any) {
       .filter((l: any) => !l.isCanceled)
       .reduce((sum: number, l: any) => sum + decimalToInt(l.unitPriceSnapshot) * l.quantity, 0);
     
-    // Add default service charge if applicable
     if (order.status !== 'DRAFT' && !order.serviceChargeWaived) {
-      // In a real app, this should match billingService logic exactly.
-      // For now, assume 10,000 as in seed/billing service default
-      totalAmount += 10000; 
+      totalAmount += settingsService.getInt('service_charge_amount');
     }
   }
 

@@ -8,6 +8,7 @@ import {
   Printer, 
   Ban, 
   CreditCard,
+  CheckCircle2,
   User as UserIcon,
   Armchair,
   History,
@@ -186,102 +187,113 @@ function OrderListItem({
 }) {
   const queryClient = useQueryClient();
   const mealSummary = summarizeOrderLines(order.lines);
+  const [reprintSuccess, setReprintSuccess] = useState(false);
   const reprintMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.reprintBill(order.id, reason),
-    onSuccess: () => alert('Chek qayta chop etishga yuborildi')
+    onSuccess: () => { setReprintSuccess(true); setTimeout(() => setReprintSuccess(false), 3000); },
   });
 
   return (
-    <div className={`bg-white rounded-xl border transition-all ${isExpanded ? 'border-blue-400 shadow-md ring-1 ring-blue-100' : 'border-slate-200 hover:border-slate-300'}`}>
+    <div className={`bg-white rounded-md border transition-all duration-200 ${
+      isExpanded 
+        ? 'border-slate-800 shadow-md ring-1 ring-slate-800/5' 
+        : 'border-slate-200 hover:border-slate-300'
+    }`}>
+      {/* Grid Header */}
       <div 
-        className="p-4 flex items-center justify-between cursor-pointer"
+        className={`grid grid-cols-12 items-center cursor-pointer select-none ${isExpanded ? 'bg-slate-50' : ''}`}
         onClick={onToggle}
       >
-        <div className="flex items-center space-x-6">
-          <div className="flex flex-col">
-            <span className="text-lg font-bold text-slate-800">#{order.orderNumber}</span>
-            <span className="text-xs text-slate-400 font-medium">{formatDateTimeUZ(order.createdAt)}</span>
-          </div>
+        {/* Col 1: ID */}
+        <div className="col-span-1 py-3 pl-4 border-r border-slate-100">
+          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">ID</div>
+          <div className="text-sm font-black text-slate-900 leading-none">{order.orderNumber}</div>
+        </div>
 
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-                <Armchair size={14} />
-                <span className="text-sm font-semibold">{locationLabel(order)}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-                <UserIcon size={14} />
-                <span className="text-sm font-semibold">{order.waiter?.fullName}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 text-slate-600 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-                <span className="text-xs font-bold uppercase tracking-wide">{order.orderType === 'DINE_IN' ? 'Ichkarida' : 'Olib ketish'}</span>
-              </div>
-            </div>
-            {mealSummary && (
-              <p
-                className="max-w-xl text-sm text-slate-500"
-                style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                {mealSummary}
-              </p>
-            )}
+        {/* Col 2: Info */}
+        <div className="col-span-5 py-3 px-4 border-r border-slate-100 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Armchair size={14} className="text-slate-400" />
+            <span className="text-sm font-black text-slate-900 truncate">
+              {locationLabel(order)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+            <UserIcon size={12} className="text-slate-300" />
+            <span className="truncate">{order.waiter?.fullName}</span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="text-right">
-            <div className="text-lg font-black text-slate-900">
+        {/* Col 3: Time & Type */}
+        <div className="col-span-2 py-3 px-4 border-r border-slate-100">
+          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">VAQT</div>
+          <div className="text-[11px] font-bold text-slate-700">{formatDateTimeUZ(order.createdAt)}</div>
+        </div>
+
+        {/* Col 4: Amount & Status */}
+        <div className="col-span-3 py-3 px-4 flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">SUMMA</div>
+            <div className="text-sm font-black text-slate-900 leading-none">
               {formatUZS(order.totalSnapshot || order.totalAmount || 0)}
             </div>
-            <StatusBadge status={order.status} />
           </div>
-          {isExpanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+          <StatusBadge status={order.status} />
+        </div>
+
+        {/* Col 5: Arrow */}
+        <div className="col-span-1 py-3 pr-4 flex justify-end">
+          <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+            <ChevronDown size={18} className="text-slate-400" />
+          </div>
         </div>
       </div>
 
       {isExpanded && (
-        <div className="px-4 pb-4 border-t border-slate-100 pt-4 animate-in slide-in-from-top-2 duration-200">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Joy</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-800">{locationLabel(order)}</div>
+        <div className="border-t border-slate-200 animate-in slide-in-from-top-1 duration-200">
+          <div className="grid grid-cols-12">
+            {/* Left: Content List */}
+            <div className="col-span-8 p-4 border-r border-slate-100">
+              <div className="flex items-center justify-between mb-4 border-b border-slate-50 pb-2">
+                <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  <ReceiptText size={14} className="text-slate-400" />
+                  <span>Buyurtma tarkibi</span>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Ofitsiant</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-800">{order.waiter?.fullName || '—'}</div>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Holat</div>
-                  <div className="mt-1"><StatusBadge status={order.status} /></div>
-                </div>
+                <span className="text-[10px] font-black text-slate-400 uppercase">{order.itemCount} pozitsiya</span>
               </div>
 
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Mahsulotlar</h4>
-                <div className="space-y-2">
-                  {order.lines?.map(line => (
-                    <div key={line.id} className={`flex justify-between text-sm ${line.isCanceled ? 'line-through text-slate-400' : 'text-slate-700'}`}>
-                      <span>{line.quantity}x {line.nameSnapshot}</span>
-                      <span className="font-medium">{formatUZS((line.price || 0) * line.quantity)}</span>
+              <div className="space-y-1 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {order.lines?.map(line => (
+                  <div key={line.id} className={`grid grid-cols-12 gap-2 py-1.5 px-2 rounded ${line.isCanceled ? 'bg-red-50/50' : 'hover:bg-slate-50'}`}>
+                    <div className="col-span-1 text-xs font-black text-slate-400">{line.quantity}×</div>
+                    <div className="col-span-8">
+                      <div className={`text-xs font-bold ${line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        {line.nameSnapshot}
+                      </div>
+                      {line.notes && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <AlertCircle size={10} className="text-blue-500" />
+                          <span className="text-[10px] text-blue-600 font-medium">{line.notes}</span>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                    <div className={`col-span-3 text-right text-xs font-black ${line.isCanceled ? 'text-slate-300 line-through' : 'text-slate-700'}`}>
+                      {formatUZS((line.price || 0) * line.quantity)}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {order.kitchenTickets && order.kitchenTickets.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Oshxona buyurtmalari</h4>
-                  <div className="space-y-2">
+                <div className="mt-6 pt-4 border-t border-slate-50">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <History size={14} className="text-slate-400" />
+                    <span>Oshxona holati</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {order.kitchenTickets.map((ticket, idx) => (
-                      <div key={ticket.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-100">
-                        <span className="text-xs font-bold text-slate-600">Chek #{idx + 1}</span>
+                      <div key={ticket.id} className="flex items-center justify-between bg-white px-2 py-2 rounded border border-slate-100 shadow-sm">
+                        <span className="text-[10px] font-black text-slate-400">#{idx + 1}</span>
                         <KitchenStatusBadge status={ticket.status} />
                       </div>
                     ))}
@@ -290,90 +302,107 @@ function OrderListItem({
               )}
             </div>
 
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Amallar</h4>
-                <div className="flex flex-wrap gap-2">
-                  {order.status === 'BILL_REQUESTED' && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onPay(); }}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center space-x-2"
-                    >
-                      <CreditCard size={16} />
-                      <span>HISOBNI YAKUNLASH</span>
-                    </button>
-                  )}
-                  {order.status === 'PENDING_PAYMENT' && (
-                    <>
+            {/* Right: Actions & Summary */}
+            <div className="col-span-4 bg-slate-50/30 p-4">
+              <div className="space-y-6">
+                <div className="bg-slate-900 rounded-md p-4 text-white shadow-inner">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Moliyaviy jami</div>
+                  <div className="space-y-2 text-xs font-bold">
+                    <div className="flex justify-between text-slate-400">
+                      <span>JAMI</span>
+                      <span>{formatUZS(order.subtotalSnapshot || order.totalAmount || 0)}</span>
+                    </div>
+                    {(order.discountAmountSnapshot || 0) > 0 && (
+                      <div className="flex justify-between text-red-400">
+                        <span>CHEGIRMA</span>
+                        <span>-{formatUZS(order.discountAmountSnapshot || 0)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-400">
+                      <span>XIZMAT HAQI</span>
+                      <span>{formatUZS(order.serviceChargeSnapshot || 0)}</span>
+                    </div>
+                    <div className="pt-3 mt-1 border-t border-slate-800 flex justify-between items-baseline">
+                      <span className="text-[10px] text-slate-500">YAKUNIY SUMMA</span>
+                      <span className="text-xl font-black text-blue-400 tracking-tighter">
+                        {formatUZS(order.totalSnapshot || order.totalAmount || 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Amallar</div>
+                  <div className="flex flex-col gap-2">
+                    {order.status === 'BILL_REQUESTED' && (
                       <button 
                         onClick={(e) => { e.stopPropagation(); onPay(); }}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-green-700 flex items-center space-x-2"
+                        className="bg-blue-600 text-white px-4 py-3 rounded text-xs font-black hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                       >
-                        <CreditCard size={16} />
-                        <span>TO'LANDI</span>
+                        <CreditCard size={14} />
+                        <span>HISOBNI YAKUNLASH</span>
                       </button>
+                    )}
+                    {order.status === 'PENDING_PAYMENT' && (
+                      <>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onPay(); }}
+                          className="bg-green-600 text-white px-4 py-3 rounded text-xs font-black hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 size={14} />
+                          <span>TO'LANDI</span>
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onWalkout(); }}
+                          className="bg-white text-orange-600 border border-orange-200 px-4 py-3 rounded text-xs font-black hover:bg-orange-50 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <AlertCircle size={14} />
+                          <span>TO'LOVSIZ KETDI</span>
+                        </button>
+                      </>
+                    )}
+                    
+                    {(order.status === 'SENT' || order.status === 'BILL_REQUESTED') && (
                       <button 
-                        onClick={(e) => { e.stopPropagation(); onWalkout(); }}
-                        className="bg-orange-50 text-orange-600 border border-orange-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-orange-100 flex items-center space-x-2"
+                        onClick={(e) => { e.stopPropagation(); onCancel(); }}
+                        className="bg-white text-red-600 border border-red-200 px-4 py-2 rounded text-[10px] font-black hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
                       >
-                        <AlertCircle size={16} />
-                        <span>TO'LOVSIZ KETDI</span>
+                        <Ban size={12} />
+                        <span>BUYURTMANI BEKOR QILISH</span>
                       </button>
-                    </>
-                  )}
-                  
-                  {(order.status === 'SENT' || order.status === 'BILL_REQUESTED') && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onCancel(); }}
-                      className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-100 flex items-center space-x-2"
-                    >
-                      <Ban size={16} />
-                      <span>BEKOR QILISH</span>
-                    </button>
-                  )}
+                    )}
 
-                  {(order.status === 'CLOSED' || order.status === 'WALKOUT') && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); reprintMutation.mutate('Admin re-print'); }}
-                      className="bg-slate-100 text-slate-600 border border-slate-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-200 flex items-center space-x-2"
-                    >
-                      <Printer size={16} />
-                      <span>CHEKNI QAYTA CHOP ETISH</span>
-                    </button>
-                  )}
+                    {(order.status === 'CLOSED' || order.status === 'WALKOUT') && (
+                      reprintSuccess ? (
+                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded text-[10px] font-black flex items-center gap-2">
+                          <Printer size={12} />
+                          <span>YUBORILDI</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); reprintMutation.mutate('Admin re-print'); }}
+                          className="bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded text-[10px] font-black hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Printer size={12} />
+                          <span>CHEKNI QAYTA CHOP ETISH</span>
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
+
+                {order.status === 'CLOSED' && order.closedAt && (
+                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-black uppercase">
+                    <History size={12} />
+                    <span>Yopildi: {formatDateTimeUZ(order.closedAt)}</span>
+                  </div>
+                )}
+                {order.status === 'CANCELED' && order.cancelReason && (
+                  <div className="p-2 bg-red-50 border border-red-100 rounded text-[10px] text-red-700 font-bold uppercase tracking-tighter">
+                    Sabab: {order.cancelReason}
+                  </div>
+                )}
               </div>
-
-              {order.status === 'CLOSED' && order.closedAt && (
-                <div className="p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700 font-medium">
-                  Yopilgan vaqti: {formatDateTimeUZ(order.closedAt)}
-                </div>
-              )}
-              {order.status === 'PENDING_PAYMENT' && (
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Oraliq jami</span>
-                    <span>{formatUZS(order.subtotalSnapshot || order.totalAmount || 0)}</span>
-                  </div>
-                  <div className="mt-2 flex justify-between text-slate-600">
-                    <span>Chegirma</span>
-                    <span>-{formatUZS(order.discountAmountSnapshot || 0)}</span>
-                  </div>
-                  <div className="mt-2 flex justify-between text-slate-600">
-                    <span>Xizmat haqi</span>
-                    <span>{formatUZS(order.serviceChargeSnapshot || 0)}</span>
-                  </div>
-                  <div className="mt-3 flex justify-between border-t border-blue-100 pt-3 font-bold text-slate-900">
-                    <span>Yakuniy summa</span>
-                    <span>{formatUZS(order.totalSnapshot || order.totalAmount || 0)}</span>
-                  </div>
-                </div>
-              )}
-              {order.status === 'CANCELED' && order.cancelReason && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 font-medium">
-                  Bekor qilish sababi: {order.cancelReason}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -395,24 +424,41 @@ function CancelOrderModal({ order, onClose }: { order: Order; onClose: () => voi
 
   return (
     <Modal title="Buyurtmani bekor qilish" onClose={onClose} maxWidth="max-w-md">
-      <div className="space-y-4">
-        <p className="text-slate-600 text-sm">
-          #{order.orderNumber} buyurtmani bekor qilmoqchimisiz? Bu amalni ortga qaytarib bo'lmaydi.
-        </p>
-        <textarea 
-          placeholder="Bekor qilish sababini kiriting..."
-          className="w-full border border-slate-300 rounded-lg p-3 text-sm h-24 outline-none focus:ring-2 focus:ring-red-500"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        <div className="flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Yopish</button>
+      <div className="space-y-6">
+        <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex items-start gap-3">
+          <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={20} />
+          <div>
+            <p className="text-sm font-bold text-red-800 mb-1">Diqqat! Qaytarib bo'lmaydi</p>
+            <p className="text-xs text-red-600 font-medium leading-relaxed">
+              #{order.orderNumber} buyurtma butunlay bekor qilinadi. Oshxonadagi barcha cheklar ham bekor deb hisoblanadi.
+            </p>
+          </div>
+        </div>
+        
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BEKOR QILISH SABABI</label>
+          <textarea 
+            placeholder="Masalan: Mijoz fikridan qaytdi, adashib ochilgan..."
+            className="w-full border border-slate-200 rounded-xl p-4 text-sm font-medium h-28 outline-none focus:ring-2 focus:ring-red-500 transition-shadow bg-slate-50/30 resize-none"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div className="flex gap-3">
           <button 
-            disabled={!reason || mutation.isPending}
-            onClick={() => mutation.mutate()}
-            className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-red-700 disabled:opacity-50"
+            onClick={onClose} 
+            className="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
           >
-            BEKOR QILISH
+            Yopish
+          </button>
+          <button 
+            disabled={!reason.trim() || mutation.isPending}
+            onClick={() => mutation.mutate()}
+            className="flex-[2] bg-red-600 text-white py-3 rounded-xl text-sm font-black hover:bg-red-700 shadow-lg shadow-red-200 disabled:opacity-50 transition-all active:scale-95"
+          >
+            {mutation.isPending ? 'BEKOR QILINMOQDA...' : 'BEKOR QILISHNI TASDIQLASH'}
           </button>
         </div>
       </div>
@@ -432,28 +478,42 @@ function WalkoutOrderModal({ order, onClose }: { order: Order; onClose: () => vo
   });
 
   return (
-    <Modal title="To'lovsiz ketishni qayd etish" onClose={onClose} maxWidth="max-w-md">
-      <div className="space-y-4">
-        <div className="bg-orange-50 p-4 border border-orange-200 rounded-lg flex items-start space-x-3">
-          <AlertCircle className="text-orange-500 shrink-0" size={20} />
-          <p className="text-orange-700 text-sm font-medium">
-            Diqqat! Ushbu buyurtma to'lanmagan deb belgilanadi va daromadga kirmaydi.
-          </p>
+    <Modal title="To'lovsiz ketish" onClose={onClose} maxWidth="max-w-md">
+      <div className="space-y-6">
+        <div className="bg-orange-50 p-4 border border-orange-100 rounded-xl flex items-start gap-3 shadow-inner">
+          <AlertCircle className="text-orange-500 shrink-0 mt-0.5" size={20} />
+          <div>
+            <p className="text-sm font-bold text-orange-800 mb-1">To'lanmagan buyurtma</p>
+            <p className="text-xs text-orange-700 font-medium leading-relaxed">
+              Bu amal buyurtmani "To'lovsiz ketdi" holatiga o'tkazadi. U daromad statistikalarida hisobga olinmaydi.
+            </p>
+          </div>
         </div>
-        <textarea 
-          placeholder="Sababini kiriting (masalan: mijoz qochib ketdi, adashib ochilgan)..."
-          className="w-full border border-slate-300 rounded-lg p-3 text-sm h-24 outline-none focus:ring-2 focus:ring-orange-500"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        <div className="flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Yopish</button>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">IZOH / SABAB</label>
+          <textarea 
+            placeholder="Masalan: Mijoz to'lamay chiqib ketdi..."
+            className="w-full border border-slate-200 rounded-xl p-4 text-sm font-medium h-28 outline-none focus:ring-2 focus:ring-orange-500 transition-shadow bg-slate-50/30 resize-none"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div className="flex gap-3">
           <button 
-            disabled={!reason || mutation.isPending}
-            onClick={() => mutation.mutate()}
-            className="flex-1 bg-orange-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-orange-700 disabled:opacity-50"
+            onClick={onClose} 
+            className="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
           >
-            TASDIQLASH
+            Yopish
+          </button>
+          <button 
+            disabled={!reason.trim() || mutation.isPending}
+            onClick={() => mutation.mutate()}
+            className="flex-[2] bg-orange-600 text-white py-3 rounded-xl text-sm font-black hover:bg-orange-700 shadow-lg shadow-orange-100 disabled:opacity-50 transition-all active:scale-95"
+          >
+            {mutation.isPending ? 'SAQLANMOQDA...' : 'TASDIQLASH'}
           </button>
         </div>
       </div>

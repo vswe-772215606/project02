@@ -20,6 +20,7 @@ import {
 import { usersApi } from '../api/users';
 import { User } from '../api/auth';
 import { useAuthStore } from '../stores/auth.store';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 const userSchema = z.object({
@@ -44,6 +45,7 @@ export function UsersPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [dialog, setDialog] = useState<{ message: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users', showInactive],
@@ -65,7 +67,7 @@ export function UsersPage() {
       setEditUser(null);
     },
     onError: (err: any) => {
-      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+      setDialog({ message: err.response?.data?.error?.message || "Xatolik yuz berdi", onConfirm: () => setDialog(null) });
     }
   });
 
@@ -73,23 +75,27 @@ export function UsersPage() {
     mutationFn: (id: string) => usersApi.deactivate(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
     onError: (err: any) => {
-      alert(err.response?.data?.error?.message || "Xatolik yuz berdi");
+      setDialog({ message: err.response?.data?.error?.message || "Xatolik yuz berdi", onConfirm: () => setDialog(null) });
     }
   });
 
   const handleToggleActive = (user: User) => {
     if (user.isActive) {
-      if (confirm(`"${user.fullName}" foydalanuvchisini faolsizlantirmoqchimisiz?`)) {
-        deactivateMutation.mutate(user.id);
-      }
+      setDialog({
+        message: `"${user.fullName}" foydalanuvchisini faolsizlantirmoqchimisiz?`,
+        onConfirm: () => { deactivateMutation.mutate(user.id); setDialog(null); },
+        onCancel: () => setDialog(null),
+      });
     } else {
       if (user.role === 'OWNER' && currentUser?.role !== 'OWNER') {
-        alert("Faqat Ega (Owner) boshqa Egani qayta faollashtira oladi");
+        setDialog({ message: "Faqat Ega (Owner) boshqa Egani qayta faollashtira oladi", onConfirm: () => setDialog(null) });
         return;
       }
-      if (confirm(`"${user.fullName}" foydalanuvchisini qayta faollashtirmoqchimisiz?`)) {
-        updateMutation.mutate({ id: user.id, data: { isActive: true } });
-      }
+      setDialog({
+        message: `"${user.fullName}" foydalanuvchisini qayta faollashtirmoqchimisiz?`,
+        onConfirm: () => { updateMutation.mutate({ id: user.id, data: { isActive: true } }); setDialog(null); },
+        onCancel: () => setDialog(null),
+      });
     }
   };
 
@@ -193,7 +199,7 @@ export function UsersPage() {
       </div>
 
       {(isAdding || editUser) && (
-        <UserModal 
+        <UserModal
           user={editUser}
           currentUserRole={currentUser?.role}
           onClose={() => { setIsAdding(false); setEditUser(null); }}
@@ -201,6 +207,15 @@ export function UsersPage() {
             ? updateMutation.mutate({ id: editUser.id, data })
             : createMutation.mutate(data)
           }
+        />
+      )}
+
+      {dialog && (
+        <ConfirmDialog
+          message={dialog.message}
+          variant={dialog.onCancel ? 'danger' : 'default'}
+          onConfirm={dialog.onConfirm}
+          onCancel={dialog.onCancel}
         />
       )}
     </div>
@@ -226,6 +241,7 @@ function RoleBadge({ role, isActive }: { role: string, isActive: boolean }) {
 
 function UserModal({ user, currentUserRole, onClose, onSave }: any) {
   const [showPass, setShowPass] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const { register, handleSubmit, watch, formState: { errors } } = useForm({
     resolver: zodResolver(userSchema),
     defaultValues: user || { fullName: '', role: 'WAITER', username: '', password: '', pin: '' }
@@ -239,7 +255,7 @@ function UserModal({ user, currentUserRole, onClose, onSave }: any) {
 
   const onSubmit = (data: any) => {
     if (data.role === 'WAITER' && isTrivialPin(data.pin)) {
-      alert("PIN juda oddiy, iltimos boshqasini tanlang");
+      setFormError("PIN juda oddiy, iltimos boshqasini tanlang");
       return;
     }
     // Clean up data based on role
@@ -327,6 +343,7 @@ function UserModal({ user, currentUserRole, onClose, onSave }: any) {
         )}
 
         {errors.username && <p className="text-xs text-red-500 font-medium">Username/Parol yoki PIN talab qilinadi</p>}
+        {formError && <p className="text-xs text-red-600 font-semibold rounded-lg bg-red-50 px-3 py-2">{formError}</p>}
 
         <div className="flex space-x-3 pt-4">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50">Bekor qilish</button>
