@@ -673,7 +673,12 @@ export const orderService = {
     discountId?: string | null;
     serviceChargeWaived: boolean;
   }) {
-    return completeEmitContext(async () => {
+    // Use withEmitContext directly (not completeEmitContext) so we can interleave
+    // socket emits and the blocking print in the right order:
+    //   1. transaction commits
+    //   2. socket emits fire (clients see order:approved immediately)
+    //   3. print runs — if it throws the error propagates as HTTP 500
+    return withEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
       if (![OrderStatus.BILL_REQUESTED, OrderStatus.SENT].includes(order.status)) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.PENDING_PAYMENT);
@@ -684,7 +689,8 @@ export const orderService = {
         serviceChargeWaived: input.serviceChargeWaived,
       });
 
-      return getPrisma().$transaction(async (tx) => {
+      let freshOrder: OrderWithDetails | undefined;
+      const result = await getPrisma().$transaction(async (tx) => {
         await orderRepo.setApproval(order.id, input.adminUserId, input.discountId ?? null, input.serviceChargeWaived, tx);
         await orderRepo.applyTotals(order.id, {
           subtotalSnapshot: totals.subtotal,
@@ -722,12 +728,17 @@ export const orderService = {
         deferEmit('admin', 'order:approved', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:approved', { orderId: order.id });
 
-        // Print final bill
-        const freshOrder = await getOrderOrThrow(order.id, tx);
-        deferAfterCommit(() => printService.printBill(freshOrder));
-
+        freshOrder = await getOrderOrThrow(order.id, tx);
         return mapToDto(updated);
       });
+
+      // Notify clients that order is approved before blocking on the printer
+      await flushDeferredEmits();
+
+      // Blocking print — error propagates to the HTTP caller as 500
+      await printService.printBill(freshOrder!);
+
+      return result;
     });
   },
 

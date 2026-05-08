@@ -11,6 +11,7 @@ import {
   logProcessContext,
 } from './startup-log';
 import { initPrintLog } from './server/lib/print-logger';
+import { ensurePrinterBinary } from './server/printer/binary-resolver';
 
 const singleInstanceLockAcquired = app.requestSingleInstanceLock();
 const logger = createStartupLogger(app.getPath('userData'));
@@ -194,6 +195,7 @@ async function runStartup(): Promise<void> {
     await startServer();
     logger.info('after startServer');
     initPrintLog();
+    ensurePrinterBinary();
 
     logger.info('before createWindow');
     createWindow();
