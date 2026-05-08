@@ -1107,7 +1107,7 @@ function MonthlyView({
     {
       label: 'Netto chiqim',
       value: formatUZS(report.totals.expensesNet),
-      subtitle: 'Oy bo'yicha jamlangan',
+      subtitle: "Oy bo'yicha jamlangan",
       tone: 'amber' as const,
       icon: <Wallet size={18} className="text-amber-700" />,
     },
