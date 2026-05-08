@@ -12,6 +12,18 @@ const reportOrderInclude = {
       fullName: true,
     },
   },
+  canceledBy: {
+    select: {
+      id: true,
+      fullName: true,
+    },
+  },
+  walkoutMarkedBy: {
+    select: {
+      id: true,
+      fullName: true,
+    },
+  },
   lines: {
     include: {
       menuItem: {
@@ -80,6 +92,18 @@ function isWithinDay(value: Date | null | undefined, dayStart: Date, dayEnd: Dat
   return value >= dayStart && value < dayEnd;
 }
 
+function normalizeSearch(value: string | null | undefined) {
+  return (value ?? '').trim().toLocaleLowerCase();
+}
+
+function matchesSearch(search: string, ...values: Array<string | number | null | undefined>) {
+  if (!search) {
+    return true;
+  }
+
+  return values.some((value) => String(value ?? '').toLocaleLowerCase().includes(search));
+}
+
 function paymentBreakdown(payments: Array<{ method: PaymentMethod; amount: Prisma.Decimal }>) {
   let cash = new Prisma.Decimal(0);
   let card = new Prisma.Decimal(0);
@@ -98,6 +122,43 @@ function paymentBreakdown(payments: Array<{ method: PaymentMethod; amount: Prism
   return { cash, card, debt };
 }
 
+function sumOrderLines(
+  order: ReportOrder,
+  predicate: (line: ReportOrder['lines'][number]) => boolean,
+) {
+  return order.lines.reduce((sum, line) => {
+    if (!predicate(line)) {
+      return sum;
+    }
+
+    return sum.plus(line.unitPriceSnapshot.mul(line.quantity));
+  }, new Prisma.Decimal(0));
+}
+
+function orderAmounts(order: ReportOrder) {
+  const derivedSubtotal = sumOrderLines(order, (line) => !line.isCanceled && !line.menuItem.isServiceItem);
+  const derivedServiceCharge = sumOrderLines(order, (line) => !line.isCanceled && line.menuItem.isServiceItem);
+  const snapshotExists = [
+    order.subtotalSnapshot,
+    order.discountAmountSnapshot,
+    order.serviceChargeSnapshot,
+    order.totalSnapshot,
+  ].some((value) => value !== null && value !== undefined);
+
+  const subtotal = order.subtotalSnapshot ?? derivedSubtotal;
+  const discount = dec(order.discountAmountSnapshot);
+  const serviceCharge = order.serviceChargeSnapshot ?? derivedServiceCharge;
+  const total = order.totalSnapshot ?? subtotal.minus(discount).plus(serviceCharge);
+
+  return {
+    subtotal,
+    discount,
+    serviceCharge,
+    total,
+    source: snapshotExists ? 'snapshot' : 'derived',
+  } as const;
+}
+
 function terminalMoment(order: ReportOrder) {
   return order.closedAt ?? order.canceledAt ?? order.updatedAt;
 }
@@ -105,8 +166,7 @@ function terminalMoment(order: ReportOrder) {
 function buildOrdersTable(orders: ReportOrder[], status: 'CLOSED' | 'CANCELED' | 'WALKOUT') {
   return orders.map((order) => {
     const payments = paymentBreakdown(order.payments);
-    const gross = dec(order.subtotalSnapshot);
-    const discount = dec(order.discountAmountSnapshot);
+    const amounts = orderAmounts(order);
 
     return {
       orderId: order.id,
@@ -115,13 +175,14 @@ function buildOrdersTable(orders: ReportOrder[], status: 'CLOSED' | 'CANCELED' |
       tableName: order.table?.name ?? null,
       waiterName: order.waiter.fullName,
       status,
-      gross: decStr(gross),
-      discount: decStr(discount),
-      net: decStr(gross.minus(discount)),
-      service: decStr(order.serviceChargeSnapshot),
+      gross: decStr(amounts.subtotal),
+      discount: decStr(amounts.discount),
+      net: decStr(amounts.subtotal.minus(amounts.discount)),
+      service: decStr(amounts.serviceCharge),
       cash: decStr(payments.cash),
       card: decStr(payments.card),
       debt: decStr(payments.debt),
+      amountSource: amounts.source,
     };
   });
 }
@@ -138,6 +199,7 @@ function buildMealSales(closedOrders: ReportOrder[]) {
   for (const order of closedOrders) {
     for (const line of order.lines) {
       if (line.isCanceled) continue;
+      if (line.menuItem.isServiceItem) continue;
 
       const key = `${line.nameSnapshot}::${line.menuItem.category.name}`;
       const existing = mealMap.get(key) ?? {
@@ -271,8 +333,115 @@ function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
   });
 }
 
+function filterDailyReport<T extends Record<string, any>>(report: T, rawSearch?: string): T {
+  const search = normalizeSearch(rawSearch);
+  if (!search) {
+    return report;
+  }
+
+  return {
+    ...report,
+    expenses: {
+      ...report.expenses,
+      byCategory: report.expenses.byCategory.filter((item) =>
+        matchesSearch(search, item.categoryName, item.amount),
+      ),
+      items: report.expenses.items.filter((item) =>
+        matchesSearch(
+          search,
+          item.categoryName,
+          item.reason,
+          item.note,
+          item.createdByName,
+          item.amount,
+          item.signedAmount,
+        ),
+      ),
+    },
+    debtSnapshot: {
+      ...report.debtSnapshot,
+      repayments: report.debtSnapshot.repayments.filter((item) =>
+        matchesSearch(
+          search,
+          item.debtorName,
+          item.orderNumber,
+          item.method,
+          item.receivedByName,
+          item.amount,
+        ),
+      ),
+    },
+    perWaiter: report.perWaiter.filter((item) =>
+      matchesSearch(
+        search,
+        item.waiterName,
+        item.orders,
+        item.canceledOrders,
+        item.revenue,
+        item.serviceEarned,
+        item.serviceServings,
+      ),
+    ),
+    cancellations: report.cancellations.filter((item) =>
+      matchesSearch(search, item.orderId, item.canceledBy, item.reason),
+    ),
+    walkouts: report.walkouts.filter((item) =>
+      matchesSearch(search, item.orderId, item.markedBy, item.reason, item.amount),
+    ),
+    ordersTable: report.ordersTable.filter((item) =>
+      matchesSearch(
+        search,
+        item.orderNumber,
+        item.tableName,
+        item.waiterName,
+        item.status,
+        item.gross,
+        item.net,
+        item.cash,
+        item.card,
+        item.debt,
+      ),
+    ),
+    mealSales: report.mealSales.filter((item) =>
+      matchesSearch(
+        search,
+        item.mealName,
+        item.categoryName,
+        item.ordersCount,
+        item.qtyOrdered,
+        item.grossSales,
+      ),
+    ),
+    kitchenProduction: report.kitchenProduction.filter((item) =>
+      matchesSearch(
+        search,
+        item.mealName,
+        item.qtyOrdered,
+        item.qtySent,
+        item.qtyStarted,
+        item.qtyReady,
+        item.qtyCanceledBeforeCooking,
+        item.qtyCanceledAfterStart,
+      ),
+    ),
+    debtLedger: report.debtLedger.filter((item) =>
+      matchesSearch(
+        search,
+        item.orderNumber,
+        item.debtorName,
+        item.debtorPhone,
+        item.originalAmount,
+        item.repaidToday,
+        item.totalRepaid,
+        item.remainingAmount,
+        item.status,
+      ),
+    ),
+  } as T;
+}
+
 export const reportsService = {
-  async daily(date: Date) {
+  async daily(date: Date, search?: string) {
     const prisma = getPrisma();
     const { start: dayStart, end: dayEnd } = dayBounds(date);
 
@@ -329,14 +498,16 @@ export const reportsService = {
       canceledOrders: number;
       revenue: Prisma.Decimal;
       serviceEarned: Prisma.Decimal;
+      serviceServings: number;
     }>();
 
     for (const order of closedOrders) {
       const payments = paymentBreakdown(order.payments);
+      const amounts = orderAmounts(order);
 
-      grossSales = grossSales.plus(dec(order.subtotalSnapshot));
-      discounts = discounts.plus(dec(order.discountAmountSnapshot));
-      serviceCharge = serviceCharge.plus(dec(order.serviceChargeSnapshot));
+      grossSales = grossSales.plus(amounts.subtotal);
+      discounts = discounts.plus(amounts.discount);
+      serviceCharge = serviceCharge.plus(amounts.serviceCharge);
       orderCash = orderCash.plus(payments.cash);
       orderCard = orderCard.plus(payments.card);
       debtSales = debtSales.plus(payments.debt);
@@ -348,17 +519,23 @@ export const reportsService = {
         canceledOrders: 0,
         revenue: new Prisma.Decimal(0),
         serviceEarned: new Prisma.Decimal(0),
+        serviceServings: 0,
       };
 
+      const orderServiceServings = order.lines
+        .filter((l) => !l.isCanceled && l.menuItem.isServiceItem)
+        .reduce((sum, l) => sum + l.quantity, 0);
+
       waiterAgg.orders += 1;
-      waiterAgg.revenue = waiterAgg.revenue.plus(dec(order.subtotalSnapshot).minus(dec(order.discountAmountSnapshot)));
-      waiterAgg.serviceEarned = waiterAgg.serviceEarned.plus(dec(order.serviceChargeSnapshot));
+      waiterAgg.revenue = waiterAgg.revenue.plus(amounts.subtotal.minus(amounts.discount));
+      waiterAgg.serviceEarned = waiterAgg.serviceEarned.plus(amounts.serviceCharge);
+      waiterAgg.serviceServings += orderServiceServings;
       perWaiterMap.set(order.waiterId, waiterAgg);
     }
 
     let canceledOrdersGross = new Prisma.Decimal(0);
     for (const order of canceledOrders) {
-      canceledOrdersGross = canceledOrdersGross.plus(dec(order.subtotalSnapshot));
+      canceledOrdersGross = canceledOrdersGross.plus(orderAmounts(order).subtotal);
       const waiterAgg = perWaiterMap.get(order.waiterId) ?? {
         waiterId: order.waiterId,
         waiterName: order.waiter.fullName,
@@ -366,6 +543,7 @@ export const reportsService = {
         canceledOrders: 0,
         revenue: new Prisma.Decimal(0),
         serviceEarned: new Prisma.Decimal(0),
+        serviceServings: 0,
       };
       waiterAgg.canceledOrders += 1;
       perWaiterMap.set(order.waiterId, waiterAgg);
@@ -373,7 +551,7 @@ export const reportsService = {
 
     let walkoutOrdersGross = new Prisma.Decimal(0);
     for (const order of walkoutOrders) {
-      walkoutOrdersGross = walkoutOrdersGross.plus(dec(order.totalSnapshot));
+      walkoutOrdersGross = walkoutOrdersGross.plus(orderAmounts(order).total);
     }
 
     const terminalOrders = [...closedOrders, ...canceledOrders, ...walkoutOrders];
@@ -386,6 +564,14 @@ export const reportsService = {
     const mealSales = buildMealSales(closedOrders);
     const kitchenProduction = buildKitchenProduction(terminalOrders);
     const debtLedger = buildDebtLedger(debts, dayStart, dayEnd);
+    const mealSalesGross = mealSales.reduce(
+      (sum, item) => sum.plus(new Prisma.Decimal(item.grossSales)),
+      new Prisma.Decimal(0),
+    );
+    const serviceLineTotal = closedOrders.reduce(
+      (sum, order) => sum.plus(sumOrderLines(order, (line) => !line.isCanceled && line.menuItem.isServiceItem)),
+      new Prisma.Decimal(0),
+    );
 
     const debtRepaymentRows = debts
       .flatMap((debt) =>
@@ -423,13 +609,13 @@ export const reportsService = {
     const netSales = grossSales.minus(discounts);
     const realCashIn = orderCash.plus(orderCard).plus(debtRepaymentsCash).plus(debtRepaymentsCard);
     const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
-    const salesBasedProfit = netSales.minus(expenseNet);
+    const salesBasedProfit = netSales.plus(serviceCharge).minus(expenseNet);
     const cashflowBasedNet = realCashIn.minus(expenseNet);
     const billedTotal = netSales.plus(serviceCharge);
     const paymentTotal = orderCash.plus(orderCard).plus(debtSales);
     const paymentDifference = billedTotal.minus(paymentTotal);
 
-    return {
+    const report = {
       date: dayStart.toISOString().slice(0, 10),
       sales: {
         closedOrders: closedOrders.length,
@@ -470,6 +656,10 @@ export const reportsService = {
           billedTotal: decStr(billedTotal),
           paymentTotal: decStr(paymentTotal),
           difference: decStr(paymentDifference),
+          mealSalesGross: decStr(mealSalesGross),
+          mealSalesDifference: decStr(grossSales.minus(mealSalesGross)),
+          serviceLineTotal: decStr(serviceLineTotal),
+          serviceLineDifference: decStr(serviceCharge.minus(serviceLineTotal)),
         },
         expenses: {
           recordedExpense: expenseSummary.totals.gross,
@@ -496,17 +686,18 @@ export const reportsService = {
         canceledOrders: item.canceledOrders,
         revenue: decStr(item.revenue),
         serviceEarned: decStr(item.serviceEarned),
+        serviceServings: item.serviceServings,
       })),
       cancellations: canceledOrders.map((order) => ({
         orderId: order.id,
         canceledAt: order.canceledAt?.toISOString() ?? order.updatedAt.toISOString(),
-        canceledBy: 'system',
+        canceledBy: order.canceledBy?.fullName ?? 'bilinmaydi',
         reason: order.cancelReason ?? '',
       })),
       walkouts: walkoutOrders.map((order) => ({
         orderId: order.id,
         markedAt: order.updatedAt.toISOString(),
-        markedBy: order.approvedById ?? 'unknown',
+        markedBy: order.walkoutMarkedBy?.fullName ?? 'bilinmaydi',
         amount: decStr(order.totalSnapshot),
         reason: order.cancelReason ?? '',
       })),
@@ -515,6 +706,8 @@ export const reportsService = {
       kitchenProduction,
       debtLedger,
     };
+
+    return filterDailyReport(report, search);
   },
 
   async monthly(monthStart: Date) {
@@ -572,6 +765,7 @@ export const reportsService = {
       canceledOrders: number;
       revenue: Prisma.Decimal;
       serviceEarned: Prisma.Decimal;
+      serviceServings: number;
     }>();
     for (const day of daily) {
       for (const w of day.perWaiter) {
@@ -582,11 +776,13 @@ export const reportsService = {
           canceledOrders: 0,
           revenue: new Prisma.Decimal(0),
           serviceEarned: new Prisma.Decimal(0),
+          serviceServings: 0,
         };
         agg.orders += w.orders;
         agg.canceledOrders += w.canceledOrders;
         agg.revenue = agg.revenue.plus(new Prisma.Decimal(w.revenue));
         agg.serviceEarned = agg.serviceEarned.plus(new Prisma.Decimal(w.serviceEarned));
+        agg.serviceServings += w.serviceServings;
         perWaiterMonthly.set(w.waiterId, agg);
       }
     }
@@ -616,6 +812,7 @@ export const reportsService = {
           canceledOrders: item.canceledOrders,
           revenue: decStr(item.revenue),
           serviceEarned: decStr(item.serviceEarned),
+          serviceServings: item.serviceServings,
         })),
       },
       daily,
@@ -628,7 +825,15 @@ export const reportsService = {
     const [closedOrders, canceledOrders, waiterInfo] = await Promise.all([
       prisma.order.findMany({
         where: { waiterId, status: 'CLOSED', closedAt: { gte: from, lt: to } },
-        include: { payments: true, table: true },
+        include: {
+          payments: true,
+          table: true,
+          lines: {
+            include: {
+              menuItem: { select: { isServiceItem: true } },
+            },
+          },
+        },
         orderBy: { closedAt: 'asc' },
       }),
       prisma.order.findMany({
@@ -644,6 +849,7 @@ export const reportsService = {
     let serviceTotal = new Prisma.Decimal(0);
     let orderCash = new Prisma.Decimal(0);
     let orderCard = new Prisma.Decimal(0);
+    let totalServiceServings = 0;
 
     const activeDays = new Set<string>();
 
@@ -655,6 +861,9 @@ export const reportsService = {
       orderCash = orderCash.plus(payments.cash);
       orderCard = orderCard.plus(payments.card);
       if (order.closedAt) activeDays.add(order.closedAt.toISOString().slice(0, 10));
+      totalServiceServings += order.lines
+        .filter((l) => !l.isCanceled && l.menuItem.isServiceItem)
+        .reduce((sum, l) => sum + l.quantity, 0);
     }
 
     const netRevenue = grossRevenue.minus(discountsTotal);
@@ -676,6 +885,7 @@ export const reportsService = {
         discounts: decStr(discountsTotal),
         netRevenue: decStr(netRevenue),
         serviceEarned: decStr(serviceTotal),
+        serviceServings: totalServiceServings,
         orderCash: decStr(orderCash),
         orderCard: decStr(orderCard),
         avgOrderValue: decStr(avgOrderValue),

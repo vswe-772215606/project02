@@ -59,10 +59,7 @@ function mapToDto(order: any) {
     totalAmount = order.lines
       .filter((l: any) => !l.isCanceled)
       .reduce((sum: number, l: any) => sum + decimalToInt(l.unitPriceSnapshot) * l.quantity, 0);
-    
-    if (order.status !== 'DRAFT' && !order.serviceChargeWaived) {
-      totalAmount += settingsService.getInt('service_charge_amount');
-    }
+    // Service charge is now a menu item line (isServiceItem=true), already included above
   }
 
   return {
@@ -630,7 +627,7 @@ export const orderService = {
       }
 
       return getPrisma().$transaction(async (tx) => {
-        const updated = await orderRepo.setCanceled(order.id, input.reason, tx);
+        const updated = await orderRepo.setCanceled(order.id, input.reason, input.requestingUser.id, tx);
 
         // Mark pending kitchen tickets as canceled
         for (const ticket of order.kitchenTickets) {
@@ -686,7 +683,6 @@ export const orderService = {
 
       const totals = await billingService.computeTotals(order, {
         discountId: input.discountId,
-        serviceChargeWaived: input.serviceChargeWaived,
       });
 
       let freshOrder: OrderWithDetails | undefined;
@@ -816,6 +812,14 @@ export const orderService = {
         if (!updated) {
           throw Errors.IllegalStateTransition(OrderStatus.PENDING_PAYMENT, OrderStatus.WALKOUT);
         }
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            walkoutMarkedById: input.adminUserId,
+            cancelReason: input.reason,
+          },
+        });
 
         await auditService.log({
           userId: input.adminUserId,

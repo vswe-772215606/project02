@@ -62,7 +62,7 @@ export const expenseService = {
     const byCategoryMap = new Map<string, { categoryId: string; categoryName: string; amount: Prisma.Decimal }>();
 
     for (const item of items) {
-      if (item.status === ExpenseStatus.ACTIVE || item.status === ExpenseStatus.REVERSED) {
+      if (item.status === ExpenseStatus.ACTIVE) {
         gross = gross.plus(item.amount);
       } else if (item.status === ExpenseStatus.REVERSAL) {
         reversal = reversal.plus(item.amount);

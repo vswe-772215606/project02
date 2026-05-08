@@ -293,6 +293,7 @@ function WaiterReportModal({ waiter, onClose }: { waiter: User; onClose: () => v
                 { label: 'Brutto savdo', value: formatUZS(data.summary.grossRevenue), color: 'text-slate-900' },
                 { label: 'Chegirma', value: formatUZS(data.summary.discounts), color: 'text-amber-700' },
                 { label: 'Netto savdo', value: formatUZS(data.summary.netRevenue), color: 'text-slate-900' },
+                { label: 'Servis (dona)', value: `${data.summary.serviceServings} ta`, color: 'text-violet-700' },
                 { label: 'Xizmat haqi', value: formatUZS(data.summary.serviceEarned), color: 'text-blue-700' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">

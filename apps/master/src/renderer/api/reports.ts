@@ -61,6 +61,10 @@ export interface DailyReport {
       billedTotal: string;
       paymentTotal: string;
       difference: string;
+      mealSalesGross: string;
+      mealSalesDifference: string;
+      serviceLineTotal: string;
+      serviceLineDifference: string;
     };
     expenses: {
       recordedExpense: string;
@@ -95,6 +99,7 @@ export interface DailyReport {
     canceledOrders: number;
     revenue: string;
     serviceEarned: string;
+    serviceServings: number;
   }>;
   cancellations: Array<{
     orderId: string;
@@ -123,6 +128,7 @@ export interface DailyReport {
     cash: string;
     card: string;
     debt: string;
+    amountSource?: 'snapshot' | 'derived';
   }>;
   mealSales: Array<{
     mealName: string;
@@ -181,6 +187,7 @@ export interface MonthlyReport {
       canceledOrders: number;
       revenue: string;
       serviceEarned: string;
+      serviceServings: number;
     }>;
   };
   daily: DailyReport[];
@@ -200,6 +207,7 @@ export interface WaiterReport {
     discounts: string;
     netRevenue: string;
     serviceEarned: string;
+    serviceServings: number;
     orderCash: string;
     orderCard: string;
     avgOrderValue: string;
@@ -227,7 +235,8 @@ export interface WaiterReport {
 }
 
 export const reportsApi = {
-  getDaily: (date: string) => api.get<DailyReport>(`/api/reports/daily?date=${date}`),
+  getDaily: (date: string, search?: string) =>
+    api.get<DailyReport>(`/api/reports/daily?date=${date}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
   getMonthly: (month: string) => api.get<MonthlyReport>(`/api/reports/monthly?month=${month}`),
   getWaiterReport: (waiterId: string, from: string, to: string) =>
     api.get<WaiterReport>(`/api/reports/waiter/${waiterId}?from=${from}&to=${to}`),

@@ -123,16 +123,18 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  sessions          Session[]
-  ordersAsWaiter    Order[]      @relation("OrderWaiter")
-  ordersApproved    Order[]      @relation("OrderApprover")
-  auditEntries      AuditLog[]   @relation("AuditActor")
-  discountsCreated  Discount[]   @relation("DiscountCreator")
-  printJobs         PrintJob[]   @relation("PrintJobTrigger")
-  dailyStocksSet    DailyStock[] @relation("DailyStockSetter")
-  expensesCreated   Expense[]    @relation("ExpenseCreator")
-  debtsCreated      Debt[]       @relation("DebtCreator")
-  debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
+  sessions               Session[]
+  ordersAsWaiter         Order[]      @relation("OrderWaiter")
+  ordersApproved         Order[]      @relation("OrderApprover")
+  ordersCanceled         Order[]      @relation("OrderCanceledBy")
+  ordersWalkoutMarked    Order[]      @relation("OrderWalkoutMarkedBy")
+  auditEntries           AuditLog[]   @relation("AuditActor")
+  discountsCreated       Discount[]   @relation("DiscountCreator")
+  printJobs              PrintJob[]   @relation("PrintJobTrigger")
+  dailyStocksSet         DailyStock[] @relation("DailyStockSetter")
+  expensesCreated        Expense[]    @relation("ExpenseCreator")
+  debtsCreated           Debt[]       @relation("DebtCreator")
+  debtRepayments         DebtRepayment[] @relation("DebtRepaymentReceiver")
 
   @@index([role])
   @@index([isActive])
@@ -172,17 +174,18 @@ model Category {
 }
 
 model MenuItem {
-  id           String   @id @default(cuid())
-  categoryId   String
-  name         String
-  description  String?
-  price        Decimal
-  isAvailable  Boolean  @default(true)
-  trackStock   Boolean  @default(false)
-  displayOrder Int      @default(0)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  categoryId    String
+  name          String
+  description   String?
+  price         Decimal
+  isAvailable   Boolean  @default(true)
+  trackStock    Boolean  @default(false)
+  isServiceItem Boolean  @default(false)
+  displayOrder  Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   category        Category         @relation(fields: [categoryId], references: [id])
   orderLines      OrderLine[]
@@ -193,6 +196,7 @@ model MenuItem {
   @@index([isAvailable])
   @@index([isActive])
   @@index([trackStock])
+  @@index([isServiceItem])
 }
 
 model Combo {
@@ -263,13 +267,17 @@ model Order {
   closedAt               DateTime?
   canceledAt             DateTime?
   cancelReason           String?
+  canceledById           String?
+  walkoutMarkedById      String?
 
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
 
-  table           Table?          @relation(fields: [tableId], references: [id])
-  waiter          User            @relation("OrderWaiter", fields: [waiterId], references: [id])
-  approvedBy      User?           @relation("OrderApprover", fields: [approvedById], references: [id])
+  table             Table?          @relation(fields: [tableId], references: [id])
+  waiter            User            @relation("OrderWaiter", fields: [waiterId], references: [id])
+  approvedBy        User?           @relation("OrderApprover", fields: [approvedById], references: [id])
+  canceledBy        User?           @relation("OrderCanceledBy", fields: [canceledById], references: [id])
+  walkoutMarkedBy   User?           @relation("OrderWalkoutMarkedBy", fields: [walkoutMarkedById], references: [id])
   appliedDiscount Discount?       @relation(fields: [appliedDiscountId], references: [id])
   lines           OrderLine[]
   kitchenTickets  KitchenTicket[]

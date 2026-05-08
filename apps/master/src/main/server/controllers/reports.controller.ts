@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { reportsService } from '../services/reports.service';
 import { Errors } from '../lib/errors';
 
-const dailyQuery = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+const dailyQuery = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  search: z.string().trim().max(100).optional(),
+});
 const monthlyQuery = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) });
 const waiterReportQuery = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -17,8 +20,8 @@ function parseLocalDate(date: string) {
 export const reportsController = {
   async daily(req: Request, res: Response, next: NextFunction) {
     try {
-      const { date } = dailyQuery.parse(req.query);
-      const report = await reportsService.daily(parseLocalDate(date));
+      const { date, search } = dailyQuery.parse(req.query);
+      const report = await reportsService.daily(parseLocalDate(date), search);
       res.json(report);
     } catch (e) {
       next(e);

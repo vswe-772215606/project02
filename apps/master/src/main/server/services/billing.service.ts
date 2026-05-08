@@ -8,6 +8,9 @@ type OrderForBilling = {
     quantity: number;
     isCanceled: boolean;
     unitPriceSnapshot: Prisma.Decimal;
+    menuItem: {
+      isServiceItem: boolean;
+    };
   }>;
 };
 
@@ -34,13 +37,21 @@ function toDecimal(value: number): Prisma.Decimal {
 export const billingService = {
   async computeTotals(
     order: OrderForBilling,
-    opts: { discountId?: string | null; serviceChargeWaived: boolean },
+    opts: { discountId?: string | null },
   ) {
-    const subtotal = order.lines
-      .filter((line) => !line.isCanceled)
-      .reduce((sum, line) => {
-        return sum + decimalToInt(line.unitPriceSnapshot) * line.quantity;
-      }, 0);
+    const activeLines = order.lines.filter((line) => !line.isCanceled);
+    const foodLines = activeLines.filter((line) => !line.menuItem.isServiceItem);
+    const serviceLines = activeLines.filter((line) => line.menuItem.isServiceItem);
+
+    const subtotal = foodLines.reduce(
+      (sum, line) => sum + decimalToInt(line.unitPriceSnapshot) * line.quantity,
+      0,
+    );
+
+    const serviceCharge = serviceLines.reduce(
+      (sum, line) => sum + decimalToInt(line.unitPriceSnapshot) * line.quantity,
+      0,
+    );
 
     let discountAmount = 0;
 
@@ -72,11 +83,7 @@ export const billingService = {
       }
     }
 
-    const netFood = subtotal - discountAmount;
-    const serviceCharge = opts.serviceChargeWaived
-      ? 0
-      : settingsService.getInt('service_charge_amount');
-    const total = netFood + serviceCharge;
+    const total = subtotal - discountAmount + serviceCharge;
 
     return {
       subtotal: toDecimal(subtotal),

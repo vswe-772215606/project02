@@ -202,13 +202,14 @@ export const orderRepo = {
     });
   },
 
-  async setCanceled(id: string, reason: string, tx?: Tx) {
+  async setCanceled(id: string, reason: string, canceledById: string, tx?: Tx) {
     return (tx ?? getPrisma()).order.update({
       where: { id },
       data: {
         status: OrderStatus.CANCELED,
         canceledAt: new Date(),
         cancelReason: reason,
+        canceledById,
       },
     });
   },
