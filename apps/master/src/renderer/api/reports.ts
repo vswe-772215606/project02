@@ -27,6 +27,8 @@ export interface DailyReport {
     netSales: string;
     debtSales: string;
     serviceCharge: string;
+    canceledOrdersGross: string;
+    walkoutOrdersGross: string;
   };
   cashflow: {
     orderCash: string;
@@ -90,6 +92,7 @@ export interface DailyReport {
     waiterId: string;
     waiterName: string;
     orders: number;
+    canceledOrders: number;
     revenue: string;
     serviceEarned: string;
   }>;
@@ -157,6 +160,7 @@ export interface DailyReport {
 
 export interface MonthlyReport {
   month: string;
+  isCurrentMonth: boolean;
   totals: {
     closedOrders: number;
     canceledOrders: number;
@@ -170,11 +174,61 @@ export interface MonthlyReport {
     salesBasedProfit: string;
     cashflowBasedNet: string;
     outstandingDebtEndOfMonth: string;
+    perWaiter: Array<{
+      waiterId: string;
+      waiterName: string;
+      orders: number;
+      canceledOrders: number;
+      revenue: string;
+      serviceEarned: string;
+    }>;
   };
   daily: DailyReport[];
+}
+
+export interface WaiterReport {
+  waiterId: string;
+  waiterName: string;
+  isActive: boolean;
+  from: string;
+  to: string;
+  summary: {
+    totalOrders: number;
+    totalCanceledOrders: number;
+    activeDays: number;
+    grossRevenue: string;
+    discounts: string;
+    netRevenue: string;
+    serviceEarned: string;
+    orderCash: string;
+    orderCard: string;
+    avgOrderValue: string;
+  };
+  orders: Array<{
+    orderId: string;
+    orderNumber: string;
+    closedAt: string;
+    tableName: string | null;
+    gross: string;
+    discount: string;
+    net: string;
+    serviceCharge: string;
+    cash: string;
+    card: string;
+  }>;
+  canceledOrders: Array<{
+    orderId: string;
+    orderNumber: string;
+    canceledAt: string;
+    tableName: string | null;
+    gross: string;
+    reason: string;
+  }>;
 }
 
 export const reportsApi = {
   getDaily: (date: string) => api.get<DailyReport>(`/api/reports/daily?date=${date}`),
   getMonthly: (month: string) => api.get<MonthlyReport>(`/api/reports/monthly?month=${month}`),
+  getWaiterReport: (waiterId: string, from: string, to: string) =>
+    api.get<WaiterReport>(`/api/reports/waiter/${waiterId}?from=${from}&to=${to}`),
 };

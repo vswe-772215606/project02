@@ -304,9 +304,11 @@ export const reportsService = {
       expenseService.listByDate(new Date(dayStart)),
       prisma.debt.findMany({
         where: {
-          openedAt: {
-            lt: dayEnd,
-          },
+          openedAt: { lt: dayEnd },
+          OR: [
+            { status: { not: 'PAID' } },
+            { openedAt: { gte: new Date(dayStart.getTime() - 365 * 24 * 60 * 60 * 1000) } },
+          ],
         },
         include: reportDebtInclude,
         orderBy: [{ openedAt: 'asc' }],
@@ -324,6 +326,7 @@ export const reportsService = {
       waiterId: string;
       waiterName: string;
       orders: number;
+      canceledOrders: number;
       revenue: Prisma.Decimal;
       serviceEarned: Prisma.Decimal;
     }>();
@@ -342,6 +345,7 @@ export const reportsService = {
         waiterId: order.waiterId,
         waiterName: order.waiter.fullName,
         orders: 0,
+        canceledOrders: 0,
         revenue: new Prisma.Decimal(0),
         serviceEarned: new Prisma.Decimal(0),
       };
@@ -350,6 +354,26 @@ export const reportsService = {
       waiterAgg.revenue = waiterAgg.revenue.plus(dec(order.subtotalSnapshot).minus(dec(order.discountAmountSnapshot)));
       waiterAgg.serviceEarned = waiterAgg.serviceEarned.plus(dec(order.serviceChargeSnapshot));
       perWaiterMap.set(order.waiterId, waiterAgg);
+    }
+
+    let canceledOrdersGross = new Prisma.Decimal(0);
+    for (const order of canceledOrders) {
+      canceledOrdersGross = canceledOrdersGross.plus(dec(order.subtotalSnapshot));
+      const waiterAgg = perWaiterMap.get(order.waiterId) ?? {
+        waiterId: order.waiterId,
+        waiterName: order.waiter.fullName,
+        orders: 0,
+        canceledOrders: 0,
+        revenue: new Prisma.Decimal(0),
+        serviceEarned: new Prisma.Decimal(0),
+      };
+      waiterAgg.canceledOrders += 1;
+      perWaiterMap.set(order.waiterId, waiterAgg);
+    }
+
+    let walkoutOrdersGross = new Prisma.Decimal(0);
+    for (const order of walkoutOrders) {
+      walkoutOrdersGross = walkoutOrdersGross.plus(dec(order.totalSnapshot));
     }
 
     const terminalOrders = [...closedOrders, ...canceledOrders, ...walkoutOrders];
@@ -416,6 +440,8 @@ export const reportsService = {
         netSales: decStr(netSales),
         debtSales: decStr(debtSales),
         serviceCharge: decStr(serviceCharge),
+        canceledOrdersGross: decStr(canceledOrdersGross),
+        walkoutOrdersGross: decStr(walkoutOrdersGross),
       },
       cashflow: {
         orderCash: decStr(orderCash),
@@ -467,6 +493,7 @@ export const reportsService = {
         waiterId: item.waiterId,
         waiterName: item.waiterName,
         orders: item.orders,
+        canceledOrders: item.canceledOrders,
         revenue: decStr(item.revenue),
         serviceEarned: decStr(item.serviceEarned),
       })),
@@ -498,12 +525,13 @@ export const reportsService = {
     const monthEnd = new Date(start);
     monthEnd.setMonth(monthEnd.getMonth() + 1);
 
-    const daily = [];
+    const allDays: Date[] = [];
     const cursor = new Date(start);
     while (cursor < monthEnd) {
-      daily.push(await this.daily(new Date(cursor)));
+      allDays.push(new Date(cursor));
       cursor.setDate(cursor.getDate() + 1);
     }
+    const daily = await Promise.all(allDays.map((day) => this.daily(day)));
 
     const totals = daily.reduce((acc, day) => ({
       closedOrders: acc.closedOrders + day.sales.closedOrders,
@@ -537,8 +565,37 @@ export const reportsService = {
       new Prisma.Decimal(0),
     );
 
+    const perWaiterMonthly = new Map<string, {
+      waiterId: string;
+      waiterName: string;
+      orders: number;
+      canceledOrders: number;
+      revenue: Prisma.Decimal;
+      serviceEarned: Prisma.Decimal;
+    }>();
+    for (const day of daily) {
+      for (const w of day.perWaiter) {
+        const agg = perWaiterMonthly.get(w.waiterId) ?? {
+          waiterId: w.waiterId,
+          waiterName: w.waiterName,
+          orders: 0,
+          canceledOrders: 0,
+          revenue: new Prisma.Decimal(0),
+          serviceEarned: new Prisma.Decimal(0),
+        };
+        agg.orders += w.orders;
+        agg.canceledOrders += w.canceledOrders;
+        agg.revenue = agg.revenue.plus(new Prisma.Decimal(w.revenue));
+        agg.serviceEarned = agg.serviceEarned.plus(new Prisma.Decimal(w.serviceEarned));
+        perWaiterMonthly.set(w.waiterId, agg);
+      }
+    }
+
+    const isCurrentMonth = new Date() < monthEnd;
+
     return {
       month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
+      isCurrentMonth,
       totals: {
         closedOrders: totals.closedOrders,
         canceledOrders: totals.canceledOrders,
@@ -552,8 +609,100 @@ export const reportsService = {
         salesBasedProfit: decStr(totals.salesBasedProfit),
         cashflowBasedNet: decStr(totals.cashflowBasedNet),
         outstandingDebtEndOfMonth: decStr(monthOutstanding),
+        perWaiter: Array.from(perWaiterMonthly.values()).map((item) => ({
+          waiterId: item.waiterId,
+          waiterName: item.waiterName,
+          orders: item.orders,
+          canceledOrders: item.canceledOrders,
+          revenue: decStr(item.revenue),
+          serviceEarned: decStr(item.serviceEarned),
+        })),
       },
       daily,
+    };
+  },
+
+  async waiterReport(waiterId: string, from: Date, to: Date) {
+    const prisma = getPrisma();
+
+    const [closedOrders, canceledOrders, waiterInfo] = await Promise.all([
+      prisma.order.findMany({
+        where: { waiterId, status: 'CLOSED', closedAt: { gte: from, lt: to } },
+        include: { payments: true, table: true },
+        orderBy: { closedAt: 'asc' },
+      }),
+      prisma.order.findMany({
+        where: { waiterId, status: 'CANCELED', canceledAt: { gte: from, lt: to } },
+        select: { id: true, subtotalSnapshot: true, canceledAt: true, cancelReason: true, table: { select: { name: true } } },
+        orderBy: { canceledAt: 'asc' },
+      }),
+      prisma.user.findUnique({ where: { id: waiterId }, select: { id: true, fullName: true, isActive: true } }),
+    ]);
+
+    let grossRevenue = new Prisma.Decimal(0);
+    let discountsTotal = new Prisma.Decimal(0);
+    let serviceTotal = new Prisma.Decimal(0);
+    let orderCash = new Prisma.Decimal(0);
+    let orderCard = new Prisma.Decimal(0);
+
+    const activeDays = new Set<string>();
+
+    for (const order of closedOrders) {
+      grossRevenue = grossRevenue.plus(dec(order.subtotalSnapshot));
+      discountsTotal = discountsTotal.plus(dec(order.discountAmountSnapshot));
+      serviceTotal = serviceTotal.plus(dec(order.serviceChargeSnapshot));
+      const payments = paymentBreakdown(order.payments);
+      orderCash = orderCash.plus(payments.cash);
+      orderCard = orderCard.plus(payments.card);
+      if (order.closedAt) activeDays.add(order.closedAt.toISOString().slice(0, 10));
+    }
+
+    const netRevenue = grossRevenue.minus(discountsTotal);
+    const avgOrderValue = closedOrders.length > 0
+      ? netRevenue.dividedBy(closedOrders.length).toDecimalPlaces(0)
+      : new Prisma.Decimal(0);
+
+    return {
+      waiterId,
+      waiterName: waiterInfo?.fullName ?? waiterId,
+      isActive: waiterInfo?.isActive ?? false,
+      from: from.toISOString().slice(0, 10),
+      to: new Date(to.getTime() - 1).toISOString().slice(0, 10),
+      summary: {
+        totalOrders: closedOrders.length,
+        totalCanceledOrders: canceledOrders.length,
+        activeDays: activeDays.size,
+        grossRevenue: decStr(grossRevenue),
+        discounts: decStr(discountsTotal),
+        netRevenue: decStr(netRevenue),
+        serviceEarned: decStr(serviceTotal),
+        orderCash: decStr(orderCash),
+        orderCard: decStr(orderCard),
+        avgOrderValue: decStr(avgOrderValue),
+      },
+      orders: closedOrders.map((order) => {
+        const payments = paymentBreakdown(order.payments);
+        return {
+          orderId: order.id,
+          orderNumber: shortOrderNumber(order.id),
+          closedAt: order.closedAt!.toISOString(),
+          tableName: order.table?.name ?? null,
+          gross: decStr(order.subtotalSnapshot),
+          discount: decStr(order.discountAmountSnapshot),
+          net: decStr(dec(order.subtotalSnapshot).minus(dec(order.discountAmountSnapshot))),
+          serviceCharge: decStr(order.serviceChargeSnapshot),
+          cash: decStr(payments.cash),
+          card: decStr(payments.card),
+        };
+      }),
+      canceledOrders: canceledOrders.map((order) => ({
+        orderId: order.id,
+        orderNumber: shortOrderNumber(order.id),
+        canceledAt: order.canceledAt!.toISOString(),
+        tableName: order.table?.name ?? null,
+        gross: decStr(order.subtotalSnapshot),
+        reason: order.cancelReason ?? '',
+      })),
     };
   },
 };

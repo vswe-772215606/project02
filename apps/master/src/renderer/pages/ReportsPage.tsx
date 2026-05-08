@@ -5,7 +5,7 @@ import {
   ChefHat,
   Layers3,
   RefreshCw,
-  ShoppingBag,
+  TrendingUp,
 } from 'lucide-react';
 import { DailyReport, MonthlyReport, reportsApi } from '../api/reports';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
@@ -301,18 +301,20 @@ function DailyView({ report }: { report: DailyReport }) {
                 <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
                   <tr>
                     <th className="px-6 py-4">Ofitsiant</th>
-                    <th className="px-6 py-4 text-right">Buyurtma soni</th>
+                    <th className="px-6 py-4 text-right">Yopilgan</th>
+                    <th className="px-6 py-4 text-right">Bekor</th>
                     <th className="px-6 py-4 text-right">Umumiy savdo</th>
-                    <th className="px-6 py-4 text-right">Umumiy xizmat haqi</th>
+                    <th className="px-6 py-4 text-right">Xizmat haqi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {report.perWaiter.length === 0 ? (
-                    <EmptyRow colSpan={4} text="Ofitsiantlar bo'yicha ma'lumot yo'q" />
+                    <EmptyRow colSpan={5} text="Ofitsiantlar bo'yicha ma'lumot yo'q" />
                   ) : report.perWaiter.map((item) => (
                     <tr key={item.waiterId} className="hover:bg-slate-50/70">
                       <td className="px-6 py-4 text-sm font-black text-slate-900">{item.waiterName}</td>
-                      <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{item.orders}</td>
+                      <td className="px-6 py-4 text-right text-xs font-black text-emerald-700">{item.orders}</td>
+                      <td className="px-6 py-4 text-right text-xs font-black text-rose-600">{item.canceledOrders}</td>
                       <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{formatUZS(item.revenue)}</td>
                       <td className="px-6 py-4 text-right text-xs font-black text-blue-700">{formatUZS(item.serviceEarned)}</td>
                     </tr>
@@ -322,7 +324,8 @@ function DailyView({ report }: { report: DailyReport }) {
                   <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                     <tr className="text-xs font-black text-slate-900">
                       <td className="px-6 py-4 uppercase tracking-widest">Jami</td>
-                      <td className="px-6 py-4 text-right">{waiterTotals.orders}</td>
+                      <td className="px-6 py-4 text-right text-emerald-700">{waiterTotals.orders}</td>
+                      <td className="px-6 py-4 text-right text-rose-600">{report.perWaiter.reduce((s, w) => s + w.canceledOrders, 0)}</td>
                       <td className="px-6 py-4 text-right">{formatUZS(waiterTotals.revenue)}</td>
                       <td className="px-6 py-4 text-right text-blue-700">{formatUZS(waiterTotals.serviceEarned)}</td>
                     </tr>
@@ -347,17 +350,19 @@ function DailyView({ report }: { report: DailyReport }) {
                     <th className="px-6 py-4">Vaqt</th>
                     <th className="px-6 py-4">Kategoriya</th>
                     <th className="px-6 py-4">Sabab</th>
+                    <th className="px-6 py-4">Kim kiritgan</th>
                     <th className="px-6 py-4 text-right">Imzoli summa</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {report.expenses.items.length === 0 ? (
-                    <EmptyRow colSpan={4} text="Tanlangan sana uchun chiqimlar topilmadi" />
+                    <EmptyRow colSpan={5} text="Tanlangan sana uchun chiqimlar topilmadi" />
                   ) : report.expenses.items.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/70">
                       <td className="px-6 py-4 text-xs font-semibold text-slate-500">{formatDateTimeUZ(item.occurredAt)}</td>
                       <td className="px-6 py-4 text-xs font-black text-slate-900">{item.categoryName}</td>
                       <td className="px-6 py-4 text-xs font-semibold text-slate-700">{item.reason}</td>
+                      <td className="px-6 py-4 text-xs font-semibold text-slate-500">{item.createdByName}</td>
                       <td className={`px-6 py-4 text-right text-xs font-black ${item.status === 'REVERSAL' ? 'text-rose-700' : 'text-slate-900'}`}>
                         {formatUZS(item.signedAmount)}
                       </td>
@@ -741,9 +746,10 @@ function MonthlyView({ report }: { report: MonthlyReport }) {
     { label: 'Umumiy tushum', value: formatUZS(report.totals.realCashIn), color: 'text-slate-900' },
     { label: 'Umumiy xarajat', value: formatUZS(report.totals.expensesNet), color: 'text-slate-900' },
     { label: 'Xizmat haqi', value: formatUZS(summary.serviceChargeTotal), color: 'text-blue-700' },
-    { label: 'Nasiya qoldig\'i', value: formatUZS(report.totals.outstandingDebtEndOfMonth), color: 'text-rose-700' },
+    { label: report.isCurrentMonth ? `Nasiya qoldig'i (${report.daily.at(-1)?.date ?? ''} holatiga)` : 'Nasiya qoldig\'i', value: formatUZS(report.totals.outstandingDebtEndOfMonth), color: 'text-rose-700' },
     { label: 'Sof foyda', value: formatUZS(report.totals.salesBasedProfit), color: 'text-slate-900' },
-    { label: 'Buyurtmalar', value: `${report.totals.closedOrders} ta`, color: 'text-slate-900' },
+    { label: 'Yopilgan buyurtma', value: `${report.totals.closedOrders} ta`, color: 'text-slate-900' },
+    { label: 'Bekor / To\'lamasdan', value: `${report.totals.canceledOrders} / ${report.totals.walkoutOrders}`, color: 'text-rose-600' },
   ];
 
   return (
@@ -811,6 +817,47 @@ function MonthlyView({ report }: { report: MonthlyReport }) {
           </div>
         </div>
       </TableCard>
+
+      {report.totals.perWaiter.length > 0 ? (
+        <TableCard
+          title="Oylik ofitsiantlar jadvali"
+          subtitle="Barcha ofitsiantlarning oylik yig'ma ko'rsatkichlari."
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <tr>
+                  <th className="px-6 py-4">Ofitsiant</th>
+                  <th className="px-6 py-4 text-right">Yopilgan</th>
+                  <th className="px-6 py-4 text-right">Bekor</th>
+                  <th className="px-6 py-4 text-right">Umumiy savdo</th>
+                  <th className="px-6 py-4 text-right">Xizmat haqi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {report.totals.perWaiter.map((item) => (
+                  <tr key={item.waiterId} className="hover:bg-slate-50/70">
+                    <td className="px-6 py-4 text-sm font-black text-slate-900">{item.waiterName}</td>
+                    <td className="px-6 py-4 text-right text-xs font-black text-emerald-700">{item.orders}</td>
+                    <td className="px-6 py-4 text-right text-xs font-black text-rose-600">{item.canceledOrders}</td>
+                    <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{formatUZS(item.revenue)}</td>
+                    <td className="px-6 py-4 text-right text-xs font-black text-blue-700">{formatUZS(item.serviceEarned)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                <tr className="text-xs font-black text-slate-900">
+                  <td className="px-6 py-4 uppercase tracking-widest">Jami</td>
+                  <td className="px-6 py-4 text-right text-emerald-700">{report.totals.closedOrders}</td>
+                  <td className="px-6 py-4 text-right text-rose-600">{report.totals.canceledOrders}</td>
+                  <td className="px-6 py-4 text-right">{formatUZS(report.totals.netSales)}</td>
+                  <td className="px-6 py-4 text-right text-blue-700">{formatUZS(summary.serviceChargeTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </TableCard>
+      ) : null}
 
       {selectedDay ? (
         <Modal

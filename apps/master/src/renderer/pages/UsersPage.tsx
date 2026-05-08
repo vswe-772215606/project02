@@ -3,25 +3,27 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { 
-  Users as UsersIcon, 
-  Plus, 
-  Pencil, 
-  UserMinus, 
-  UserCheck, 
-  Shield, 
-  ChefHat, 
+import {
+  Users as UsersIcon,
+  Plus,
+  Pencil,
+  UserMinus,
+  UserCheck,
+  Shield,
+  ChefHat,
   HandPlatter,
   Lock,
   Eye,
   EyeOff,
-  Filter
+  TrendingUp,
 } from 'lucide-react';
 import { usersApi } from '../api/users';
 import { User } from '../api/auth';
 import { useAuthStore } from '../stores/auth.store';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
+import { reportsApi, WaiterReport } from '../api/reports';
+import { formatUZS, formatDateTimeUZ } from '../utils/format';
 
 const userSchema = z.object({
   fullName: z.string().min(1, "FIO kiritilishi shart"),
@@ -44,6 +46,7 @@ export function UsersPage() {
   const currentUser = useAuthStore(s => s.user);
   const [isAdding, setIsAdding] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
+  const [reportWaiter, setReportWaiter] = useState<User | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [dialog, setDialog] = useState<{ message: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
 
@@ -166,14 +169,23 @@ export function UsersPage() {
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex items-center justify-end space-x-2">
-                    <button 
+                    {user.role === 'WAITER' && (
+                      <button
+                        onClick={() => setReportWaiter(user)}
+                        className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                        title="Hisobot"
+                      >
+                        <TrendingUp size={18} />
+                      </button>
+                    )}
+                    <button
                       onClick={() => setEditUser(user)}
                       className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                     >
                       <Pencil size={18} />
                     </button>
                     {user.id !== currentUser?.id && (
-                      <button 
+                      <button
                         onClick={() => handleToggleActive(user)}
                         className={`p-2 rounded-lg transition-all ${
                           user.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
@@ -210,6 +222,13 @@ export function UsersPage() {
         />
       )}
 
+      {reportWaiter && (
+        <WaiterReportModal
+          waiter={reportWaiter}
+          onClose={() => setReportWaiter(null)}
+        />
+      )}
+
       {dialog && (
         <ConfirmDialog
           message={dialog.message}
@@ -219,6 +238,137 @@ export function UsersPage() {
         />
       )}
     </div>
+  );
+}
+
+function localDateString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function firstOfMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function WaiterReportModal({ waiter, onClose }: { waiter: User; onClose: () => void }) {
+  const [from, setFrom] = useState(firstOfMonth);
+  const [to, setTo] = useState(localDateString);
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['waiter-report', waiter.id, from, to],
+    queryFn: () => reportsApi.getWaiterReport(waiter.id, from, to),
+    enabled: !!from && !!to && from <= to,
+    retry: false,
+  });
+
+  return (
+    <Modal title={`Ofitsiant hisoboti — ${waiter.fullName}`} onClose={onClose} maxWidth="max-w-5xl">
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase">Dan</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black outline-none focus:border-slate-800" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase">Gacha</label>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-black outline-none focus:border-slate-800" />
+          </div>
+          <button onClick={() => refetch()} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-700">
+            Yangilash
+          </button>
+        </div>
+
+        {isLoading && <div className="py-10 text-center text-sm font-bold text-slate-400">Yuklanmoqda...</div>}
+        {isError && <div className="py-6 text-center text-sm font-bold text-rose-600">Hisobotni yuklab bo'lmadi</div>}
+
+        {data && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {[
+                { label: 'Yopilgan buyurtma', value: `${data.summary.totalOrders} ta`, color: 'text-emerald-700' },
+                { label: 'Bekor qilingan', value: `${data.summary.totalCanceledOrders} ta`, color: 'text-rose-600' },
+                { label: 'Faol kunlar', value: `${data.summary.activeDays} kun`, color: 'text-slate-900' },
+                { label: "O'rtacha chek", value: formatUZS(data.summary.avgOrderValue), color: 'text-slate-900' },
+                { label: 'Brutto savdo', value: formatUZS(data.summary.grossRevenue), color: 'text-slate-900' },
+                { label: 'Chegirma', value: formatUZS(data.summary.discounts), color: 'text-amber-700' },
+                { label: 'Netto savdo', value: formatUZS(data.summary.netRevenue), color: 'text-slate-900' },
+                { label: 'Xizmat haqi', value: formatUZS(data.summary.serviceEarned), color: 'text-blue-700' },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">{item.label}</div>
+                  <div className={`mt-1 text-base font-black ${item.color}`}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <details open className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <summary className="cursor-pointer list-none border-b border-slate-100 px-5 py-3 text-xs font-black uppercase tracking-widest text-slate-700">
+                Yopilgan buyurtmalar ({data.orders.length})
+              </summary>
+              <div className="max-h-72 overflow-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">Vaqt</th>
+                      <th className="px-4 py-3">Buyurtma</th>
+                      <th className="px-4 py-3">Joy</th>
+                      <th className="px-4 py-3 text-right">Netto</th>
+                      <th className="px-4 py-3 text-right">Naqd</th>
+                      <th className="px-4 py-3 text-right">Karta</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.orders.map((o) => (
+                      <tr key={o.orderId} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-500">{formatDateTimeUZ(o.closedAt)}</td>
+                        <td className="px-4 py-2 font-black">#{o.orderNumber}</td>
+                        <td className="px-4 py-2 text-slate-600">{o.tableName ?? 'Takeaway'}</td>
+                        <td className="px-4 py-2 text-right font-black">{formatUZS(o.net)}</td>
+                        <td className="px-4 py-2 text-right text-slate-600">{formatUZS(o.cash)}</td>
+                        <td className="px-4 py-2 text-right text-slate-600">{formatUZS(o.card)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+
+            {data.canceledOrders.length > 0 && (
+              <details className="overflow-hidden rounded-xl border border-rose-100 bg-white">
+                <summary className="cursor-pointer list-none border-b border-rose-100 px-5 py-3 text-xs font-black uppercase tracking-widest text-rose-700">
+                  Bekor qilingan buyurtmalar ({data.canceledOrders.length})
+                </summary>
+                <div className="max-h-48 overflow-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <tr>
+                        <th className="px-4 py-3">Vaqt</th>
+                        <th className="px-4 py-3">Buyurtma</th>
+                        <th className="px-4 py-3">Joy</th>
+                        <th className="px-4 py-3 text-right">Summa</th>
+                        <th className="px-4 py-3">Sabab</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {data.canceledOrders.map((o) => (
+                        <tr key={o.orderId} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-500">{formatDateTimeUZ(o.canceledAt)}</td>
+                          <td className="px-4 py-2 font-black">#{o.orderNumber}</td>
+                          <td className="px-4 py-2 text-slate-600">{o.tableName ?? 'Takeaway'}</td>
+                          <td className="px-4 py-2 text-right font-black text-rose-600">{formatUZS(o.gross)}</td>
+                          <td className="px-4 py-2 text-slate-500 italic">{o.reason || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
