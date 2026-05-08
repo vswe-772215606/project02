@@ -1,6 +1,6 @@
 export function formatUZS(amount: number | string): string {
   const n = typeof amount === 'string' ? parseInt(amount, 10) : amount;
-  return n.toLocaleString('uz-UZ').replace(/,/g, '\u00A0');
+  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
 }
 
 export function formatDateTimeUZ(value: Date): string {

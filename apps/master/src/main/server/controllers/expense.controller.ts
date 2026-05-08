@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { expenseService } from '../services/expense.service';
 
 const createExpenseSchema = z.object({
-  categoryId: z.string().min(1),
+  categoryName: z.string().trim().min(1),
   amount: z.union([z.number().positive(), z.string().min(1)]),
   reason: z.string().trim().min(3),
   note: z.string().optional(),
@@ -40,7 +40,7 @@ export const expenseController = {
     try {
       const body = createExpenseSchema.parse(req.body);
       res.status(201).json(await expenseService.create({
-        categoryId: body.categoryId,
+        categoryName: body.categoryName,
         amount: body.amount,
         reason: body.reason,
         note: body.note,

@@ -257,11 +257,21 @@ int main() {
     payload += escInit();
 
     payload += alignCenter();
-    payload += boldOn();
-    payload += sizeDouble();
-    payload += heading + "\n";
-    payload += sizeNormal();
-    payload += boldOff();
+    {
+        const auto headingLines = split(heading, '\n');
+        for (size_t i = 0; i < headingLines.size(); ++i) {
+            if (headingLines[i].empty()) continue;
+            if (i == 0) {
+                payload += boldOn();
+                payload += sizeDouble();
+                payload += headingLines[i] + "\n";
+                payload += sizeNormal();
+                payload += boldOff();
+            } else {
+                payload += headingLines[i] + "\n";
+            }
+        }
+    }
     payload += "\n";
 
     payload += alignLeft();

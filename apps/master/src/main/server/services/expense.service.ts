@@ -100,26 +100,23 @@ export const expenseService = {
   },
 
   async create(input: {
-    categoryId: string;
+    categoryName: string;
     amount: string | number;
     reason: string;
     note?: string;
     occurredAt: Date;
     actorUserId: string;
   }) {
-    const category = await expenseRepo.findCategoryById(input.categoryId);
-    if (!category || !category.isActive) {
-      throw Errors.NotFound('Expense category');
-    }
-
     const amount = new Prisma.Decimal(input.amount);
     if (amount.lte(0)) {
       throw Errors.Validation('Chiqim summasi 0 dan katta bo\'lishi kerak');
     }
 
     const expense = await getPrisma().$transaction(async (tx) => {
+      const category = await expenseRepo.findOrCreateCategoryByName(input.categoryName, tx);
+
       const created = await expenseRepo.create({
-        category: { connect: { id: input.categoryId } },
+        category: { connect: { id: category.id } },
         amount,
         reason: input.reason.trim(),
         note: input.note?.trim() || null,
@@ -133,7 +130,7 @@ export const expenseService = {
         entityType: 'Expense',
         entityId: created.id,
         metadata: {
-          categoryId: input.categoryId,
+          categoryId: category.id,
           categoryName: category.name,
           amount: created.amount.toFixed(0),
           reason: created.reason,

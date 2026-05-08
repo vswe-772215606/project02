@@ -22,7 +22,7 @@ export function ExpensesPage() {
   const queryClient = useQueryClient();
   const reversalNoteRef = useRef<HTMLTextAreaElement | null>(null);
   const [date, setDate] = useState(localDateString);
-  const [categoryId, setCategoryId] = useState('');
+  const [categoryName, setCategoryName] = useState('');
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
@@ -31,11 +31,6 @@ export function ExpensesPage() {
   const [reversalError, setReversalError] = useState('');
   const [feedback, setFeedback] = useState<null | { type: 'success' | 'error'; message: string }>(null);
 
-  const { data: categories = [] } = useQuery({
-    queryKey: ['expense-categories'],
-    queryFn: () => expensesApi.getCategories(),
-  });
-
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['expenses', date],
     queryFn: () => expensesApi.getByDate(date),
@@ -43,13 +38,14 @@ export function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: () => expensesApi.create({
-      categoryId,
+      categoryName,
       amount: Number(amount),
       reason,
       note,
       occurredAt: new Date(`${date}T12:00:00`).toISOString(),
     }),
     onSuccess: () => {
+      setCategoryName('');
       setAmount('');
       setReason('');
       setNote('');
@@ -73,7 +69,7 @@ export function ExpensesPage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!categoryId || !amount || !reason.trim()) {
+    if (!categoryName.trim() || !amount || !reason.trim()) {
       setFeedback({ type: 'error', message: 'Kategoriya, summa va sababni to\'ldiring' });
       return;
     }
@@ -95,12 +91,6 @@ export function ExpensesPage() {
     setFeedback(null);
     reverseMutation.mutate({ id: reversalTarget.id, reversalNote: trimmed });
   };
-
-  React.useEffect(() => {
-    if (!categoryId && categories[0]) {
-      setCategoryId(categories[0].id);
-    }
-  }, [categories, categoryId]);
 
   React.useEffect(() => {
     if (reversalTarget) {
@@ -156,9 +146,7 @@ export function ExpensesPage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">TUR / KATEGORIYA</label>
-              <select className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black uppercase outline-none focus:border-slate-800" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-              </select>
+              <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black uppercase outline-none focus:border-slate-800" placeholder="Masalan: Xom ashyo" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SUMMA</label>

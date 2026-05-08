@@ -27,6 +27,15 @@ export const expenseRepo = {
     });
   },
 
+  async findOrCreateCategoryByName(name: string, tx?: Tx) {
+    const trimmed = name.trim();
+    return (tx ?? getPrisma()).expenseCategory.upsert({
+      where: { name: trimmed },
+      update: {},
+      create: { name: trimmed, isActive: true, displayOrder: 9999 },
+    });
+  },
+
   async create(data: Prisma.ExpenseCreateInput, tx?: Tx) {
     return (tx ?? getPrisma()).expense.create({
       data,

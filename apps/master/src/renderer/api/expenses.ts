@@ -31,7 +31,7 @@ export const expensesApi = {
     totals: { gross: string; reversal: string; net: string };
     byCategory: Array<{ categoryId: string; categoryName: string; amount: string }>;
   }>(`/api/expenses?date=${date}`),
-  create: (data: { categoryId: string; amount: number; reason: string; note?: string; occurredAt: string }) =>
+  create: (data: { categoryName: string; amount: number; reason: string; note?: string; occurredAt: string }) =>
     api.post<ExpenseItem>('/api/expenses', data),
   reverse: (id: string, note: string) =>
     api.post<{ original: ExpenseItem; reversal: ExpenseItem }>(`/api/expenses/${id}/reverse`, { note }),
