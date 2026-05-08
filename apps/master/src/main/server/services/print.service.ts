@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { PrintJobType, Prisma } from '@prisma/client';
 import { promisify } from 'util';
 import { Errors } from '../lib/errors';
+import { printLog } from '../lib/print-logger';
 import { printQueue } from '../lib/print-queue';
 import { kitchenRepo } from '../repositories/kitchen.repo';
 import { printJobRepo } from '../repositories/printJob.repo';
@@ -40,12 +41,13 @@ type PrintableOrder = {
 type PrintExecutionInput = {
   printerName: string;
   args: string[];
-  linuxLabel: string;
+  label: string;
 };
 
 async function executeBinary(input: PrintExecutionInput): Promise<void> {
   if (process.platform === 'linux') {
-    console.log(`[print-linux-stub] ${input.linuxLabel}`, {
+    printLog.info(`[execute] stub/linux label="${input.label}" printer="${input.printerName}"`);
+    console.log(`[print-linux-stub] ${input.label}`, {
       printerName: input.printerName,
       args: input.args,
     });
@@ -53,7 +55,8 @@ async function executeBinary(input: PrintExecutionInput): Promise<void> {
   }
 
   if (process.platform !== 'win32') {
-    console.log(`[print-platform-stub] ${input.linuxLabel}`, {
+    printLog.info(`[execute] stub/${process.platform} label="${input.label}" printer="${input.printerName}"`);
+    console.log(`[print-platform-stub] ${input.label}`, {
       platform: process.platform,
       printerName: input.printerName,
       args: input.args,
@@ -66,6 +69,8 @@ async function executeBinary(input: PrintExecutionInput): Promise<void> {
     throw Errors.PrintFailed('Receipt binary not found');
   }
 
+  printLog.info(`[execute] label="${input.label}" printer="${input.printerName}" binary="${binaryPath}"`);
+
   await execFileAsync(binaryPath, [input.printerName, ...input.args], {
     timeout: 15000,
     windowsHide: true,
@@ -76,21 +81,24 @@ async function runQueuedJob(options: {
   jobId: string;
   printerName: string;
   args: string[];
-  linuxLabel: string;
+  label: string;
   blocking: boolean;
 }) {
   const task = async () => {
+    printLog.info(`[job:start] id=${options.jobId} label="${options.label}" printer="${options.printerName}"`);
     await printJobRepo.incrementAttempts(options.jobId);
     try {
       await executeBinary({
         printerName: options.printerName,
         args: options.args,
-        linuxLabel: options.linuxLabel,
+        label: options.label,
       });
       await printJobRepo.markSuccess(options.jobId);
+      printLog.info(`[job:ok] id=${options.jobId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown print error';
       await printJobRepo.markFailed(options.jobId, message);
+      printLog.error(`[job:fail] id=${options.jobId} error="${message}"`);
       if (options.blocking) {
         throw Errors.PrintFailed(message);
       }
@@ -125,6 +133,7 @@ export const printService = {
   async printBill(order: PrintableOrder) {
     const printerName = settingsService.get('admin_printer_name') || '';
     if (!printerName.trim()) {
+      printLog.error(`[printBill] SKIP orderId=${order.id} reason="admin printer not configured"`);
       throw Errors.PrintFailed('Admin printer not configured');
     }
 
@@ -149,22 +158,26 @@ export const printService = {
         : undefined,
     });
 
+    printLog.info(`[printBill] jobId=${job.id} orderId=${order.id} printer="${printerName}"`);
+
     return runQueuedJob({
       jobId: job.id,
       printerName,
       args,
-      linuxLabel: `BILL order=${order.id}`,
+      label: `BILL order=${order.id}`,
       blocking: true,
     });
   },
 
   async tryPrintKitchenTicket(ticketId: string) {
     if (settingsService.get('kitchen_printer_enabled') !== 'true') {
+      printLog.info(`[tryPrintKitchenTicket] SKIP ticketId=${ticketId} reason="kitchen printer disabled"`);
       return null;
     }
 
     const printerName = settingsService.get('kitchen_printer_name') || '';
     if (!printerName.trim()) {
+      printLog.info(`[tryPrintKitchenTicket] SKIP ticketId=${ticketId} reason="kitchen printer name not configured"`);
       return null;
     }
 
@@ -186,11 +199,13 @@ export const printService = {
       },
     });
 
+    printLog.info(`[tryPrintKitchenTicket] jobId=${job.id} ticketId=${ticketId} printer="${printerName}"`);
+
     await runQueuedJob({
       jobId: job.id,
       printerName,
       args,
-      linuxLabel: `KITCHEN_TICKET ticket=${ticketId}`,
+      label: `KITCHEN_TICKET ticket=${ticketId}`,
       blocking: false,
     });
 
@@ -200,6 +215,7 @@ export const printService = {
   async reprintBill(order: PrintableOrder, requestingUserId?: string) {
     const printerName = settingsService.get('admin_printer_name') || '';
     if (!printerName.trim()) {
+      printLog.error(`[reprintBill] SKIP orderId=${order.id} reason="admin printer not configured"`);
       throw Errors.PrintFailed('Admin printer not configured');
     }
 
@@ -224,22 +240,26 @@ export const printService = {
         : undefined,
     });
 
+    printLog.info(`[reprintBill] jobId=${job.id} orderId=${order.id} printer="${printerName}"`);
+
     return runQueuedJob({
       jobId: job.id,
       printerName,
       args,
-      linuxLabel: `BILL_REPRINT order=${order.id}`,
+      label: `BILL_REPRINT order=${order.id}`,
       blocking: true,
     });
   },
 
   async reprintKitchenTicket(ticketId: string, requestingUserId: string) {
     if (settingsService.get('kitchen_printer_enabled') !== 'true') {
+      printLog.info(`[reprintKitchenTicket] SKIP ticketId=${ticketId} reason="kitchen printer disabled"`);
       return null;
     }
 
     const printerName = settingsService.get('kitchen_printer_name') || '';
     if (!printerName.trim()) {
+      printLog.info(`[reprintKitchenTicket] SKIP ticketId=${ticketId} reason="kitchen printer name not configured"`);
       return null;
     }
 
@@ -264,11 +284,13 @@ export const printService = {
       },
     });
 
+    printLog.info(`[reprintKitchenTicket] jobId=${job.id} ticketId=${ticketId} printer="${printerName}"`);
+
     await runQueuedJob({
       jobId: job.id,
       printerName,
       args,
-      linuxLabel: `TICKET_REPRINT ticket=${ticketId}`,
+      label: `TICKET_REPRINT ticket=${ticketId}`,
       blocking: false,
     });
 

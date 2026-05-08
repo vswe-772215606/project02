@@ -10,6 +10,7 @@ import {
   installConsoleCapture,
   logProcessContext,
 } from './startup-log';
+import { initPrintLog } from './server/lib/print-logger';
 
 const singleInstanceLockAcquired = app.requestSingleInstanceLock();
 const logger = createStartupLogger(app.getPath('userData'));
@@ -192,6 +193,7 @@ async function runStartup(): Promise<void> {
     logger.info('before startServer');
     await startServer();
     logger.info('after startServer');
+    initPrintLog();
 
     logger.info('before createWindow');
     createWindow();
