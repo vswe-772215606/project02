@@ -2,15 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  box-sizing: border-box;
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+
+    /* Amber-600 — the single accent for primary actions / focus / active nav */
+    --primary: 32 95% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+
+    /* red-600 */
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* emerald-600 */
+    --success: 152 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    /* yellow-500 */
+    --warning: 45 93% 47%;
+    --warning-foreground: 240 10% 3.9%;
+
+    /* sky-600 */
+    --info: 200 98% 39%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 35 92% 50%;
+
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground text-sm;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
 }
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #f8fafc;
-  color: #1e293b;
+/* Tabular numerals for money, quantities, and dates in tables. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
-
-/* Custom styles below Tailwind directives if needed */

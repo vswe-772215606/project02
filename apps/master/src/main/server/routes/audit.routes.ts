@@ -5,6 +5,6 @@ import { requireRole } from '../middleware/requireRole';
 
 export const auditRouter = Router();
 
-auditRouter.use(requireAuth, requireRole('OWNER'));
+auditRouter.use(requireAuth, requireRole(['ADMIN', 'OWNER']));
 
 auditRouter.get('/', auditController.list);

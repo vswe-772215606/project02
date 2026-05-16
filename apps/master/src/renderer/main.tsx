@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { Toaster } from '@/components/ui/sonner';
 import './styles.css';
 
 function formatUnknownError(error: unknown): string {
@@ -40,6 +41,7 @@ ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <App />
+      <Toaster richColors position="bottom-right" />
     </AppErrorBoundary>
   </React.StrictMode>,
 );

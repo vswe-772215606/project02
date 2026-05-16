@@ -399,7 +399,11 @@ export const reportsService = {
     const netSales = grossSales.minus(discounts);
     const realCashIn = orderCash.plus(orderCard).plus(debtRepaymentsCash).plus(debtRepaymentsCard);
     const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
-    const salesBasedProfit = netSales.minus(expenseNet);
+    // Operating expense for profit math: excludes pending-repayable rows; for
+    // written-off repayables, counts only the unrecovered (loss) portion.
+    const operatingExpense = new Prisma.Decimal(expenseSummary.totals.operating);
+    const pendingRepayable = new Prisma.Decimal(expenseSummary.totals.pendingRepayable);
+    const salesBasedProfit = netSales.minus(operatingExpense);
     const cashflowBasedNet = realCashIn.minus(expenseNet);
     const billedTotal = netSales.plus(serviceCharge);
     const paymentTotal = orderCash.plus(orderCard).plus(debtSales);
@@ -428,6 +432,8 @@ export const reportsService = {
         gross: expenseSummary.totals.gross,
         reversal: expenseSummary.totals.reversal,
         net: expenseSummary.totals.net,
+        operating: expenseSummary.totals.operating,
+        pendingRepayable: expenseSummary.totals.pendingRepayable,
         byCategory: expenseSummary.byCategory,
         items: expenseSummary.items,
       },

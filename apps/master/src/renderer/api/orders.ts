@@ -17,6 +17,7 @@ export interface OrderLine {
   id: string;
   orderId: string;
   menuItemId: string | null;
+  menuItemKind: 'FOOD' | 'SERVICE';
   comboId: string | null;
   comboGroupId?: string | null;
   comboNameSnapshot?: string | null;

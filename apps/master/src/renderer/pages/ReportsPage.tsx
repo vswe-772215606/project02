@@ -11,6 +11,7 @@ import { DailyReport, MonthlyReport, reportsApi } from '../api/reports';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
 import { Modal } from '../components/Modal';
 import { formatDateTimeUZ, formatUZS } from '../utils/format';
+import { DeprecationBanner } from '@/components/feedback/DeprecationBanner';
 
 function localDateString() {
   const now = new Date();
@@ -860,6 +861,10 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-8">
+      <DeprecationBanner
+        message="Bu hisobot sahifasi keyingi bosqichda yangi «Foyda paneli» bilan almashtiriladi."
+        replacement="Mahsulot tannarxiga asoslangan haqiqiy foyda hisoboti REFACTOR_PLAN 4-bosqichida tayyor bo'ladi."
+      />
       <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="space-y-3">
           <div className="flex items-center gap-3">

@@ -3,19 +3,39 @@ import { z } from 'zod';
 import { expenseService } from '../services/expense.service';
 
 const createExpenseSchema = z.object({
-  categoryId: z.string().min(1),
+  categoryId: z.string().min(1).optional(),
   amount: z.union([z.number().positive(), z.string().min(1)]),
   reason: z.string().trim().min(3),
   note: z.string().optional(),
   occurredAt: z.string().datetime(),
+  repayable: z.boolean().optional(),
 });
 
 const reverseExpenseSchema = z.object({
   note: z.string().trim().min(3),
 });
 
+const recordReturnSchema = z.object({
+  amount: z.union([z.number().positive(), z.string().min(1)]),
+  receivedAt: z.string().datetime().optional(),
+  note: z.string().optional(),
+});
+
+const writeOffSchema = z.object({
+  reason: z.string().trim().min(3),
+});
+
 const listExpensesQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const searchQuery = z.object({
+  q: z.string().optional(),
+  repayable: z.enum(['true', 'false']).optional(),
+  openRepayable: z.enum(['true', 'false']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  limit: z.coerce.number().int().positive().max(500).optional(),
 });
 
 export const expenseController = {
@@ -36,6 +56,24 @@ export const expenseController = {
     }
   },
 
+  async search(req: Request, res: Response, next: NextFunction) {
+    try {
+      const q = searchQuery.parse(req.query);
+      res.json({
+        items: await expenseService.search({
+          q: q.q,
+          repayable: q.repayable ? q.repayable === 'true' : undefined,
+          openRepayable: q.openRepayable === 'true',
+          from: q.from ? new Date(`${q.from}T00:00:00`) : undefined,
+          to: q.to ? new Date(`${q.to}T23:59:59`) : undefined,
+          limit: q.limit,
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const body = createExpenseSchema.parse(req.body);
@@ -45,6 +83,7 @@ export const expenseController = {
         reason: body.reason,
         note: body.note,
         occurredAt: new Date(body.occurredAt),
+        repayable: body.repayable,
         actorUserId: req.user!.id,
       }));
     } catch (error) {
@@ -58,6 +97,34 @@ export const expenseController = {
       res.json(await expenseService.reverse({
         expenseId: req.params.id,
         note: body.note,
+        actorUserId: req.user!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async recordReturn(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = recordReturnSchema.parse(req.body);
+      res.status(201).json(await expenseService.recordReturn({
+        expenseId: req.params.id,
+        amount: body.amount,
+        receivedAt: body.receivedAt ? new Date(body.receivedAt) : new Date(),
+        note: body.note,
+        actorUserId: req.user!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async writeOff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = writeOffSchema.parse(req.body);
+      res.json(await expenseService.writeOff({
+        expenseId: req.params.id,
+        reason: body.reason,
         actorUserId: req.user!.id,
       }));
     } catch (error) {

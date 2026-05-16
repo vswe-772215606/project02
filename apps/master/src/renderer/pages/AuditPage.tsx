@@ -1,229 +1,309 @@
-import React, { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  ScrollText, 
-  Search, 
-  Calendar, 
-  User as UserIcon, 
-  Filter, 
-  ChevronLeft, 
-  ChevronRight,
-  Info,
-  RefreshCw,
-  Eye
-} from 'lucide-react';
-import { auditApi } from '../api/audit';
-import { usersApi } from '../api/users';
-import { formatDateTimeUZ } from '../utils/format';
-import { AUDIT_LABELS } from '../lib/audit-labels';
-import { ForbiddenMessage } from '../components/ForbiddenMessage';
+import { ChevronLeft, ChevronRight, History, Search, X } from 'lucide-react';
+import { auditApi, type AuditLogItem } from '@/api/audit';
+import { usersApi } from '@/api/users';
+import { AUDIT_LABELS, AUDIT_GROUPS, auditActionTone } from '@/lib/audit-labels';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageContent } from '@/components/feedback/PageContent';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
+import { DateTimeCell } from '@/components/data/DateCell';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
-export function AuditPage() {
-  const [filters, setFilters] = useState({
-    action: '',
-    userId: '',
-    from: '',
-    to: '',
-    page: 1,
-    pageSize: 20
-  });
+const PAGE_SIZE = 25;
 
-  const { data: auditData, isLoading, isFetching, error } = useQuery({
-    queryKey: ['audit', filters],
-    queryFn: () => auditApi.list(filters),
-    retry: false,
-  });
+function ActionBadge({ action }: { action: string }) {
+  const label = AUDIT_LABELS[action] ?? action;
+  const tone = auditActionTone(action);
+  const classes: Record<string, string> = {
+    neutral: 'bg-muted text-foreground border-border',
+    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    warning: 'bg-amber-50 text-amber-700 border-amber-200',
+    danger:  'bg-red-50 text-red-700 border-red-200',
+    info:    'bg-sky-50 text-sky-700 border-sky-200',
+  };
+  return (
+    <Badge variant="outline" className={cn('font-medium', classes[tone])} title={action}>
+      {label}
+    </Badge>
+  );
+}
 
-  if ((error as any)?.response?.status === 403 || (error as any)?.code === 'FORBIDDEN') {
-    return <ForbiddenMessage />;
+function MetadataSummary({ metadata }: { metadata: unknown }) {
+  if (!metadata || typeof metadata !== 'object') return <span className="text-muted-foreground">—</span>;
+  const obj = metadata as Record<string, unknown>;
+
+  const interesting: string[] = [];
+
+  if (typeof obj.amount === 'string' || typeof obj.amount === 'number') {
+    interesting.push(`summa: ${obj.amount}`);
+  }
+  if (typeof obj.totalCostUzs === 'string') interesting.push(`summa: ${obj.totalCostUzs}`);
+  if (typeof obj.lossAmount === 'string') interesting.push(`yo'qotish: ${obj.lossAmount}`);
+  if (typeof obj.ingredientName === 'string') interesting.push(`mahsulot: ${obj.ingredientName}`);
+  if (typeof obj.reason === 'string' && obj.reason.length < 80) interesting.push(`sabab: ${obj.reason}`);
+  if (typeof obj.note === 'string' && obj.note.length < 80) interesting.push(`izoh: ${obj.note}`);
+  if (typeof obj.menuItemName === 'string') interesting.push(`taom: ${obj.menuItemName}`);
+  if (typeof obj.debtorName === 'string') interesting.push(`qarzdor: ${obj.debtorName}`);
+
+  if (interesting.length === 0) {
+    const entries = Object.entries(obj).slice(0, 3);
+    if (entries.length === 0) return <span className="text-muted-foreground">—</span>;
+    return (
+      <span className="text-xs text-muted-foreground truncate block max-w-md" title={JSON.stringify(obj)}>
+        {entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join(' · ')}
+      </span>
+    );
   }
 
+  return (
+    <span className="text-xs text-muted-foreground truncate block max-w-md" title={JSON.stringify(obj)}>
+      {interesting.join(' · ')}
+    </span>
+  );
+}
+
+export function AuditPage() {
+  usePageTitle('Amallar tarixi');
+
+  const [page, setPage] = useState(1);
+  const [action, setAction] = useState('');
+  const [userId, setUserId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
+
   const { data: users = [] } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => usersApi.list(),
+    queryKey: ['users', { all: true }],
+    queryFn: () => usersApi.list(true),
   });
 
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['audit', { page, action, userId, from, to }],
+    queryFn: () => auditApi.list({
+      page,
+      pageSize: PAGE_SIZE,
+      action: action || undefined,
+      userId: userId || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    }),
+    placeholderData: (prev) => prev,
+  });
 
-  const handleFilterChange = (key: string, value: any) => {
-    setFilters(prev => ({ ...prev, [key]: value, page: 1 }));
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) return data?.items ?? [];
+    const q = search.trim().toLowerCase();
+    return (data?.items ?? []).filter((item) => {
+      if (item.user.fullName.toLowerCase().includes(q)) return true;
+      const label = (AUDIT_LABELS[item.action] ?? item.action).toLowerCase();
+      if (label.includes(q)) return true;
+      if (item.entityType.toLowerCase().includes(q)) return true;
+      if (item.metadata && typeof item.metadata === 'object') {
+        return JSON.stringify(item.metadata).toLowerCase().includes(q);
+      }
+      return false;
+    });
+  }, [data, search]);
+
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+
+  const hasActiveFilters = !!(action || userId || from || to || search);
+  const resetFilters = () => {
+    setAction('');
+    setUserId('');
+    setFrom('');
+    setTo('');
+    setSearch('');
+    setPage(1);
   };
 
-  const totalPages = auditData ? Math.ceil(auditData.total / filters.pageSize) : 0;
+  const columns: DataTableColumn<AuditLogItem>[] = [
+    {
+      key: 'when',
+      header: 'Vaqti',
+      cell: (row) => <DateTimeCell value={row.createdAt} className="text-muted-foreground" />,
+      width: '170px',
+    },
+    {
+      key: 'user',
+      header: 'Foydalanuvchi',
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium">{row.user.fullName}</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{row.user.role}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Amal',
+      cell: (row) => <ActionBadge action={row.action} />,
+    },
+    {
+      key: 'entity',
+      header: 'Obyekt',
+      cell: (row) => (
+        <span className="text-xs text-muted-foreground whitespace-nowrap" title={row.entityId ?? ''}>
+          {row.entityType}
+          {row.entityId && <span className="ml-1 font-mono">#{row.entityId.slice(-6)}</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'meta',
+      header: 'Tafsilot',
+      cell: (row) => <MetadataSummary metadata={row.metadata} />,
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-            <ScrollText size={24} />
+    <PageContent>
+      <PageHeader
+        title="Amallar tarixi"
+        description="Tizimda kim, qachon, nima qildi. Hamma o'zgarishlar yoziladi va o'chirilmaydi."
+        actions={
+          <Button variant="outline" onClick={resetFilters} disabled={!hasActiveFilters}>
+            <X className="h-4 w-4" />
+            Filtrlarni tozalash
+          </Button>
+        }
+      />
+
+      <Card>
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="md:col-span-2 space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="audit-search">
+                Qidirish
+              </Label>
+              <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9">
+                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                <input
+                  id="audit-search"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  placeholder="Foydalanuvchi, amal, summa, sabab..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="audit-action">
+                Amal turi
+              </Label>
+              <Select value={action || '__all__'} onValueChange={(v) => { setAction(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger id="audit-action" className="h-9">
+                  <SelectValue placeholder="Hammasi" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="__all__">Hammasi</SelectItem>
+                  {AUDIT_GROUPS.flatMap((group) => [
+                    <div key={`h-${group.label}`} className="px-2 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      {group.label}
+                    </div>,
+                    ...group.values.map((v) => (
+                      <SelectItem key={v} value={v}>{AUDIT_LABELS[v] ?? v}</SelectItem>
+                    )),
+                  ])}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="audit-user">
+                Foydalanuvchi
+              </Label>
+              <Select value={userId || '__all__'} onValueChange={(v) => { setUserId(v === '__all__' ? '' : v); setPage(1); }}>
+                <SelectTrigger id="audit-user" className="h-9">
+                  <SelectValue placeholder="Hammasi" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="__all__">Hammasi</SelectItem>
+                  {users.map((u: any) => (
+                    <SelectItem key={u.id} value={u.id}>{u.fullName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Sana (dan / gacha)
+              </Label>
+              <div className="flex gap-1">
+                <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className="h-9 text-xs" />
+                <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} className="h-9 text-xs" />
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">Audit jurnali</h1>
-            <p className="text-slate-500">Tizimdagi barcha muhim harakatlar tarixi</p>
+        </CardContent>
+      </Card>
+
+      <DataTable
+        columns={columns}
+        data={filteredItems}
+        isLoading={isLoading}
+        rowKey={(row) => row.id}
+        emptyState={
+          <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+            <History className="h-6 w-6 text-muted-foreground/70" strokeWidth={1.5} />
+            <p className="text-base font-medium text-foreground">Yozuvlar topilmadi</p>
+            <p className="text-sm">Filtrlarni o'zgartiring yoki tozalang.</p>
           </div>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-end gap-4">
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase">Harakat</label>
-          <select 
-            value={filters.action}
-            onChange={(e) => handleFilterChange('action', e.target.value)}
-            className="block w-48 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          >
-            <option value="">Hammasi</option>
-            {Object.entries(AUDIT_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase">Foydalanuvchi</label>
-          <select 
-            value={filters.userId}
-            onChange={(e) => handleFilterChange('userId', e.target.value)}
-            className="block w-48 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          >
-            <option value="">Barcha foydalanuvchilar</option>
-            {users.map((u: any) => (
-              <option key={u.id} value={u.id}>{u.fullName}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase">Dan</label>
-          <input 
-            type="date" 
-            value={filters.from}
-            onChange={(e) => handleFilterChange('from', e.target.value)}
-            className="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-500 uppercase">Gacha</label>
-          <input 
-            type="date" 
-            value={filters.to}
-            onChange={(e) => handleFilterChange('to', e.target.value)}
-            className="block px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
-
-        <button 
-          onClick={() => setFilters({ action: '', userId: '', from: '', to: '', page: 1, pageSize: 20 })}
-          className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
-        >
-          Filtrlarni tozalash
-        </button>
-
-        {isFetching && <RefreshCw size={18} className="animate-spin text-blue-500 ml-auto mb-2" />}
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Vaqt</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Foydalanuvchi</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Harakat</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Obyekt</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Batafsil</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {auditData?.items.map((log: any) => (
-                <React.Fragment key={log.id}>
-                  <tr className={`hover:bg-slate-50/50 transition-colors ${expandedRow === log.id ? 'bg-blue-50/30' : ''}`}>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {formatDateTimeUZ(new Date(log.createdAt))}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
-                          {log.user?.fullName?.split(' ').map((n: string) => n[0]).join('') || '?'}
-                        </div>
-                        <span className="text-sm font-medium text-slate-800">{log.user?.fullName || 'Noma\'lum'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-slate-700">
-                        {AUDIT_LABELS[log.action] || log.action}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1">{log.entityType}</span>
-                        <span className="text-xs font-mono text-slate-500">{log.entityId || '-'}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)}
-                        className={`p-1.5 rounded-lg transition-colors ${expandedRow === log.id ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
-                      >
-                        <Eye size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                  {expandedRow === log.id && (
-                    <tr className="bg-blue-50/20">
-                      <td colSpan={5} className="px-6 py-4">
-                        <div className="bg-white border border-blue-100 rounded-lg p-4 shadow-inner">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Metadata (Texnik ma'lumotlar)</h4>
-                          <pre className="text-xs font-mono bg-slate-50 p-3 rounded border border-slate-100 overflow-x-auto">
-                            {JSON.stringify(log.metadata, null, 2)}
-                          </pre>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
-              {auditData?.items.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <Info size={32} className="mx-auto text-slate-300 mb-2" />
-                    <p className="text-slate-500">Ma'lumotlar topilmadi</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <div className="text-sm text-slate-500">
-            Jami: <span className="font-bold text-slate-700">{auditData?.total || 0}</span> ta yozuv
+      {data && data.total > 0 && (
+        <div className="flex items-center justify-between text-sm">
+          <div className="text-xs text-muted-foreground">
+            Jami: <span className="font-medium text-foreground tabular-nums">{data.total}</span> ta yozuv
+            {isFetching && <span className="ml-2">(yangilanmoqda…)</span>}
           </div>
-          <div className="flex items-center space-x-2">
-            <button 
-              disabled={filters.page === 1}
-              onClick={() => handleFilterChange('page', filters.page - 1)}
-              className="p-1.5 rounded border border-slate-200 bg-white text-slate-600 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
             >
-              <ChevronLeft size={18} />
-            </button>
-            <span className="text-sm font-bold text-slate-700 px-2">
-              {filters.page} / {totalPages || 1}
+              <ChevronLeft className="h-4 w-4" />
+              Oldingi
+            </Button>
+            <span className="text-xs tabular-nums">
+              {page} / {totalPages}
             </span>
-            <button 
-              disabled={filters.page >= totalPages}
-              onClick={() => handleFilterChange('page', filters.page + 1)}
-              className="p-1.5 rounded border border-slate-200 bg-white text-slate-600 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
             >
-              <ChevronRight size={18} />
-            </button>
+              Keyingi
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </PageContent>
   );
 }

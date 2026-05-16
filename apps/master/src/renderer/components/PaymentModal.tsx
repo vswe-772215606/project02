@@ -63,8 +63,29 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
     [discountId, discounts],
   );
 
+  // Food subtotal = sum of FOOD lines only. SERVICE lines are tracked separately
+  // (waiter income), not discountable, not part of food subtotal.
   const subtotal = useMemo(
-    () => order.lines?.reduce((sum, line) => (line.isCanceled ? sum : sum + line.price * line.quantity), 0) ?? 0,
+    () =>
+      order.lines?.reduce(
+        (sum, line) =>
+          line.isCanceled || line.menuItemKind === 'SERVICE'
+            ? sum
+            : sum + line.price * line.quantity,
+        0,
+      ) ?? 0,
+    [order.lines],
+  );
+
+  const serviceFromLines = useMemo(
+    () =>
+      order.lines?.reduce(
+        (sum, line) =>
+          line.isCanceled || line.menuItemKind !== 'SERVICE'
+            ? sum
+            : sum + line.price * line.quantity,
+        0,
+      ) ?? 0,
     [order.lines],
   );
 
@@ -78,7 +99,9 @@ export function PaymentModal({ order, onClose }: { order: Order; onClose: () => 
     return Math.min(selectedDiscount.value, subtotal);
   }, [selectedDiscount, subtotal]);
 
-  const previewServiceCharge = waiveService ? 0 : Number(settings.service_charge_amount || 0);
+  // waiveService is vestigial — the new way to "waive" is to not add a SERVICE line.
+  // For back-compat: if the toggle is true, we still drop the line-derived charge.
+  const previewServiceCharge = waiveService ? 0 : serviceFromLines;
   const previewTotal = subtotal - previewDiscount + previewServiceCharge;
   const payableTotal = needsApproval ? previewTotal : (order.totalSnapshot || order.totalAmount);
 

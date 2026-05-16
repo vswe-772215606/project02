@@ -1,206 +1,180 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  LayoutDashboard, 
-  ShoppingBag, 
-  ClipboardCheck, 
-  Clock, 
-  History,
-  ArrowRight,
-  TrendingUp,
-  Table as TableIcon,
-  User as UserIcon
-} from 'lucide-react';
-import { ordersApi } from '../api/orders';
-import { StatusBadge } from '../components/StatusBadge';
-import { formatUZS, formatDateTimeUZ } from '../utils/format';
-import { Link } from 'react-router-dom';
-import { summarizeOrderLines } from '../utils/order-line-summary';
+import { ClipboardCheck, Clock, ShoppingBag, type LucideIcon } from 'lucide-react';
+import { ordersApi, type Order } from '../api/orders';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageContent } from '@/components/feedback/PageContent';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
+import { MoneyCell } from '@/components/data/MoneyCell';
+import { DateTimeCell } from '@/components/data/DateCell';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/format';
+
+const STATUS_LABEL: Record<Order['status'], string> = {
+  DRAFT: 'Qoralama',
+  SENT: 'Oshxonada',
+  BILL_REQUESTED: 'Hisob so\'ralgan',
+  PENDING_PAYMENT: "To'lov kutilmoqda",
+  CLOSED: 'Yopilgan',
+  WALKOUT: 'Tarbiya',
+  CANCELED: 'Bekor qilingan',
+};
+
+const STATUS_VARIANT: Record<Order['status'], string> = {
+  DRAFT: 'bg-muted text-muted-foreground',
+  SENT: 'bg-info/15 text-info border-info/30',
+  BILL_REQUESTED: 'bg-warning/15 text-warning-foreground border-warning/30',
+  PENDING_PAYMENT: 'bg-primary/15 text-primary border-primary/30',
+  CLOSED: 'bg-success/15 text-success border-success/30',
+  WALKOUT: 'bg-destructive/15 text-destructive border-destructive/30',
+  CANCELED: 'bg-muted text-muted-foreground border-muted',
+};
+
+function StatusBadge({ status }: { status: Order['status'] }) {
+  return (
+    <Badge variant="outline" className={cn('font-medium', STATUS_VARIANT[status])}>
+      {STATUS_LABEL[status]}
+    </Badge>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  hint,
+  isLoading,
+}: {
+  label: string;
+  value: number;
+  icon: LucideIcon;
+  hint: string;
+  isLoading?: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <CardTitle className="text-xs uppercase tracking-wider font-medium text-muted-foreground">
+          {label}
+        </CardTitle>
+        <Icon className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-semibold tabular-nums">
+          {isLoading ? <span className="text-muted-foreground">—</span> : value}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function summariseLines(order: Order): string {
+  if (!order.lines || order.lines.length === 0) return '';
+  return order.lines
+    .filter((line) => !line.isCanceled)
+    .slice(0, 3)
+    .map((line) => `${line.quantity}× ${line.nameSnapshot}`)
+    .join(', ');
+}
 
 export function DashboardPage() {
+  usePageTitle('Boshqaruv paneli');
+
   const { data: allOrders = [], isLoading } = useQuery({
     queryKey: ['orders', 'dashboard'],
     queryFn: () => ordersApi.list(),
     refetchInterval: 10000,
   });
 
-  const activeCount = allOrders.filter(o => o.status === 'SENT' || o.status === 'BILL_REQUESTED').length;
-  const pendingApprovalCount = allOrders.filter(o => o.status === 'BILL_REQUESTED').length;
-  const pendingPaymentCount = allOrders.filter(o => o.status === 'PENDING_PAYMENT').length;
+  const activeCount = allOrders.filter((o) => o.status === 'SENT' || o.status === 'BILL_REQUESTED').length;
+  const pendingApprovalCount = allOrders.filter((o) => o.status === 'BILL_REQUESTED').length;
+  const pendingPaymentCount = allOrders.filter((o) => o.status === 'PENDING_PAYMENT').length;
 
   const recentOrders = [...allOrders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 10);
 
+  const columns: DataTableColumn<Order>[] = [
+    {
+      key: 'order',
+      header: 'Buyurtma',
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="font-medium tabular-nums">#{row.orderNumber}</span>
+          <span className="text-xs text-muted-foreground truncate max-w-xs">{summariseLines(row)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'when',
+      header: 'Vaqti',
+      cell: (row) => <DateTimeCell value={row.createdAt} className="text-muted-foreground" />,
+    },
+    {
+      key: 'table',
+      header: 'Stol / Ofitsiant',
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium">
+            {row.tableName ?? (row.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan')}
+          </span>
+          <span className="text-xs text-muted-foreground">{row.waiter?.fullName ?? '—'}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Summa',
+      align: 'right',
+      cell: (row) => <MoneyCell value={row.totalSnapshot ?? row.totalAmount} />,
+    },
+    {
+      key: 'status',
+      header: 'Holat',
+      cell: (row) => <StatusBadge status={row.status} />,
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <LayoutDashboard className="text-slate-400" size={28} />
-          <h1 className="text-2xl font-bold text-slate-800">Bosh sahifa</h1>
-        </div>
-        <div className="text-sm font-medium text-slate-500 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
-          Bugun: {new Date().toLocaleDateString('uz-UZ')}
-        </div>
-      </div>
+    <PageContent>
+      <PageHeader
+        title="Boshqaruv paneli"
+        description={`Bugun: ${formatDate(new Date())}`}
+      />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard 
-          label="Faol buyurtmalar" 
-          value={activeCount} 
-          icon={ShoppingBag} 
-          color="blue" 
-          description="Hozirgi vaqtda tayyorlanayotgan"
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <StatCard
+          label="Faol buyurtmalar"
+          value={activeCount}
+          icon={ShoppingBag}
+          hint="Hozir tayyorlanayotgan buyurtmalar"
+          isLoading={isLoading}
         />
-        <StatCard 
-          label="Tasdiqlash kutilmoqda" 
-          value={pendingApprovalCount} 
-          icon={ClipboardCheck} 
-          color="amber" 
-          description="Hisob so'ralgan buyurtmalar"
-          link="/orders"
+        <StatCard
+          label="Tasdiqlash kutilmoqda"
+          value={pendingApprovalCount}
+          icon={ClipboardCheck}
+          hint="Hisob so'ralgan buyurtmalar"
+          isLoading={isLoading}
         />
-        <StatCard 
-          label="To'lov kutilmoqda" 
-          value={pendingPaymentCount} 
-          icon={Clock} 
-          color="green" 
-          description="Tasdiqlangan, to'lov kutilmoqda"
-          link="/orders"
+        <StatCard
+          label="To'lov kutilmoqda"
+          value={pendingPaymentCount}
+          icon={Clock}
+          hint="Tasdiqlangan, to'lov kutilmoqda"
+          isLoading={isLoading}
         />
       </div>
 
-      {/* Recent Activity */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <History className="text-slate-400" size={20} />
-            <h2 className="font-bold text-slate-800">Yaqinda bo'lgan harakatlar</h2>
-          </div>
-          <Link to="/orders" className="text-blue-600 hover:text-blue-700 text-sm font-bold flex items-center space-x-1">
-            <span>Hammasini ko'rish</span>
-            <ArrowRight size={16} />
-          </Link>
-        </div>
-
-        {isLoading ? (
-          <div className="p-12 flex justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        ) : recentOrders.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
-            Hozircha ma'lumotlar yo'q
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest border-b border-slate-100">
-                  <th className="px-6 py-4 font-bold">Buyurtma</th>
-                  <th className="px-6 py-4 font-bold">Vaqt</th>
-                  <th className="px-6 py-4 font-bold">Stol / Waiter</th>
-                  <th className="px-6 py-4 font-bold">Summa</th>
-                  <th className="px-6 py-4 font-bold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {recentOrders.map((order) => {
-                  const mealSummary = summarizeOrderLines(order.lines);
-
-                  return (
-                    <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <span className="font-bold text-slate-700">#{order.orderNumber}</span>
-                          {mealSummary && (
-                            <p
-                              className="max-w-xs text-xs text-slate-500"
-                              style={{
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              {mealSummary}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-slate-500">{formatDateTimeUZ(order.createdAt)}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <div className="flex items-center space-x-1 text-sm font-medium text-slate-700">
-                            <TableIcon size={14} className="text-slate-400" />
-                            <span>{order.tableName || (order.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan')}</span>
-                          </div>
-                          <div className="flex items-center space-x-1 text-xs text-slate-400 mt-0.5">
-                            <UserIcon size={12} />
-                            <span>{order.waiter?.fullName}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-bold text-slate-900">
-                        {formatUZS(order.totalSnapshot || order.totalAmount)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <StatusBadge status={order.status} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Mini Charts / Other info could go here */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg shadow-blue-200">
-          <div className="flex items-center justify-between mb-4">
-            <TrendingUp size={24} className="opacity-80" />
-            <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded">LIVE</span>
-          </div>
-          <h3 className="text-lg font-medium opacity-90">Ish samaradorligi</h3>
-          <p className="text-sm opacity-70 mt-1 mb-4">Barcha tizimlar normal ishlamoqda.</p>
-          <div className="text-3xl font-black">100%</div>
-        </div>
-      </div>
-    </div>
+      <DataTable
+        columns={columns}
+        data={recentOrders}
+        isLoading={isLoading}
+        rowKey={(row) => row.id}
+      />
+    </PageContent>
   );
-}
-
-function StatCard({ label, value, icon: Icon, color, description, link }: any) {
-  const colors: any = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-100 shadow-blue-50',
-    amber: 'bg-amber-50 text-amber-600 border-amber-100 shadow-amber-50',
-    green: 'bg-green-50 text-green-600 border-green-100 shadow-green-50',
-  };
-
-  const CardContent = (
-    <div className={`p-6 rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md ${link ? 'cursor-pointer group' : ''}`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-1">{label}</div>
-          <div className="text-4xl font-black text-slate-900">{value}</div>
-          <div className="text-xs text-slate-400 mt-2 font-medium">{description}</div>
-        </div>
-        <div className={`p-3 rounded-xl border ${colors[color]}`}>
-          <Icon size={24} />
-        </div>
-      </div>
-      {link && (
-        <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-xs font-bold text-blue-600 group-hover:translate-x-1 transition-transform">
-          <span>Batafsil</span>
-          <ArrowRight size={14} className="ml-1" />
-        </div>
-      )}
-    </div>
-  );
-
-  return link ? <Link to={link}>{CardContent}</Link> : CardContent;
 }

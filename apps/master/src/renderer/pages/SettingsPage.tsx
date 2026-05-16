@@ -83,19 +83,6 @@ export function SettingsPage() {
       <form onSubmit={handleSubmit} className="space-y-8 pb-12">
         <SettingsGroup title="Moliyaviy sozlamalar" icon={Coins}>
           <SettingItem
-            label="Xizmat haqi (UZS)"
-            description="Har bir buyurtma uchun qo'shiladigan doimiy summa"
-            readonly={!isOwner}
-          >
-            <input
-              type="number"
-              value={getVal('service_charge_amount')}
-              onChange={(e) => handleChange('service_charge_amount', e.target.value)}
-              disabled={!isOwner}
-              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
-            />
-          </SettingItem>
-          <SettingItem
             label="Maksimal chegirma foizi (%)"
             description="Adminlar ruxsat bera oladigan eng yuqori foizli chegirma"
             readonly={!isOwner}

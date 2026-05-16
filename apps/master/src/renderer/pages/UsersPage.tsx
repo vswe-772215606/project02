@@ -47,6 +47,12 @@ export function UsersPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [dialog, setDialog] = useState<{ message: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
 
+  const { data: todayStats } = useQuery({
+    queryKey: ['users', 'today-stats'],
+    queryFn: () => usersApi.todayStats(),
+    refetchInterval: 60_000,
+  });
+
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users', showInactive],
     queryFn: () => usersApi.list(showInactive),
@@ -125,6 +131,35 @@ export function UsersPage() {
           </button>
         </div>
       </div>
+
+      {todayStats && todayStats.items.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center justify-between">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Bugungi ofitsiantlar ko'rsatkichi</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{todayStats.date}</span>
+          </div>
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/50 text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-6 py-2.5 font-bold">Ofitsiant</th>
+                <th className="px-6 py-2.5 font-bold text-right">Buyurtmalar</th>
+                <th className="px-6 py-2.5 font-bold text-right">Savdo</th>
+                <th className="px-6 py-2.5 font-bold text-right">Xizmat haqi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {todayStats.items.map((row) => (
+                <tr key={row.waiterId}>
+                  <td className="px-6 py-2.5 text-sm font-semibold text-slate-800">{row.waiterName}</td>
+                  <td className="px-6 py-2.5 text-sm tabular-nums text-right">{row.orders}</td>
+                  <td className="px-6 py-2.5 text-sm font-bold tabular-nums text-right">{Number(row.billedTotal).toLocaleString('uz-UZ').replace(/,/g, ' ')}</td>
+                  <td className="px-6 py-2.5 text-sm font-bold tabular-nums text-right text-amber-700">{Number(row.serviceEarned).toLocaleString('uz-UZ').replace(/,/g, ' ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <table className="w-full text-left text-sm">

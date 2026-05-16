@@ -146,13 +146,22 @@ async function seedIfEmpty(logger: StartupLogger): Promise<void> {
 
   await prisma.setting.createMany({
     data: [
-      { key: 'service_charge_amount', value: '10000' },
       { key: 'max_discount_percent',  value: '15' },
       { key: 'max_discount_amount',   value: '100000' },
       { key: 'kitchen_printer_enabled', value: 'false' },
       { key: 'admin_printer_name',    value: 'POS-80' },
       { key: 'kitchen_printer_name',  value: '' },
       { key: 'store_heading',         value: 'Chayxana' },
+      { key: 'variance_alert_threshold',    value: '50000' },
+      { key: 'monthly_kitchen_overhead_uzs', value: '0' },
+      { key: 'system_costing_active_since', value: '' },
+    ],
+  });
+
+  await prisma.expenseCategory.createMany({
+    data: [
+      { id: 'seed-cat-ingredients', name: 'Mahsulot xaridi', displayOrder: 1, isActive: true },
+      { id: 'seed-cat-operational', name: 'Operatsion',      displayOrder: 2, isActive: true },
     ],
   });
 

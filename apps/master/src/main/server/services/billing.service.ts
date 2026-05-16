@@ -1,13 +1,33 @@
-import { DiscountType, Prisma } from '@prisma/client';
+import { DiscountType, MenuItemKind, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { discountRepo } from '../repositories/discount.repo';
 import { settingsService } from './settings.service';
+
+/**
+ * Billing math (UI_UX_RULES + locked decisions):
+ *
+ *   Subtotal      = sum(line.qty × line.price)  WHERE menuItem.kind = FOOD
+ *   Discount      = applied to Subtotal only (services are waiter income, not discountable)
+ *   Net food      = Subtotal − Discount
+ *   Service charge= sum(line.qty × line.price)  WHERE menuItem.kind = SERVICE
+ *   Total         = Net food + Service charge
+ *
+ * Service charge is NOT a system-wide setting any more — it comes from
+ * MenuItem rows with kind = SERVICE. The waiter adds them like any other
+ * menu item; quantity typically = number of customers. They do not go to
+ * the kitchen (filtered out of kitchen tickets).
+ *
+ * `serviceChargeWaived` parameter is accepted for backward compat with the
+ * existing approve flow but is now effectively ignored — if the order has no
+ * SERVICE lines, the service charge is naturally zero.
+ */
 
 type OrderForBilling = {
   lines: Array<{
     quantity: number;
     isCanceled: boolean;
     unitPriceSnapshot: Prisma.Decimal;
+    menuItem: { kind: MenuItemKind };
   }>;
 };
 
@@ -36,11 +56,15 @@ export const billingService = {
     order: OrderForBilling,
     opts: { discountId?: string | null; serviceChargeWaived: boolean },
   ) {
-    const subtotal = order.lines
-      .filter((line) => !line.isCanceled)
-      .reduce((sum, line) => {
-        return sum + decimalToInt(line.unitPriceSnapshot) * line.quantity;
-      }, 0);
+    const activeLines = order.lines.filter((line) => !line.isCanceled);
+
+    const subtotal = activeLines
+      .filter((line) => line.menuItem.kind === MenuItemKind.FOOD)
+      .reduce((sum, line) => sum + decimalToInt(line.unitPriceSnapshot) * line.quantity, 0);
+
+    const serviceChargeFromLines = activeLines
+      .filter((line) => line.menuItem.kind === MenuItemKind.SERVICE)
+      .reduce((sum, line) => sum + decimalToInt(line.unitPriceSnapshot) * line.quantity, 0);
 
     let discountAmount = 0;
 
@@ -73,9 +97,9 @@ export const billingService = {
     }
 
     const netFood = subtotal - discountAmount;
-    const serviceCharge = opts.serviceChargeWaived
-      ? 0
-      : settingsService.getInt('service_charge_amount');
+    // serviceChargeWaived is accepted for backward compat. In the new model,
+    // the absence of SERVICE lines == zero service charge naturally.
+    const serviceCharge = opts.serviceChargeWaived ? 0 : serviceChargeFromLines;
     const total = netFood + serviceCharge;
 
     return {

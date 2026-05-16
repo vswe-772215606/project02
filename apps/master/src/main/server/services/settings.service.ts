@@ -35,7 +35,6 @@ export const settingsService = {
 
   canEdit(key: string, role: 'OWNER' | 'ADMIN'): boolean {
     if ([
-      'service_charge_amount',
       'max_discount_percent',
       'max_discount_amount',
       'daily_report_telegram_enabled',
