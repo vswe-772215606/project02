@@ -2,6 +2,22 @@ import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { DiscountType } from '@prisma/client';
 import { menuService } from '../services/menu.service';
+import { recipeService } from '../services/recipe.service';
+import { recipeRepo } from '../repositories/recipe.repo';
+import { yieldService } from '../services/yield.service';
+import { Errors } from '../lib/errors';
+
+const recipeUpsertSchema = z.object({
+  ingredients: z.array(z.object({
+    ingredientId: z.string().min(1),
+    quantity: z.union([z.number().positive(), z.string().min(1)]),
+  })),
+  notes: z.string().optional().nullable(),
+});
+
+const recipeCompleteSchema = z.object({
+  isComplete: z.boolean(),
+});
 
 const categorySchema = z.object({
   name: z.string().min(1),
@@ -18,7 +34,7 @@ const itemSchema = z.object({
   price: z.union([z.number().int(), z.string().min(1)]),
   description: z.string().optional(),
   displayOrder: z.number().int().optional(),
-  trackStock: z.boolean().optional(),
+  kind: z.enum(['FOOD', 'SERVICE']).optional(),
 });
 
 const itemUpdateSchema = itemSchema.partial().extend({
@@ -142,6 +158,57 @@ export const menuController = {
       const body = comboUpdateSchema.parse(req.body);
       const combo = await menuService.updateCombo(req.params.id, body, req.user!.id);
       res.json(combo);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getItemRecipe(req: Request, res: Response, next: NextFunction) {
+    try {
+      const recipe = await recipeService.findByMenuItemId(req.params.id);
+      res.json(recipe);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateItemRecipe(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = recipeUpsertSchema.parse(req.body);
+      const updated = await recipeService.upsert({
+        menuItemId: req.params.id,
+        ingredients: body.ingredients,
+        notes: body.notes ?? null,
+        actorUserId: req.user!.id,
+      });
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getYield(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const rows = await yieldService.computeAll();
+      res.json(rows);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async setRecipeComplete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = recipeCompleteSchema.parse(req.body);
+      const existing = await recipeRepo.findByMenuItemId(req.params.id);
+      if (!existing) {
+        throw Errors.NotFound('Retsept');
+      }
+      const updated = await recipeService.setComplete({
+        recipeId: existing.id,
+        isComplete: body.isComplete,
+        actorUserId: req.user!.id,
+      });
+      res.json(updated);
     } catch (error) {
       next(error);
     }

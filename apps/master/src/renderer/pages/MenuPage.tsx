@@ -17,6 +17,7 @@ import {
   X
 } from 'lucide-react';
 import { menuApi, Category, MenuItem, Combo } from '../api/menu';
+import { yieldApi } from '../api/yield';
 import { formatUZS } from '../utils/format';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
@@ -32,7 +33,7 @@ const itemSchema = z.object({
   price: z.number().min(0, "Narx noto'g'ri"),
   description: z.string().optional(),
   displayOrder: z.number().int().default(0),
-  trackStock: z.boolean().default(false),
+  isService: z.boolean().default(false),
 });
 
 export function MenuPage() {
@@ -59,6 +60,12 @@ export function MenuPage() {
     queryKey: ['menu', 'combos', showInactive],
     queryFn: () => menuApi.listCombos(showInactive),
   });
+
+  const { data: yieldRows = [] } = useQuery({
+    queryKey: ['yield'],
+    queryFn: () => yieldApi.list(),
+  });
+  const yieldMap = new Map(yieldRows.map((row) => [row.menuItemId, row]));
 
   // Category Mutations
   const createCategoryMutation = useMutation({
@@ -256,13 +263,15 @@ export function MenuPage() {
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-widest border-b border-slate-100">
                     <th className="px-6 py-3">Nomi</th>
                     <th className="px-6 py-3">Narxi</th>
-                    <th className="px-6 py-3 text-center">Zaxira</th>
+                    <th className="px-6 py-3 text-center">Yetadi (porsiya)</th>
                     <th className="px-6 py-3 text-center">Holati</th>
                     <th className="px-6 py-3 text-right">Amallar</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {items.map((item) => (
+                  {items.map((item) => {
+                    const y = yieldMap.get(item.id);
+                    return (
                     <tr key={item.id} className={`hover:bg-slate-50/50 transition-colors ${!item.isActive ? 'bg-slate-50/50' : ''}`}>
                       <td className="px-6 py-4">
                         <div className={`font-bold ${!item.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{item.name}</div>
@@ -272,13 +281,20 @@ export function MenuPage() {
                         {formatUZS(item.price)}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {item.trackStock ? (
-                          <span className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border ${!item.isActive ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                            <Package size={12} className="mr-1" />
-                            HA
+                        {!y || y.kind === 'UNTRACKED' ? (
+                          <span className="text-slate-300" title="Zaxira hisoblanmaydi">—</span>
+                        ) : (y.possiblePortions ?? 0) === 0 ? (
+                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-red-50 text-red-600 border-red-100" title={y.bottleneckIngredientName ? `Tugadi: ${y.bottleneckIngredientName}` : 'Tugadi'}>
+                            <Package size={12} className="mr-1" />Tugadi
+                          </span>
+                        ) : (y.possiblePortions ?? 0) <= 5 ? (
+                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-100" title={y.bottleneckIngredientName ? `Kam: ${y.bottleneckIngredientName}` : ''}>
+                            <Package size={12} className="mr-1" />{y.possiblePortions}
                           </span>
                         ) : (
-                          <span className="text-slate-300">—</span>
+                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-100" title={y.bottleneckIngredientName ? `Bottleneck: ${y.bottleneckIngredientName}` : ''}>
+                            <Package size={12} className="mr-1" />{y.possiblePortions}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -311,7 +327,8 @@ export function MenuPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
@@ -400,21 +417,32 @@ function CategoryModal({ category, onClose, onSave }: any) {
 }
 
 function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any) {
-  const { register, handleSubmit, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm({
     resolver: zodResolver(itemSchema),
-    defaultValues: item || { 
-      name: '', 
-      categoryId: initialCategoryId || '', 
-      price: 0, 
-      description: '', 
+    defaultValues: item ? {
+      ...item,
+      isService: item.kind === 'SERVICE',
+    } : {
+      name: '',
+      categoryId: initialCategoryId || '',
+      price: 0,
+      description: '',
       displayOrder: 0,
-      trackStock: false 
+      isService: false,
     }
+  });
+
+  const submit = handleSubmit((data: any) => {
+    const { isService, ...rest } = data;
+    onSave({
+      ...rest,
+      kind: isService ? 'SERVICE' : 'FOOD',
+    });
   });
 
   return (
     <Modal title={item ? "Mahsulotni tahrirlash" : "Yangi mahsulot"} onClose={onClose} maxWidth="max-w-lg">
-      <form onSubmit={handleSubmit(onSave)} className="space-y-4">
+      <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Nomi</label>
@@ -457,14 +485,22 @@ function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="flex items-center space-x-2 pt-6">
-            <input 
-              type="checkbox" 
-              id="track-stock"
-              {...register('trackStock')}
-              className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-            />
-            <label htmlFor="track-stock" className="text-sm font-medium text-slate-700">Zaxirani kuzatish</label>
+          <div className="col-span-2 mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <div className="flex items-start space-x-2">
+              <input
+                type="checkbox"
+                id="is-service"
+                {...register('isService')}
+                className="mt-1 w-4 h-4 text-amber-600 border-amber-300 rounded focus:ring-amber-500"
+              />
+              <label htmlFor="is-service" className="text-sm font-medium text-slate-800">
+                Bu — xizmat haqi mahsuloti
+                <p className="font-normal text-xs text-slate-600 mt-0.5">
+                  Belgilab qo'yilsa: oshxonaga bormaydi, retsept talab qilmaydi, zaxira hisoblanmaydi.
+                  Ofitsiant buyurtmaga qatori sifatida qo'shadi (masalan, kishi soniga qarab).
+                </p>
+              </label>
+            </div>
           </div>
         </div>
         <div className="flex space-x-3 pt-4">

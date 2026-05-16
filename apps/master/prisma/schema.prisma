@@ -76,10 +76,22 @@ enum ExpenseStatus {
   REVERSAL
 }
 
+enum ExpenseRepayStatus {
+  PENDING
+  PARTIAL
+  RETURNED
+  WRITTEN_OFF
+}
+
 enum DebtStatus {
   OPEN
   PARTIAL
   PAID
+}
+
+enum MenuItemKind {
+  FOOD
+  SERVICE
 }
 
 enum AuditAction {
@@ -95,15 +107,45 @@ enum AuditAction {
   RECEIPT_REPRINTED
   SETTINGS_CHANGED
   SERVICE_CHARGE_WAIVED
-  DAILY_STOCK_SET
-  DAILY_STOCK_ADJUSTED
   EXPENSE_CREATED
   EXPENSE_REVERSED
+  EXPENSE_RETURN_RECEIVED
+  EXPENSE_WRITTEN_OFF
   DEBT_CREATED
   DEBT_PAYMENT_RECORDED
   DEBT_CLOSED
   REPORT_SENT
   REPORT_SEND_FAILED
+  INGREDIENT_CREATED
+  INGREDIENT_UPDATED
+  INGREDIENT_ACTIVATED
+  INGREDIENT_DEACTIVATED
+  INGREDIENT_COST_ADJUSTED
+  PURCHASE_RECORDED
+  RECIPE_CREATED
+  RECIPE_UPDATED
+  RECIPE_ACTIVATED
+  RECIPE_DEACTIVATED
+  STOCKTAKE_OPENED
+  STOCKTAKE_COMPLETED
+  STOCKTAKE_VARIANCE_CATEGORIZED
+  WASTE_RECORDED
+}
+
+enum IngredientMovementType {
+  PURCHASE
+  CONSUME
+  RESTORE
+  STOCKTAKE
+  ADJUST
+  WASTE
+  COST_ADJUST
+}
+
+enum StocktakeStatus {
+  OPEN
+  AWAITING_REASONS
+  COMPLETED
 }
 
 // ============================================================
@@ -129,10 +171,16 @@ model User {
   auditEntries      AuditLog[]   @relation("AuditActor")
   discountsCreated  Discount[]   @relation("DiscountCreator")
   printJobs         PrintJob[]   @relation("PrintJobTrigger")
-  dailyStocksSet    DailyStock[] @relation("DailyStockSetter")
   expensesCreated   Expense[]    @relation("ExpenseCreator")
   debtsCreated      Debt[]       @relation("DebtCreator")
   debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
+  ingredientMovements   IngredientMovement[] @relation("IngredientMovementActor")
+  purchasesRecorded     Purchase[]           @relation("PurchaseRecorder")
+  recipesEdited         RecipeEdit[]         @relation("RecipeEditor")
+  stocktakesPerformed   Stocktake[]          @relation("StocktakePerformer")
+  wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
+  expensesWrittenOff    Expense[]            @relation("ExpenseWriteOff")
+  expenseReturnsReceived ExpenseReturn[]     @relation("ExpenseReturnReceiver")
 
   @@index([role])
   @@index([isActive])
@@ -172,27 +220,29 @@ model Category {
 }
 
 model MenuItem {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   categoryId   String
   name         String
   description  String?
   price        Decimal
-  isAvailable  Boolean  @default(true)
-  trackStock   Boolean  @default(false)
-  displayOrder Int      @default(0)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  kind         MenuItemKind @default(FOOD)
+  isAvailable  Boolean      @default(true)
+  displayOrder Int          @default(0)
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   category        Category         @relation(fields: [categoryId], references: [id])
   orderLines      OrderLine[]
   comboComponents ComboComponent[]
-  dailyStocks     DailyStock[]
+  recipe          Recipe?
+  selfIngredient  Ingredient?      @relation("SelfIngredient")
+  ingredients     Ingredient[]     @relation("DishIngredients")
 
   @@index([categoryId])
   @@index([isAvailable])
   @@index([isActive])
-  @@index([trackStock])
+  @@index([kind])
 }
 
 model Combo {
@@ -302,12 +352,16 @@ model OrderLine {
   canceledAt        DateTime?
   canceledReason    String?
 
+  cogsSnapshot          Decimal?
+  consumptionSnapshot   Json?
+
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItem      MenuItem       @relation(fields: [menuItemId], references: [id])
-  kitchenTicket KitchenTicket? @relation(fields: [kitchenTicketId], references: [id])
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem            MenuItem             @relation(fields: [menuItemId], references: [id])
+  kitchenTicket       KitchenTicket?       @relation(fields: [kitchenTicketId], references: [id])
+  ingredientMovements IngredientMovement[]
 
   @@index([orderId])
   @@index([kitchenTicketId])
@@ -377,6 +431,7 @@ model ExpenseCategory {
   updatedAt    DateTime @updatedAt
 
   expenses     Expense[]
+  ingredients  Ingredient[]
 
   @@index([isActive])
   @@index([displayOrder])
@@ -391,6 +446,18 @@ model Expense {
   occurredAt        DateTime
   status            ExpenseStatus @default(ACTIVE)
   reversedExpenseId String?
+  purchaseId        String?       @unique
+
+  // Repayable expense lifecycle (avans, zalog, vaqtinchalik qarz).
+  // - repayable=false: oddiy chiqim. Foydaga to'liq ta'sir qiladi.
+  // - repayable=true:  pul vaqtinchalik chiqdi, qaytishi kutilmoqda.
+  //                     ExpenseReturn yozuvlari qaytim oqimini ko'rsatadi.
+  //                     writtenOffAt qaytarib olishdan voz kechilganda yoziladi.
+  repayable         Boolean       @default(false)
+  writtenOffAt      DateTime?
+  writtenOffReason  String?
+  writtenOffById    String?
+
   createdById       String
   createdAt         DateTime      @default(now())
 
@@ -398,11 +465,33 @@ model Expense {
   reversedExpense   Expense?        @relation("ExpenseReversal", fields: [reversedExpenseId], references: [id])
   reversals         Expense[]       @relation("ExpenseReversal")
   createdBy         User            @relation("ExpenseCreator", fields: [createdById], references: [id])
+  writtenOffBy      User?           @relation("ExpenseWriteOff", fields: [writtenOffById], references: [id])
+  purchase          Purchase?       @relation(fields: [purchaseId], references: [id])
+  returns           ExpenseReturn[]
 
   @@index([occurredAt])
   @@index([categoryId])
   @@index([status])
   @@index([createdById])
+  @@index([repayable])
+  @@index([writtenOffAt])
+}
+
+model ExpenseReturn {
+  id           String   @id @default(cuid())
+  expenseId    String
+  amount       Decimal
+  receivedAt   DateTime
+  receivedById String
+  note         String?
+  createdAt    DateTime @default(now())
+
+  expense      Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  receivedBy   User    @relation("ExpenseReturnReceiver", fields: [receivedById], references: [id])
+
+  @@index([expenseId])
+  @@index([receivedAt])
+  @@index([receivedById])
 }
 
 model Debt {
@@ -449,25 +538,192 @@ model DebtRepayment {
 }
 
 // ============================================================
-// STOCK
+// INGREDIENTS, RECIPES, STOCKTAKE  (per-dish scope)
 // ============================================================
 
-model DailyStock {
+model Ingredient {
+  id                 String   @id @default(cuid())
+  parentMenuItemId   String
+  name               String
+  buyUnit            String
+  recipeUnit         String
+  conversionFactor   Decimal
+  currentStock       Decimal  @default(0)
+  weightedAvgCost    Decimal  @default(0)
+  varianceThreshold  Decimal  @default(5)
+  isActive           Boolean  @default(true)
+  isSelfMenuItem     Boolean  @default(false)
+  selfMenuItemId     String?  @unique
+  expenseCategoryId  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  parentMenuItem     MenuItem         @relation("DishIngredients", fields: [parentMenuItemId], references: [id])
+  selfMenuItem       MenuItem?        @relation("SelfIngredient", fields: [selfMenuItemId], references: [id])
+  expenseCategory    ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  movements          IngredientMovement[]
+  recipeIngredients  RecipeIngredient[]
+  purchases          Purchase[]
+  wasteEvents        WasteEvent[]
+  stocktakeEntries   StocktakeEntry[]
+
+  @@unique([parentMenuItemId, name])
+  @@index([isActive])
+  @@index([isSelfMenuItem])
+  @@index([parentMenuItemId])
+}
+
+model Recipe {
+  id          String   @id @default(cuid())
+  menuItemId  String   @unique
+  notes       String?
+  isComplete  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  menuItem    MenuItem           @relation(fields: [menuItemId], references: [id])
+  ingredients RecipeIngredient[]
+  edits       RecipeEdit[]
+
+  @@index([isComplete])
+}
+
+model RecipeIngredient {
+  id           String  @id @default(cuid())
+  recipeId     String
+  ingredientId String
+  quantity     Decimal
+
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeId, ingredientId])
+  @@index([ingredientId])
+}
+
+model RecipeEdit {
+  id          String   @id @default(cuid())
+  recipeId    String
+  editedById  String
+  beforeJson  Json
+  afterJson   Json
+  occurredAt  DateTime @default(now())
+
+  recipe      Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  editor      User   @relation("RecipeEditor", fields: [editedById], references: [id])
+
+  @@index([recipeId, occurredAt])
+  @@index([editedById])
+}
+
+model Purchase {
+  id                    String   @id @default(cuid())
+  ingredientId          String
+  quantityBuyUnit       Decimal
+  quantityRecipeUnit    Decimal
+  totalCostUzs          Decimal
+  unitCostPerRecipeUnit Decimal
+  supplierNote          String?
+  recordedById          String
+  occurredAt            DateTime
+  createdAt             DateTime @default(now())
+
+  ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
+  recordedBy    User                  @relation("PurchaseRecorder", fields: [recordedById], references: [id])
+  expense       Expense?
+  movements     IngredientMovement[]
+
+  @@index([ingredientId, occurredAt])
+  @@index([occurredAt])
+}
+
+model WasteEvent {
+  id            String   @id @default(cuid())
+  ingredientId  String
+  quantity      Decimal
+  reasonCode    String
+  note          String?
+  recordedById  String
+  occurredAt    DateTime
+  createdAt     DateTime @default(now())
+
+  ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
+  recordedBy    User                  @relation("WasteRecorder", fields: [recordedById], references: [id])
+  movements     IngredientMovement[]
+
+  @@index([ingredientId, occurredAt])
+  @@index([occurredAt])
+}
+
+model Stocktake {
+  id            String          @id @default(cuid())
+  date          DateTime        @unique
+  performedById String
+  status        StocktakeStatus @default(OPEN)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  completedAt   DateTime?
+
+  performer     User             @relation("StocktakePerformer", fields: [performedById], references: [id])
+  entries       StocktakeEntry[]
+
+  @@index([status])
+  @@index([performedById])
+}
+
+model StocktakeEntry {
   id           String   @id @default(cuid())
-  menuItemId   String
-  date         DateTime
-  initialCount Int
-  currentCount Int
-  setById      String
+  stocktakeId  String
+  ingredientId String
+  expectedQty  Decimal
+  countedQty   Decimal
+  variance     Decimal
+  reasonCode   String?
+  reasonNote   String?
+  valuedAtCost Decimal  @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
-  setBy        User     @relation("DailyStockSetter", fields: [setById], references: [id])
+  stocktake    Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient            @relation(fields: [ingredientId], references: [id])
+  movements    IngredientMovement[]
 
-  @@unique([menuItemId, date])
-  @@index([date])
-  @@index([menuItemId])
+  @@unique([stocktakeId, ingredientId])
+  @@index([ingredientId])
+}
+
+model IngredientMovement {
+  id                String                 @id @default(cuid())
+  ingredientId      String
+  type              IngredientMovementType
+  quantity          Decimal
+  unitCostSnapshot  Decimal?
+  resultingStock    Decimal
+  resultingAvgCost  Decimal
+
+  purchaseId        String?
+  orderLineId       String?
+  stocktakeEntryId  String?
+  wasteEventId      String?
+
+  reasonCode        String?
+  note              String?
+  actorUserId       String
+  occurredAt        DateTime
+  createdAt         DateTime @default(now())
+
+  ingredient        Ingredient      @relation(fields: [ingredientId], references: [id])
+  actor             User            @relation("IngredientMovementActor", fields: [actorUserId], references: [id])
+  purchase          Purchase?       @relation(fields: [purchaseId], references: [id])
+  orderLine         OrderLine?      @relation(fields: [orderLineId], references: [id])
+  stocktakeEntry    StocktakeEntry? @relation(fields: [stocktakeEntryId], references: [id])
+  wasteEvent        WasteEvent?     @relation(fields: [wasteEventId], references: [id])
+
+  @@index([ingredientId, occurredAt])
+  @@index([type])
+  @@index([occurredAt])
+  @@index([orderLineId])
+  @@index([purchaseId])
 }
 
 // ============================================================

@@ -1,7 +1,7 @@
-import { Prisma } from '@prisma/client';
+import { MenuItemKind, Prisma } from '@prisma/client';
 import { deferEmit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { menuRepo } from '../repositories/menu.repo';
-import { stockService } from './stock.service';
+import { yieldService } from './yield.service';
 
 export const menuService = {
   async listCategories(includeInactive = false) {
@@ -17,26 +17,28 @@ export const menuService = {
   },
 
   async listMenuForClients() {
-    const [categories, items, todayStock] = await Promise.all([
+    const [categories, items, yieldRows] = await Promise.all([
       menuRepo.listCategories(),
       menuRepo.listItems(),
-      stockService.listToday(),
+      yieldService.computeAll(),
     ]);
 
-    const stockMap = new Map(todayStock.map((row) => [row.menuItemId, row]));
+    const yieldMap = new Map(yieldRows.map((row) => [row.menuItemId, row]));
 
     return categories.map((category) => ({
       ...category,
       items: items
         .filter((item) => item.categoryId === category.id)
         .map((item) => {
-          const stock = stockMap.get(item.id);
-          const stockCount = stock?.count ?? 0;
-          const effectivelyAvailable = item.isAvailable && (!item.trackStock || stockCount > 0);
+          const y = yieldMap.get(item.id);
+          // UNTRACKED items (no recipe, no selfIngredient) are always effectively
+          // available; tracked items are available only while yield > 0.
+          const effectivelyAvailable = item.isAvailable
+            && (y == null || y.kind === 'UNTRACKED' || (y.possiblePortions ?? 0) > 0);
 
           return {
             ...item,
-            todayCurrentCount: item.trackStock ? stockCount : null,
+            // No numbers leaked to waiter; admin reads /api/menu/yield instead.
             effectivelyAvailable,
           };
         }),
@@ -71,18 +73,19 @@ export const menuService = {
       price: Prisma.Decimal | string | number;
       description?: string;
       displayOrder?: number;
-      trackStock?: boolean;
+      kind?: MenuItemKind;
     },
     _actorUserId: string,
   ) {
     return withEmitContext(async () => {
+      const kind = data.kind ?? MenuItemKind.FOOD;
       const item = await menuRepo.createItem({
         category: { connect: { id: data.categoryId } },
         name: data.name,
         price: new Prisma.Decimal(data.price),
         description: data.description ?? null,
         displayOrder: data.displayOrder ?? 0,
-        trackStock: data.trackStock ?? false,
+        kind,
       });
       deferEmit('all', 'menu:changed', {});
       await flushDeferredEmits();

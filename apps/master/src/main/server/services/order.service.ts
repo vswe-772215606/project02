@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { KitchenTicketStatus, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
+import { KitchenTicketStatus, MenuItemKind, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { deferAfterCommit, deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { getPrisma } from '../lib/prisma';
@@ -14,7 +14,7 @@ import { billingService } from './billing.service';
 import { debtService } from './debt.service';
 import { printService } from './print.service';
 import { settingsService } from './settings.service';
-import { stockService } from './stock.service';
+import { consumptionService } from './consumption.service';
 
 type Tx = Prisma.TransactionClient;
 type RequestingUser = {
@@ -53,16 +53,14 @@ function mapToDto(order: any) {
 
   const totalSnapshot = order.totalSnapshot ? decimalToInt(order.totalSnapshot) : 0;
   
-  // Calculate totalAmount for active orders that don't have a snapshot yet
+  // Calculate totalAmount for active orders that don't have a snapshot yet.
+  // SERVICE lines are already part of order.lines, so summing all non-cancelled
+  // lines correctly produces (food + xizmat haqi) — no setting lookup needed.
   let totalAmount = totalSnapshot;
   if (!order.totalSnapshot && order.lines) {
     totalAmount = order.lines
       .filter((l: any) => !l.isCanceled)
       .reduce((sum: number, l: any) => sum + decimalToInt(l.unitPriceSnapshot) * l.quantity, 0);
-    
-    if (order.status !== 'DRAFT' && !order.serviceChargeWaived) {
-      totalAmount += settingsService.getInt('service_charge_amount');
-    }
   }
 
   return {
@@ -77,6 +75,7 @@ function mapToDto(order: any) {
     lines: order.lines?.map((l: any) => ({
       ...l,
       price: decimalToInt(l.unitPriceSnapshot),
+      menuItemKind: l.menuItem?.kind ?? 'FOOD',
     })),
     debt: order.debt
       ? {
@@ -153,10 +152,15 @@ async function createAddonTicket(
 async function maybeRestoreLineStock(
   line: OrderWithDetails['lines'][number],
   ticketStatus: KitchenTicketStatus | null,
+  actorUserId: string,
   tx: Tx,
 ) {
   if (!line.isCanceled && (ticketStatus === null || ticketStatus === KitchenTicketStatus.PENDING)) {
-    await stockService.restore(line.menuItemId, line.quantity, tx);
+    await consumptionService.restore(
+      { id: line.id, menuItemId: line.menuItemId, actorUserId },
+      line.quantity,
+      tx,
+    );
   }
 }
 
@@ -253,11 +257,13 @@ export const orderService = {
         throw Errors.NotFound('Menu item');
       }
 
-      return getPrisma().$transaction(async (tx) => {
-        await stockService.decrement(input.menuItemId, input.quantity, tx);
+      const isService = item.kind === MenuItemKind.SERVICE;
 
-        // Merge into existing unsent line for the same item (DRAFT only)
-        const existingUnsentLine = order.status === OrderStatus.DRAFT
+      return getPrisma().$transaction(async (tx) => {
+        // Merge into existing unsent line for the same item (DRAFT only).
+        // For SERVICE items, also merge when added later — multiple "xizmat haqi"
+        // lines for the same item shouldn't proliferate.
+        const existingUnsentLine = order.status === OrderStatus.DRAFT || isService
           ? await tx.orderLine.findFirst({
               where: {
                 orderId: input.orderId,
@@ -286,7 +292,16 @@ export const orderService = {
               tx,
             );
 
-        if (!existingUnsentLine && order.status !== OrderStatus.DRAFT) {
+        if (!isService) {
+          await consumptionService.consume(
+            { id: line.id, menuItemId: input.menuItemId, actorUserId: input.waiterId },
+            input.quantity,
+            tx,
+          );
+        }
+
+        // SERVICE lines never spawn a kitchen ticket.
+        if (!existingUnsentLine && !isService && order.status !== OrderStatus.DRAFT) {
           await createAddonTicket(order, input.waiterId, [line.id], tx);
         }
 
@@ -320,8 +335,6 @@ export const orderService = {
         const comboGroupId = crypto.randomUUID();
         const lines = [];
         for (const component of combo.components) {
-          await stockService.decrement(component.menuItemId, component.quantity, tx);
-
           const line = await orderLineRepo.create({
             orderId: input.orderId,
             menuItemId: component.menuItemId,
@@ -331,6 +344,11 @@ export const orderService = {
             unitPriceSnapshot: component.menuItem.price,
             quantity: component.quantity,
           }, tx);
+          await consumptionService.consume(
+            { id: line.id, menuItemId: component.menuItemId, actorUserId: input.waiterId },
+            component.quantity,
+            tx,
+          );
           lines.push(line);
         }
 
@@ -371,9 +389,17 @@ export const orderService = {
 
       return getPrisma().$transaction(async (tx) => {
         if (delta > 0 && line.menuItemId) {
-          await stockService.decrement(line.menuItemId, delta, tx);
+          await consumptionService.consume(
+            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
+            delta,
+            tx,
+          );
         } else if (delta < 0 && line.menuItemId) {
-          await stockService.restore(line.menuItemId, Math.abs(delta), tx);
+          await consumptionService.restore(
+            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
+            Math.abs(delta),
+            tx,
+          );
         }
 
         const updated = await orderLineRepo.updateQuantity(line.id, input.quantity, tx);
@@ -458,7 +484,7 @@ export const orderService = {
 
       return getPrisma().$transaction(async (tx) => {
         const updated = await orderLineRepo.cancel(input.lineId, input.reason ?? '', tx);
-        await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, tx);
+        await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, input.requestingUser.id, tx);
 
         deferEmit('kitchen', 'order:updated', { orderId: order.id });
         deferEmit('admin', 'order:updated', { orderId: order.id });
@@ -479,14 +505,29 @@ export const orderService = {
           throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
         }
 
-        const unsentLines = order.lines.filter((line) => !line.kitchenTicketId && !line.isCanceled);
-        
-        // If already sent and no new lines, just return success
+        // SERVICE lines (xizmat haqi) never go to the kitchen — they appear on the
+        // bill but cooks don't see or cook them. Filter them out of the send.
+        const unsentLines = order.lines.filter(
+          (line) => !line.kitchenTicketId && !line.isCanceled && line.menuItem.kind !== MenuItemKind.SERVICE,
+        );
+
+        // If already sent and no new cookable lines, just return success
         if (order.status !== OrderStatus.DRAFT && unsentLines.length === 0) {
           return mapToDto(order);
         }
 
         if (unsentLines.length === 0) {
+          // No food to send; this can happen if the only lines are SERVICE items.
+          // Still allow transitioning DRAFT → SENT so the waiter can request a bill.
+          if (order.status === OrderStatus.DRAFT) {
+            const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
+            if (!updated) {
+              throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
+            }
+            deferEmit('admin', 'order:updated', { orderId: order.id });
+            deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+            return mapToDto(updated);
+          }
           throw Errors.Validation('Order has no draft lines');
         }
 
@@ -644,7 +685,7 @@ export const orderService = {
 
         // Restore stock for all non-canceled items that haven't been cooked
         for (const line of order.lines) {
-          await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, tx);
+          await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, input.requestingUser.id, tx);
         }
 
         await auditService.log({

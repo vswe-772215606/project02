@@ -125,7 +125,6 @@ async function main() {
   });
 
   for (const setting of [
-    { key: 'service_charge_amount', value: '10000' },
     { key: 'max_discount_percent', value: '15' },
     { key: 'max_discount_amount', value: '100000' },
     { key: 'daily_report_telegram_enabled', value: 'false' },
@@ -138,6 +137,9 @@ async function main() {
     { key: 'store_heading', value: 'Chayxana' },
     { key: 'store_phone', value: '' },
     { key: 'store_address', value: '' },
+    { key: 'variance_alert_threshold', value: '50000' },
+    { key: 'monthly_kitchen_overhead_uzs', value: '0' },
+    { key: 'system_costing_active_since', value: '' },
   ]) {
     await prisma.setting.upsert({
       where: { key: setting.key },
@@ -146,15 +148,15 @@ async function main() {
     });
   }
 
+  // Minimal category set — admin no longer picks a category in the UI.
+  // 'Mahsulot xaridi' is auto-attached by Purchase events; 'Operatsion' is the
+  // default for everything else (salary, rent, utilities, etc.).
+  // Older category names (Go'sht / Sabzavot / Ichimlik / Transport / Xo'jalik /
+  // Ishchilar oyligi / Avans / Boshqa) may still exist in older dev DBs from
+  // earlier seeds; they continue to work but new expenses default to Operatsion.
   const expenseCategories = [
-    { name: "Go'sht", displayOrder: 0 },
-    { name: 'Sabzavot', displayOrder: 1 },
-    { name: 'Ichimlik', displayOrder: 2 },
-    { name: 'Transport', displayOrder: 3 },
-    { name: "Xo'jalik", displayOrder: 4 },
-    { name: 'Ishchilar oyligi', displayOrder: 5 },
-    { name: 'Avans', displayOrder: 6 },
-    { name: 'Boshqa', displayOrder: 7 },
+    { id: 'seed-cat-ingredients', name: 'Mahsulot xaridi', displayOrder: 0 },
+    { id: 'seed-cat-operational', name: 'Operatsion', displayOrder: 1 },
   ];
 
   for (const category of expenseCategories) {
@@ -189,114 +191,18 @@ async function main() {
   }
 
   const menuItems = [
-    {
-      id: MENU_ITEM_IDS.achichuk,
-      categoryId: CATEGORY_IDS.salads,
-      name: 'Achichuk',
-      description: 'Pomidor va piyozli salat',
-      price: '18000',
-      displayOrder: 0,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.guruchSalat,
-      categoryId: CATEGORY_IDS.salads,
-      name: 'Guruchli salat',
-      description: 'Mayin guruch va sabzavotlar',
-      price: '22000',
-      displayOrder: 1,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.qarsildoqSalat,
-      categoryId: CATEGORY_IDS.salads,
-      name: 'Qarsildoq salat',
-      description: 'Bodring va ko\'katli salat',
-      price: '20000',
-      displayOrder: 2,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.mastava,
-      categoryId: CATEGORY_IDS.soups,
-      name: 'Mastava',
-      description: 'Mol go\'shtli issiq sho\'rva',
-      price: '26000',
-      displayOrder: 0,
-      trackStock: false,
-    },
-    {
-      id: MENU_ITEM_IDS.lagmonSoup,
-      categoryId: CATEGORY_IDS.soups,
-      name: 'Lag\'mon sho\'rva',
-      description: 'Uy lag\'monidan sho\'rva',
-      price: '30000',
-      displayOrder: 1,
-      trackStock: false,
-    },
-    {
-      id: MENU_ITEM_IDS.osh,
-      categoryId: CATEGORY_IDS.mains,
-      name: 'Osh',
-      description: 'An\'anaviy toshkent oshi',
-      price: '35000',
-      displayOrder: 0,
-      trackStock: false,
-    },
-    {
-      id: MENU_ITEM_IDS.molKabob,
-      categoryId: CATEGORY_IDS.mains,
-      name: 'Mol kabob',
-      description: 'Mol go\'shtidan kabob',
-      price: '42000',
-      displayOrder: 1,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.tovuqKabob,
-      categoryId: CATEGORY_IDS.mains,
-      name: 'Tovuq kabob',
-      description: 'Tovuq go\'shtidan kabob',
-      price: '36000',
-      displayOrder: 2,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.somsa,
-      categoryId: CATEGORY_IDS.mains,
-      name: 'Somsa',
-      description: 'Tandir somsasi',
-      price: '12000',
-      displayOrder: 3,
-      trackStock: true,
-    },
-    {
-      id: MENU_ITEM_IDS.qoraChoy,
-      categoryId: CATEGORY_IDS.tea,
-      name: 'Qora choy',
-      description: 'Bir choynak qora choy',
-      price: '8000',
-      displayOrder: 0,
-      trackStock: false,
-    },
-    {
-      id: MENU_ITEM_IDS.kokChoy,
-      categoryId: CATEGORY_IDS.tea,
-      name: 'Ko\'k choy',
-      description: 'Bir choynak ko\'k choy',
-      price: '8000',
-      displayOrder: 1,
-      trackStock: false,
-    },
-    {
-      id: MENU_ITEM_IDS.patirNon,
-      categoryId: CATEGORY_IDS.bread,
-      name: 'Patir non',
-      description: 'Yangi tandir non',
-      price: '6000',
-      displayOrder: 0,
-      trackStock: false,
-    },
+    { id: MENU_ITEM_IDS.achichuk, categoryId: CATEGORY_IDS.salads, name: 'Achichuk', description: 'Pomidor va piyozli salat', price: '18000', displayOrder: 0 },
+    { id: MENU_ITEM_IDS.guruchSalat, categoryId: CATEGORY_IDS.salads, name: 'Guruchli salat', description: 'Mayin guruch va sabzavotlar', price: '22000', displayOrder: 1 },
+    { id: MENU_ITEM_IDS.qarsildoqSalat, categoryId: CATEGORY_IDS.salads, name: 'Qarsildoq salat', description: 'Bodring va ko\'katli salat', price: '20000', displayOrder: 2 },
+    { id: MENU_ITEM_IDS.mastava, categoryId: CATEGORY_IDS.soups, name: 'Mastava', description: 'Mol go\'shtli issiq sho\'rva', price: '26000', displayOrder: 0 },
+    { id: MENU_ITEM_IDS.lagmonSoup, categoryId: CATEGORY_IDS.soups, name: 'Lag\'mon sho\'rva', description: 'Uy lag\'monidan sho\'rva', price: '30000', displayOrder: 1 },
+    { id: MENU_ITEM_IDS.osh, categoryId: CATEGORY_IDS.mains, name: 'Osh', description: 'An\'anaviy toshkent oshi', price: '35000', displayOrder: 0 },
+    { id: MENU_ITEM_IDS.molKabob, categoryId: CATEGORY_IDS.mains, name: 'Mol kabob', description: 'Mol go\'shtidan kabob', price: '42000', displayOrder: 1 },
+    { id: MENU_ITEM_IDS.tovuqKabob, categoryId: CATEGORY_IDS.mains, name: 'Tovuq kabob', description: 'Tovuq go\'shtidan kabob', price: '36000', displayOrder: 2 },
+    { id: MENU_ITEM_IDS.somsa, categoryId: CATEGORY_IDS.mains, name: 'Somsa', description: 'Tandir somsasi', price: '12000', displayOrder: 3 },
+    { id: MENU_ITEM_IDS.qoraChoy, categoryId: CATEGORY_IDS.tea, name: 'Qora choy', description: 'Bir choynak qora choy', price: '8000', displayOrder: 0 },
+    { id: MENU_ITEM_IDS.kokChoy, categoryId: CATEGORY_IDS.tea, name: 'Ko\'k choy', description: 'Bir choynak ko\'k choy', price: '8000', displayOrder: 1 },
+    { id: MENU_ITEM_IDS.patirNon, categoryId: CATEGORY_IDS.bread, name: 'Patir non', description: 'Yangi tandir non', price: '6000', displayOrder: 0 },
   ];
 
   for (const item of menuItems) {
@@ -311,7 +217,6 @@ async function main() {
         description: item.description,
         price: item.price,
         displayOrder: item.displayOrder,
-        trackStock: item.trackStock,
         isAvailable: true,
         isActive: true,
       },
@@ -323,7 +228,6 @@ async function main() {
         description: item.description,
         price: item.price,
         displayOrder: item.displayOrder,
-        trackStock: item.trackStock,
         isAvailable: true,
         isActive: true,
       },

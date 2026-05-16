@@ -168,17 +168,62 @@ Items can be added during `BILL_REQUESTED` (live bill — admin's screen updates
 - Reversal keeps the original row for auditability and subtracts it in reports.
 - Salary and wage payouts are expenses, not service charges.
 
-## Stock tracking (added after main interview)
+## Stock tracking — per-dish ingredient model
 
-- `MenuItem.trackStock: Boolean`. Per-item toggle. Admin marks which items have daily prep counts. Items like plov, drinks stay untracked.
-- `DailyStock` table: one row per `(menuItem, date)`. Holds `initialCount` and `currentCount`.
-- Admin sets morning count. Owner can too.
-- Effective availability rule: `isAvailable === true AND (trackStock === false OR currentCount > 0)`.
-- Auto-unavailable at `currentCount = 0`. New order lines for stock-out items rejected at API.
-- Decrement on `addLine` (atomic check via `update where currentCount >= quantity`).
-- Restore on cancel ONLY if the canceled line's ticket was `PENDING`. No restore for `IN_PROGRESS`/`READY`/`CANCELED` tickets or for walkouts.
-- Admin can manually edit today's count anytime. Logged to audit (`DAILY_STOCK_ADJUSTED`).
-- Real-time socket event `stock:changed` with `{ menuItemId, currentCount }` on every change. Sent to all rooms.
+Stock lives on `Ingredient` rows. Every `Ingredient` is **scoped to exactly one parent `MenuItem`** (`Ingredient.parentMenuItemId`). "Piyoz" used in plov is a different `Ingredient` row from "Piyoz" used in qiyma — they cannot share a pool. Composite unique key `(parentMenuItemId, name)`.
+
+Each menu item belongs to one of three patterns, determined by what exists in the schema (no `trackStock` flag):
+
+| Pattern | What exists | How stock works |
+|---|---|---|
+| **Recipe-based** (plov, kabob, lagman) | `Recipe` with N `RecipeIngredient`s | Sale of 1 portion decrements **each** recipe ingredient by `recipeIngredient.quantity`. Out-of-stock = any one ingredient cannot cover the demand. |
+| **Direct stock** (cola, non, suv) | `Ingredient` with `isSelfMenuItem=true` and `selfMenuItemId` pointing back to the menu item | Sale of N decrements the self-ingredient by N. |
+| **Untracked** (choy) | Neither recipe nor self-ingredient | Always available; no movement written. |
+
+### Yield (max possible portions)
+
+Derived at read time, **never stored**:
+
+```
+yield(menuItem) = floor( min over recipeIngredients of ingredient.currentStock / quantityPerPortion )
+                = floor(selfIngredient.currentStock) for direct-stock items
+                = null for untracked items
+```
+
+The bottleneck ingredient (the `min` argument) is returned alongside the number so admin sees "Sabzi tugayapti, faqat 18 ta palov yetadi".
+
+### Role visibility
+
+- **OWNER / ADMIN**: `GET /api/menu/yield` returns `{ possiblePortions, bottleneckIngredientId, bottleneckIngredientName, bottleneckCurrentStock, bottleneckUnit }` per item. Shown in MenuPage as a per-row badge with traffic-light colors (red 0, amber ≤5, green >5).
+- **WAITER / KITCHEN**: see only `effectivelyAvailable: boolean` in `/api/menu`. No numbers leaked.
+
+### Consumption flow
+
+- **Decrement on `addLine`** (and on combo expansion, and on quantity increase delta). Atomic per-ingredient: `UPDATE Ingredient SET currentStock = currentStock - need WHERE id = :id AND currentStock >= :need`. If any single ingredient returns `updateMany count: 0`, the whole order-line transaction rolls back.
+- For each touched ingredient, write `IngredientMovement(type=CONSUME, orderLineId, quantity, resultingStock, resultingAvgCost)`.
+- **Restore on cancel** only if the canceled line's ticket is still `PENDING`. Mirror logic with `IngredientMovement(type=RESTORE)`. No restore for `IN_PROGRESS`/`READY`/walkout.
+- **Quantity convention**: `IngredientMovement.quantity` is always positive. Conservation sum is sign-aware (`CONSUME`/`WASTE`/`STOCKTAKE_DECREASE` → minus; rest → plus).
+
+### Errors
+
+`Errors.OutOfStock(ingredientName, parentDishName?)` → HTTP 409, message `"Sabzi (Palov uchun) yetarli emas"`. Details include `{ ingredientName, parentDishName }`.
+
+### Recipe authoring guard
+
+When upserting a `Recipe`, the service rejects any `ingredientId` whose `parentMenuItemId` does not equal the recipe's `menuItemId`. Prevents cross-dish ingredient pooling at the API level.
+
+### Real-time
+
+- `ingredient:stockChanged { ingredientId }` — fired from consume, restore, purchase, waste, stocktake. Emitted to `admin` room.
+- Renderer/mobile invalidate `['ingredients']`, `['menu', 'clients']`, `['yield']` on receipt.
+- Old `stock:changed` event removed.
+
+### What's gone
+
+- `DailyStock` table and the daily-reset semantics — removed entirely.
+- `MenuItem.trackStock` — removed; tracking is implied by recipe-vs-self-vs-neither.
+- `DAILY_STOCK_SET`, `DAILY_STOCK_ADJUSTED` audit actions — removed.
+- `/api/stock/*` routes, `stockService`, `dailyStockRepo`, `StockPage.tsx` — all deleted.
 
 ## Receipts and printer
 

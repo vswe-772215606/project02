@@ -7,7 +7,7 @@ export interface MenuItem {
   price: number;
   description: string | null;
   displayOrder: number;
-  trackStock: boolean;
+  kind: 'FOOD' | 'SERVICE';
   isAvailable: boolean;
   isActive: boolean;
 }
@@ -45,7 +45,7 @@ export const menuApi = {
     api.patch<Category>(`/api/menu/categories/${id}`, data),
   
   listItems: (includeInactive = false) => api.get<MenuItem[]>(`/api/menu/items${includeInactive ? '?includeInactive=true' : ''}`),
-  createItem: (data: { categoryId: string; name: string; price: number; description?: string; displayOrder?: number; trackStock?: boolean }) => 
+  createItem: (data: { categoryId: string; name: string; price: number; description?: string; displayOrder?: number }) =>
     api.post<MenuItem>('/api/menu/items', data),
   updateItem: (id: string, data: Partial<MenuItem>) => 
     api.patch<MenuItem>(`/api/menu/items/${id}`, data),

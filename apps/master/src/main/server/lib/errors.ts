@@ -21,8 +21,15 @@ export const Errors = {
     new AppError('VALIDATION', 400, msg, details),
   IllegalStateTransition: (from: string, to: string) =>
     new AppError('ILLEGAL_STATE', 409, `Cannot transition from ${from} to ${to}`),
-  OutOfStock: (itemName: string) =>
-    new AppError('OUT_OF_STOCK', 409, `${itemName} is out of stock today`),
+  OutOfStock: (itemName: string, parentDishName?: string) =>
+    new AppError(
+      'OUT_OF_STOCK',
+      409,
+      parentDishName
+        ? `${itemName} (${parentDishName} uchun) yetarli emas`
+        : `${itemName} yetarli emas`,
+      parentDishName ? { ingredientName: itemName, parentDishName } : { ingredientName: itemName },
+    ),
   ItemUnavailable: (itemName: string) =>
     new AppError('ITEM_UNAVAILABLE', 409, `${itemName} is unavailable`),
   DiscountCapExceeded: (msg: string) =>

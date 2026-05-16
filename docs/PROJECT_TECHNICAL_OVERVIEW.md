@@ -16,7 +16,7 @@ The project is a **monorepo** managed by `pnpm`, following a client-server-displ
 ### Backend (Integrated in Master)
 - **Runtime**: Node.js (within Electron main process).
 - **Framework**: Express.js.
-- **Database**: **SQLite** via **Prisma ORM** (planned transition to PostgreSQL 16 for production).
+- **Database**: **SQLite** via **Prisma ORM**. SQLite is the production database for v1. (Postgres migration is gated by a trigger documented in `prd/02-dual-db-strategy.md`; no migration is planned in v1.)
 - **Real-time**: **Socket.io** (Notification-only pattern: server emits minimal IDs, clients re-fetch via REST).
 - **Validation**: **Zod** for request body and state transition validation.
 - **Auth**: Custom middleware with **bcryptjs** (PIN for waiters, passwords for others), DB-backed sessions (single-device rule).
@@ -37,11 +37,11 @@ The system uses a comprehensive Prisma schema (`apps/master/prisma/schema.prisma
 - **Auth**: `User`, `Session` (Role-based: OWNER, ADMIN, KITCHEN, WAITER).
 - **Menu**: `Category`, `MenuItem`, `Combo` (flat category structure, price snapshotting on order).
 - **Orders**: `Order`, `OrderLine`, `KitchenTicket` (Order state machine: DRAFT → SENT → BILL_REQUESTED → PENDING_PAYMENT → CLOSED/WALKOUT).
-- **Stock Tracking**: `DailyStock` (tracks morning counts and decrements atomically upon adding items).
+- **Stock Tracking**: `Ingredient` (per-dish scope via `parentMenuItemId`), `Recipe`/`RecipeIngredient` for cooked dishes, `Ingredient.isSelfMenuItem` for direct-stock items (cola/non/suv), `IngredientMovement` ledger.
 - **Operations**: `Discount` (Percent/Fixed, with Admin-set caps), `Payment` (Cash/Card, mixed support), `AuditLog`, `PrintJob`.
 
 ### Key Business Rules
-1. **Atomic Stock Updates**: Orders are rejected if `MenuItem.trackStock` is true and `currentCount` is insufficient.
+1. **Atomic Stock Updates**: Sale decrements each recipe ingredient (or the self-ingredient for direct items) atomically via `UPDATE WHERE currentStock >= need`. If any ingredient is short, the whole order-line transaction rolls back. Yield (max portions) computed live from ingredients; admin-only.
 2. **Order Integrity**: State transitions are guarded (e.g., cannot transition to CLOSED if payments don't match the total).
 3. **Printer Mutex**: A Node-side queue (`p-queue`) ensures only one print job hits the physical printer at a time.
 4. **Service Charge**: A fixed UZS amount (configurable) applied per-bill, tracked for waiter analytics but excluded from restaurant revenue.

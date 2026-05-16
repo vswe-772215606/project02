@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/auth.store';
 import { useSocket } from './hooks/useSocket';
 import { LoginPage } from './pages/LoginPage';
-import { Layout } from './components/Layout';
+import { AppShell } from './components/layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { ApprovalQueuePage } from './pages/ApprovalQueuePage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -12,11 +12,14 @@ import { TablesPage } from './pages/TablesPage';
 import { UsersPage } from './pages/UsersPage';
 import { DiscountsPage } from './pages/DiscountsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { StockPage } from './pages/StockPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { DebtsPage } from './pages/DebtsPage';
+import { IngredientsPage } from './pages/IngredientsPage';
+import { PurchasesPage } from './pages/PurchasesPage';
+import { RecipesPage } from './pages/RecipesPage';
+import { FinancePage } from './pages/FinancePage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -25,7 +28,7 @@ const queryClient = new QueryClient({
 function AuthedRoutes() {
   useSocket();
   return (
-    <Layout>
+    <AppShell>
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/approval-queue" element={<ApprovalQueuePage />} />
@@ -34,7 +37,10 @@ function AuthedRoutes() {
         <Route path="/tables" element={<TablesPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/discounts" element={<DiscountsPage />} />
-        <Route path="/stock" element={<StockPage />} />
+        <Route path="/ingredients" element={<IngredientsPage />} />
+        <Route path="/purchases" element={<PurchasesPage />} />
+        <Route path="/recipes" element={<RecipesPage />} />
+        <Route path="/finance" element={<FinancePage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/debts" element={<DebtsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
@@ -42,7 +48,7 @@ function AuthedRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
-    </Layout>
+    </AppShell>
   );
 }
 

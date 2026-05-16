@@ -7,11 +7,9 @@ export type MenuItem = {
   price: number;
   description: string | null;
   isAvailable: boolean;
-  trackStock: boolean;
   displayOrder: number;
   isActive: boolean;
   effectivelyAvailable: boolean;
-  todayCurrentCount: number | null;
 };
 
 export type Category = {

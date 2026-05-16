@@ -1,8 +1,8 @@
 import { AuditAction, OrderStatus, UserRole } from '@prisma/client';
 import { disconnectPrisma } from '../src/main/server/lib/prisma';
 import { auditRepo } from '../src/main/server/repositories/audit.repo';
-import { dailyStockRepo } from '../src/main/server/repositories/dailyStock.repo';
 import { discountRepo } from '../src/main/server/repositories/discount.repo';
+import { ingredientRepo } from '../src/main/server/repositories/ingredient.repo';
 import { kitchenRepo } from '../src/main/server/repositories/kitchen.repo';
 import { menuRepo } from '../src/main/server/repositories/menu.repo';
 import { orderLineRepo } from '../src/main/server/repositories/orderLine.repo';
@@ -31,7 +31,6 @@ async function main() {
   console.log('--- menu items ---');
   const menuItems = await menuRepo.listItems();
   console.log('Total menu items:', menuItems.length);
-  console.log('Tracked items:', (await menuRepo.listTrackedItems()).length);
 
   console.log('--- combos ---');
   console.log('Total combos:', (await menuRepo.listCombos()).length);
@@ -73,9 +72,13 @@ async function main() {
   console.log('--- print jobs ---');
   console.log('Failed print jobs since today:', (await printJobRepo.listFailedSinceDate(new Date(0))).length);
 
-  console.log('--- daily stock ---');
-  console.log('Daily stock rows today:', (await dailyStockRepo.listForDate(new Date())).length);
-  console.log('Daily stock history for missing item:', (await dailyStockRepo.historyForItem('missing-item', new Date(0), new Date())).length);
+  console.log('--- ingredients ---');
+  const allIngredients = await ingredientRepo.list();
+  console.log('Total ingredients:', allIngredients.length);
+  const firstMenuItemId = menuItems[0]?.id;
+  if (firstMenuItemId) {
+    console.log('Ingredients for first menu item:', (await ingredientRepo.listByParent(firstMenuItemId)).length);
+  }
 
   console.log('--- partial unique index ---');
   console.log('Creating two active orders on the same table should raise Prisma P2002 once services begin writing orders.');

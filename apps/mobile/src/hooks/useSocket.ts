@@ -102,7 +102,7 @@ export function useSocket() {
     });
     socket.on('menu:changed', () => void qc.invalidateQueries({ queryKey: ['menu'] }));
     socket.on('menu:itemAvailability', () => void qc.invalidateQueries({ queryKey: ['menu'] }));
-    socket.on('stock:changed', () => void qc.invalidateQueries({ queryKey: ['menu'] }));
+    socket.on('ingredient:stockChanged', () => void qc.invalidateQueries({ queryKey: ['menu'] }));
 
     return () => {
       authFailed = true;

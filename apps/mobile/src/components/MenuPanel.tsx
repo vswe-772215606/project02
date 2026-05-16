@@ -22,17 +22,9 @@ import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
 import { Input } from "../components/ui/Input";
 
-function stockLabel(item: MenuItem): { label: string; variant: 'danger' | 'warning' } | null {
-  if (!item.trackStock || item.todayCurrentCount === null) return null;
-  if (item.todayCurrentCount <= 0) return { label: "Tugagan", variant: 'danger' };
-  if (item.todayCurrentCount <= 5) return { label: `${item.todayCurrentCount} ta qoldi`, variant: 'warning' };
-  return null;
-}
-
 function ItemCard({ item, onPress }: { item: MenuItem; onPress: () => void }) {
   const available = item.effectivelyAvailable;
-  const stock = stockLabel(item);
-  
+
   return (
     <Card
       style={[styles.itemCard, !available && styles.itemCardUnavailable]}
@@ -47,12 +39,9 @@ function ItemCard({ item, onPress }: { item: MenuItem; onPress: () => void }) {
           {formatUZS(item.price)}
         </Text>
       </View>
-      
+
       <View style={styles.itemFooter}>
-        {stock && (
-          <Badge label={stock.label} variant={stock.variant} style={styles.stockBadge} />
-        )}
-        {!available && !stock && (
+        {!available && (
           <Badge label="Mavjud emas" variant="slate" style={styles.stockBadge} />
         )}
       </View>

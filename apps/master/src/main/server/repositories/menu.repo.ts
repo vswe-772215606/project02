@@ -100,13 +100,6 @@ export const menuRepo = {
     });
   },
 
-  async listTrackedItems(tx?: Tx) {
-    return (tx ?? getPrisma()).menuItem.findMany({
-      where: { trackStock: true },
-      orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
-    });
-  },
-
   async createCombo(data: Prisma.ComboCreateInput, tx?: Tx) {
     return (tx ?? getPrisma()).combo.create({
       data,

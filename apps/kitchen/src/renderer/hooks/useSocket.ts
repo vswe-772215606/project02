@@ -113,7 +113,6 @@ export function useSocket() {
     socket.on('ticket:canceled', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
     socket.on('order:transferred', () => qc.invalidateQueries({ queryKey: ['kitchen', 'tickets'] }));
     socket.on('menu:itemAvailability', () => qc.invalidateQueries({ queryKey: ['menu'] }));
-    socket.on('stock:changed', () => qc.invalidateQueries({ queryKey: ['stock'] }));
 
     return () => {
       authFailed = true;
