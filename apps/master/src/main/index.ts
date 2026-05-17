@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { join } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
 import { bootstrapPackagedWindowsSqlite } from './sqlite-bootstrap';
+import { saveFinancePdf } from './print-pdf';
 import {
   createFileLogger,
   createStartupLogger,
@@ -206,6 +207,18 @@ async function runStartup(): Promise<void> {
 
 if (singleInstanceLockAcquired) {
   setupPrismaRuntime();
+
+  ipcMain.handle('finance:save-pdf', async (event, payload: { defaultName: string; title?: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return { saved: false, error: 'no-window' };
+    }
+    return saveFinancePdf({
+      window: win,
+      defaultName: payload?.defaultName ?? 'chayxana-moliyaviy.pdf',
+      title: payload?.title,
+    });
+  });
 
   app.on('second-instance', () => {
     focusExistingWindow();

@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw } from 'lucide-react';
+import { Printer, FileDown, RefreshCw, ChevronDown } from 'lucide-react';
 import { DailyReport, MonthlyReport, reportsApi } from '../api/reports';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
 import { PageHeader } from '@/components/feedback/PageHeader';
 import { EmptyState } from '@/components/feedback/EmptyState';
-import { DeprecationBanner } from '@/components/feedback/DeprecationBanner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,17 +31,15 @@ import { CashflowSection } from '@/components/reports/CashflowSection';
 import { ResultsSection } from '@/components/reports/ResultsSection';
 import { ExpensesSection } from '@/components/reports/ExpensesSection';
 import { DebtSection } from '@/components/reports/DebtSection';
-import { PerWaiterSection } from '@/components/reports/PerWaiterSection';
-import { MealSalesSection } from '@/components/reports/MealSalesSection';
 import { OrdersSection } from '@/components/reports/OrdersSection';
-import { MonthlyCalendar } from '@/components/reports/MonthlyCalendar';
-import { StatTile, sumMoney } from '@/components/reports/report-helpers';
+import { MonthlyTable } from '@/components/reports/MonthlyTable';
+import { StatTile } from '@/components/reports/report-helpers';
 import { formatMoney } from '@/lib/format';
+import { printCurrentView, saveFinancePdf } from '@/lib/save-pdf';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
   HandCoins,
-  Receipt,
   ShoppingBag,
   TrendingUp,
 } from 'lucide-react';
@@ -88,21 +85,41 @@ function formatDateLabel(dateStr: string) {
   return `${Number(day)} ${UZBEK_MONTHS[Number(monthPart) - 1] ?? monthPart} ${year}`;
 }
 
+/** A print-only block at the top of the rendered page — shows in PDF / Ctrl+P, hidden on screen. */
+function PrintHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="print-only mb-4 border-b pb-3">
+      <div className="text-xl font-bold">Chayxana — {title}</div>
+      <div className="text-sm text-muted-foreground">{subtitle}</div>
+    </div>
+  );
+}
+
 function DailyReportSections({ report }: { report: DailyReport }) {
   return (
     <div className="space-y-6">
+      <ResultsSection report={report} />
       <SalesSummary report={report} />
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <CashflowSection report={report} />
-        <ResultsSection report={report} />
-      </div>
+      <CashflowSection report={report} />
       <ExpensesSection report={report} />
       <DebtSection report={report} />
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <PerWaiterSection report={report} />
-        <MealSalesSection report={report} />
-      </div>
-      <OrdersSection report={report} />
+
+      {/* Collapsible orders register — closed on screen, force-open in print via @media print rule */}
+      <details data-print-expand className="group rounded-lg border bg-card">
+        <summary className="no-print cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-2 hover:bg-muted/40 transition-colors">
+          <span className="text-sm font-semibold">Buyurtmalar reestri</span>
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{report.ordersTable.length} ta yozuv</span>
+            <ChevronDown
+              className="h-4 w-4 transition-transform group-open:rotate-180"
+              strokeWidth={2}
+            />
+          </span>
+        </summary>
+        <div className="px-4 pb-4 pt-2 border-t">
+          <OrdersSection report={report} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -110,6 +127,17 @@ function DailyReportSections({ report }: { report: DailyReport }) {
 function DailyLoadingSkeleton() {
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Card key={i}>
+            <CardContent className="pt-6 space-y-3">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-12 w-48" />
+              <Skeleton className="h-3 w-40" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {Array.from({ length: 5 }).map((_, i) => (
           <Card key={i}>
@@ -123,30 +151,14 @@ function DailyLoadingSkeleton() {
           </Card>
         ))}
       </div>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader>
-              <Skeleton className="h-4 w-32" />
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, j) => (
-                  <Skeleton key={j} className="h-4 w-full" />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
       <Card>
         <CardHeader>
-          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-32" />
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, j) => (
-              <Skeleton key={j} className="h-5 w-full" />
+            {Array.from({ length: 5 }).map((_, j) => (
+              <Skeleton key={j} className="h-4 w-full" />
             ))}
           </div>
         </CardContent>
@@ -162,8 +174,6 @@ function MonthlyView({
   report: MonthlyReport;
   onSelectDay: (day: DailyReport) => void;
 }) {
-  const serviceChargeTotal = sumMoney(report.daily.map((d) => d.sales.serviceCharge));
-
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -174,25 +184,17 @@ function MonthlyView({
           icon={ArrowDownToLine}
         />
         <StatTile
+          label="Sof savdo"
+          value={formatMoney(report.totals.netSales)}
+          hint="Chegirmadan keyin"
+          icon={ShoppingBag}
+        />
+        <StatTile
           label="Umumiy xarajat"
           value={formatMoney(report.totals.expensesNet)}
           hint="Netto chiqim"
           icon={ArrowUpFromLine}
           tone="warning"
-        />
-        <StatTile
-          label="Xizmat haqi"
-          value={formatMoney(serviceChargeTotal)}
-          hint="Ofitsiantlarga jami"
-          icon={Receipt}
-          tone="muted"
-        />
-        <StatTile
-          label="Nasiya qoldig'i"
-          value={formatMoney(report.totals.outstandingDebtEndOfMonth)}
-          hint="Oy oxiriga"
-          icon={HandCoins}
-          tone={Number(report.totals.outstandingDebtEndOfMonth) > 0 ? 'danger' : 'good'}
         />
         <StatTile
           label="Sof foyda"
@@ -202,6 +204,13 @@ function MonthlyView({
           tone={Number(report.totals.salesBasedProfit) >= 0 ? 'good' : 'danger'}
         />
         <StatTile
+          label="Nasiya qoldig'i"
+          value={formatMoney(report.totals.outstandingDebtEndOfMonth)}
+          hint="Oy oxiriga"
+          icon={HandCoins}
+          tone={Number(report.totals.outstandingDebtEndOfMonth) > 0 ? 'danger' : 'good'}
+        />
+        <StatTile
           label="Buyurtmalar"
           value={`${report.totals.closedOrders} ta`}
           hint={`${report.totals.canceledOrders} bekor · ${report.totals.walkoutOrders} to'lamagan`}
@@ -209,12 +218,7 @@ function MonthlyView({
         />
       </div>
 
-      <MonthlyCalendar
-        report={report}
-        title={`${formatMonthLabel(report.month)} — kunlik taqvim`}
-        description="Kunni bossangiz o'sha kunning to'liq hisoboti ochiladi."
-        onSelectDay={onSelectDay}
-      />
+      <MonthlyTable report={report} onSelectDay={onSelectDay} />
     </div>
   );
 }
@@ -256,18 +260,36 @@ export function ReportsPage() {
   const isFetching = tab === 'daily' ? dailyQuery.isFetching : monthlyQuery.isFetching;
   const error = tab === 'daily' ? dailyQuery.error : monthlyQuery.error;
 
+  const printSubtitle = tab === 'daily'
+    ? `Kunlik moliyaviy hisobot — ${formatDateLabel(date)}`
+    : `Oylik moliyaviy hisobot — ${formatMonthLabel(month)}`;
+
+  const onPrint = () => {
+    printCurrentView();
+  };
+
+  const onSavePdf = async () => {
+    const defaultName = tab === 'daily'
+      ? `chayxana-moliyaviy-${date}.pdf`
+      : `chayxana-moliyaviy-${month}.pdf`;
+    await saveFinancePdf({
+      defaultName,
+      title: tab === 'daily' ? 'Kunlik hisobotni saqlash' : 'Oylik hisobotni saqlash',
+    });
+  };
+
   return (
     <PageContent>
-      <DeprecationBanner
-        message="Bu hisobot sahifasi keyingi bosqichda yangi «Foyda paneli» bilan almashtiriladi."
-        replacement="Mahsulot tannarxiga asoslangan haqiqiy foyda hisoboti REFACTOR_PLAN 4-bosqichida tayyor bo'ladi."
+      <PrintHeader
+        title={tab === 'daily' ? 'Kunlik moliyaviy hisobot' : 'Oylik moliyaviy hisobot'}
+        subtitle={printSubtitle}
       />
 
       <PageHeader
-        title="Hisobotlar"
-        description="Owner uchun kunlik va oylik moliyaviy hisobotlar."
+        title="Moliyaviy hisobot"
+        description="Owner uchun kunlik va oylik P&L: tushum, chiqim, foyda, nasiya."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 no-print">
             {tab === 'daily' ? (
               <div className="flex items-center gap-2">
                 <Label htmlFor="report-date" className="text-xs text-muted-foreground">Sana:</Label>
@@ -318,20 +340,31 @@ export function ReportsPage() {
               size="sm"
               onClick={() => (tab === 'daily' ? dailyQuery.refetch() : monthlyQuery.refetch())}
               disabled={isFetching}
+              title="Yangilash"
             >
               <RefreshCw className={isFetching ? 'animate-spin' : ''} />
               Yangilash
+            </Button>
+            <Button variant="outline" size="sm" onClick={onPrint} title="Chop etish">
+              <Printer />
+              Chop etish
+            </Button>
+            <Button variant="default" size="sm" onClick={onSavePdf} title="PDF saqlash">
+              <FileDown />
+              PDF saqlash
             </Button>
           </div>
         }
       />
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as 'daily' | 'monthly')}>
-        <TabsList>
-          <TabsTrigger value="daily">Kunlik</TabsTrigger>
-          <TabsTrigger value="monthly">Oylik</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="no-print">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as 'daily' | 'monthly')}>
+          <TabsList>
+            <TabsTrigger value="daily">Kunlik</TabsTrigger>
+            <TabsTrigger value="monthly">Oylik</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
 
       {isLoading ? (
         <DailyLoadingSkeleton />
@@ -369,4 +402,3 @@ export function ReportsPage() {
     </PageContent>
   );
 }
-

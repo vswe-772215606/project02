@@ -1,35 +1,80 @@
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { DailyReport } from '@/api/reports';
 import { formatMoney } from '@/lib/format';
-import { Row, Section, StatTile } from './report-helpers';
+import { Row, Section } from './report-helpers';
+import { cn } from '@/lib/utils';
+
+type ProfitProps = {
+  label: string;
+  value: string;
+  hint: string;
+};
+
+function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { prominent?: boolean }) {
+  const n = Number(value);
+  const isProfit = n > 0;
+  const isLoss = n < 0;
+  const Icon = isLoss ? TrendingDown : TrendingUp;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-5 flex flex-col gap-1',
+        isProfit && 'border-success/40 bg-success/5',
+        isLoss && 'border-destructive/40 bg-destructive/5',
+        !isProfit && !isLoss && 'border-border bg-muted/40',
+      )}
+      data-print-keep
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+          {label}
+        </div>
+        <Icon
+          className={cn(
+            'h-5 w-5',
+            isProfit && 'text-success',
+            isLoss && 'text-destructive',
+            !isProfit && !isLoss && 'text-muted-foreground',
+          )}
+          strokeWidth={2}
+        />
+      </div>
+      <div
+        className={cn(
+          'tabular-nums font-bold leading-tight',
+          prominent ? 'text-4xl xl:text-5xl' : 'text-3xl',
+          isProfit && 'text-success',
+          isLoss && 'text-destructive',
+        )}
+      >
+        {formatMoney(value)}
+      </div>
+      <div className="text-xs text-muted-foreground">{hint}</div>
+    </div>
+  );
+}
 
 export function ResultsSection({ report }: { report: DailyReport }) {
   const salesProfit = Number(report.results.salesBasedProfit);
-  const cashflowNet = Number(report.results.cashflowBasedNet);
 
   const salesTone = salesProfit > 0 ? 'good' : salesProfit < 0 ? 'danger' : 'neutral';
-  const cashTone = cashflowNet > 0 ? 'good' : cashflowNet < 0 ? 'danger' : 'neutral';
 
   const paymentDiff = Number(report.checks.salesVsPayments.difference);
 
   return (
     <Section title="Sof natija" description="Bugungi kun bo'yicha foyda va pul oqimi natijasi.">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <StatTile
+        <ProfitHeadline
           label="Sof foyda (savdo)"
-          value={formatMoney(report.results.salesBasedProfit)}
+          value={report.results.salesBasedProfit}
           hint="Sof savdo − netto chiqim"
-          icon={salesProfit >= 0 ? TrendingUp : TrendingDown}
-          tone={salesTone}
-          size="lg"
+          prominent
         />
-        <StatTile
+        <ProfitHeadline
           label="Pul oqimi natijasi"
-          value={formatMoney(report.results.cashflowBasedNet)}
+          value={report.results.cashflowBasedNet}
           hint="Real tushum − netto chiqim"
-          icon={cashflowNet >= 0 ? TrendingUp : TrendingDown}
-          tone={cashTone}
-          size="lg"
         />
       </div>
 

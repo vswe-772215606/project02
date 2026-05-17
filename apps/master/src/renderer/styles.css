@@ -69,3 +69,80 @@
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Print rules — used for both Ctrl+P and Electron's webContents.printToPDF.
+   The Finance report renders the same DOM; we just hide chrome and force
+   collapsibles open.
+   ───────────────────────────────────────────────────────────────────── */
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  /* App chrome — hide everything except the page main content. */
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  /* The viewport scrollers in AppShell stop being scrollers — let content flow. */
+  html,
+  body,
+  #root,
+  main {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  body {
+    font-size: 11pt;
+  }
+
+  /* Show print-only blocks (e.g. store-name header strip) */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Native <details> collapsibles open up so OrdersSection appears in PDFs. */
+  details[data-print-expand] {
+    /* Some browsers respect the attribute; we also force layout below */
+    display: block;
+  }
+  details[data-print-expand] > summary {
+    display: none !important;
+  }
+  details[data-print-expand] > *:not(summary) {
+    display: revert !important;
+  }
+
+  /* Avoid splitting cards across pages where possible. */
+  .print-keep,
+  [data-print-keep] {
+    page-break-inside: avoid;
+  }
+
+  /* Tighter spacing in print so the report fits fewer pages */
+  main {
+    padding: 0 !important;
+  }
+
+  /* Tables: smaller cells + page-break-friendly */
+  table {
+    page-break-inside: auto;
+  }
+  tr,
+  td,
+  th {
+    page-break-inside: avoid;
+  }
+
+  /* Hide focus rings + buttons */
+  button {
+    display: none !important;
+  }
+}
