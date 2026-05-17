@@ -10,6 +10,7 @@ import { expenseRouter } from './routes/expense.routes';
 import { financeRouter } from './routes/finance.routes';
 import { healthRouter } from './routes/health.routes';
 import { ingredientRouter } from './routes/ingredient.routes';
+import { meRouter } from './routes/me.routes';
 import { menuRouter } from './routes/menu.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { purchaseRouter } from './routes/purchase.routes';
@@ -43,6 +44,7 @@ export function createApp(): Express {
   app.use('/api/settings', settingsRouter);
   app.use('/api/printers', printersRouter);
   app.use('/api/users', usersRouter);
+  app.use('/api/me', meRouter);
 
   app.use(errorHandler);
   return app;

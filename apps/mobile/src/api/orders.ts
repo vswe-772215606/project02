@@ -7,6 +7,7 @@ export type OrderLine = {
   id: string;
   orderId: string;
   menuItemId: string | null;
+  menuItemKind: 'FOOD' | 'SERVICE';
   comboGroupId: string | null;
   comboNameSnapshot: string | null;
   name: string;
@@ -35,6 +36,10 @@ export type Order = {
   waiterId: string;
   itemCount: number;
   totalAmount: number;
+  subtotalSnapshot: number | null;
+  discountAmountSnapshot: number | null;
+  serviceChargeSnapshot: number | null;
+  totalSnapshot: number | null;
   createdAt: string;
   updatedAt: string;
   lines: OrderLine[];

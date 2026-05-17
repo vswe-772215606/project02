@@ -6,6 +6,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../stores/auth.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { haptics } from '../lib/haptics';
 import { theme } from '../lib/theme';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -63,14 +64,17 @@ export function LoginScreen() {
     setError(null);
     try {
       const { token, user } = await authApi.loginPin(pinValue);
+      haptics.success();
       await setAuth(token, user);
     } catch (err: any) {
       if (err.code === 'LOCKED') {
+        haptics.error();
         const until = err.details?.until
           ? new Date(err.details.until)
           : new Date(Date.now() + 5 * 60 * 1000);
         setLockedUntil(until);
       } else {
+        haptics.error();
         setError("Noto'g'ri PIN");
         triggerFlash();
       }
@@ -91,12 +95,14 @@ export function LoginScreen() {
 
   const handlePress = (digit: string) => {
     if (isDisabled || pin.length >= 4) return;
+    haptics.tap();
     setError(null);
     setPin(prev => prev + digit);
   };
 
   const handleBackspace = () => {
     if (isDisabled) return;
+    haptics.tap();
     setError(null);
     setPin(prev => prev.slice(0, -1));
   };

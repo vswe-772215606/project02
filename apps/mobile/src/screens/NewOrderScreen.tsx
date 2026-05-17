@@ -13,6 +13,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { theme } from '../lib/theme';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { haptics } from '../lib/haptics';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'NewOrder'>;
 
@@ -31,18 +32,22 @@ export function NewOrderScreen() {
   const createMutation = useMutation({
     mutationFn: ordersApi.create,
     onSuccess: (order) => {
+      haptics.success();
       nav.replace('OrderEdit', { orderId: order.id });
     },
     onError: (err: any) => {
+      haptics.error();
       Alert.alert('Xato', err.message || "Buyurtma yaratib bo'lmadi");
     },
   });
 
   const handleTakeaway = () => {
+    haptics.tapMedium();
     createMutation.mutate({ orderType: 'TAKEAWAY' });
   };
 
   const handleTableSelect = (tableId: string) => {
+    haptics.tapMedium();
     createMutation.mutate({ orderType: 'DINE_IN', tableId });
   };
 

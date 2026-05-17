@@ -13,11 +13,13 @@ import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatUZS } from '../lib/format';
 import { MenuPanel } from '../components/MenuPanel';
+import { LineRow } from '../components/LineRow';
 import { theme } from '../lib/theme';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { haptics } from '../lib/haptics';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OrderEdit'>;
 type Route = RouteProp<RootStackParamList, 'OrderEdit'>;
@@ -29,64 +31,6 @@ const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate' |
   WALKOUT: 'danger',
   CANCELED: 'slate',
 };
-
-function LineRow({
-  line, canEditNote, canCancelLine, onNote, onCancel,
-}: {
-  line: OrderLine; canEditNote: boolean; canCancelLine: boolean;
-  onNote: () => void; onCancel: () => void;
-}) {
-  if (line.isCanceled) {
-    return (
-      <View style={[styles.lineRow, styles.lineRowCanceled]}>
-        <Text style={styles.lineCanceledText}>{line.name} × {line.quantity} — Bekor qilindi</Text>
-      </View>
-    );
-  }
-
-  return (
-    <TouchableOpacity
-      style={styles.lineRow}
-      onPress={() => {
-        Alert.alert(line.name, undefined, [
-          { text: canEditNote ? 'Eslatma tahrirlash' : 'Eslatma (mumkin emas)', onPress: canEditNote ? onNote : undefined },
-          { text: canCancelLine ? 'Qatorni bekor qilish' : 'Bekor qilish (mumkin emas)', style: 'destructive', onPress: canCancelLine ? onCancel : undefined },
-          { text: '✕', style: 'cancel' },
-        ]);
-      }}
-      activeOpacity={0.7}
-    >
-      <View style={styles.lineMain}>
-        <View style={styles.lineLeft}>
-          <Text style={styles.lineName}>{line.name}</Text>
-          <Text style={styles.lineQty}>× {line.quantity}</Text>
-        </View>
-      </View>
-
-      <View style={styles.linePriceRow}>
-        <Text style={styles.linePriceDetails}>
-          {formatUZS(line.price)} × {line.quantity}
-        </Text>
-        <Text style={styles.lineTotal}>
-          {formatUZS(line.price * line.quantity)} so'm
-        </Text>
-      </View>
-
-      {line.notes ? (
-        <View style={styles.lineNoteContainer}>
-          <MaterialCommunityIcons name="note-text-outline" size={16} color={theme.colors.primary} style={{ marginRight: 4 }} />
-          <Text style={styles.lineNote}>{line.notes}</Text>
-        </View>
-      ) : null}
-      
-      {line.comboNameSnapshot ? (
-        <View style={styles.lineComboContainer}>
-          <Text style={styles.lineCombo}>Set: {line.comboNameSnapshot}</Text>
-        </View>
-      ) : null}
-    </TouchableOpacity>
-  );
-}
 
 export function OrderEditScreen() {
   const nav = useNavigation<Nav>();
@@ -127,29 +71,29 @@ export function OrderEditScreen() {
 
   const sendMutation = useMutation({
     mutationFn: () => ordersApi.send(orderId),
-    onSuccess: invalidate,
-    onError: (err: any) => Alert.alert('Xato', err.message || "Yuborib bo'lmadi"),
+    onSuccess: () => { haptics.success(); invalidate(); },
+    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message || "Yuborib bo'lmadi"); },
   });
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(orderId, reason),
-    onSuccess: () => { invalidate(); nav.goBack(); },
-    onError: (err: any) => Alert.alert('Xato', err.message || "Bekor qilib bo'lmadi"),
+    onSuccess: () => { haptics.warning(); invalidate(); nav.goBack(); },
+    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message || "Bekor qilib bo'lmadi"); },
   });
   const editNoteMutation = useMutation({
     mutationFn: ({ lineId, notes }: { lineId: string; notes: string }) =>
       ordersApi.editLineNote(orderId, lineId, notes),
-    onSuccess: () => { invalidate(); setNoteModal(null); },
-    onError: (err: any) => Alert.alert('Xato', err.message),
+    onSuccess: () => { haptics.tapLight(); invalidate(); setNoteModal(null); },
+    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message); },
   });
   const cancelLineMutation = useMutation({
     mutationFn: (lineId: string) => ordersApi.cancelLine(orderId, lineId),
-    onSuccess: invalidate,
-    onError: (err: any) => Alert.alert('Xato', err.message),
+    onSuccess: () => { haptics.tapLight(); invalidate(); },
+    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message); },
   });
   const transferMutation = useMutation({
     mutationFn: (tableId: string) => ordersApi.transfer(orderId, tableId),
-    onSuccess: () => { invalidate(); setTransferModal(false); },
-    onError: (err: any) => Alert.alert('Xato', err.message),
+    onSuccess: () => { haptics.success(); invalidate(); setTransferModal(false); },
+    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message); },
   });
 
   if (isLoading || !order) {
@@ -161,7 +105,11 @@ export function OrderEditScreen() {
   }
 
   const activeLines = order.lines.filter((l) => !l.isCanceled);
-  const subtotal = activeLines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const foodLines = activeLines.filter((l) => l.menuItemKind !== 'SERVICE');
+  const serviceLines = activeLines.filter((l) => l.menuItemKind === 'SERVICE');
+  const foodSubtotal = foodLines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const serviceTotal = serviceLines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const subtotal = foodSubtotal + serviceTotal;
   const canCancel = order.status === 'DRAFT';
   const isEditable = ['DRAFT', 'SENT'].includes(order.status);
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
@@ -269,18 +217,32 @@ export function OrderEditScreen() {
               })
             )}
             
-            {activeLines.length > 0 && (
-              <View style={styles.subtotalContainer}>
-                <View style={styles.subtotalDivider} />
-                <View style={styles.subtotalRow}>
-                  <Text style={styles.subtotalLabel}>Jami:</Text>
-                  <Text style={styles.subtotalValue}>{formatUZS(subtotal)} so'm</Text>
-                </View>
-              </View>
-            )}
+            {/* Per-line bottom spacer; the persistent BillSummary lives below. */}
+            <View style={{ height: 8 }} />
           </ScrollView>
         )}
       </View>
+
+      {/* Persistent bill summary above the footer — visible even while scrolling lines */}
+      {tab === 'order' && activeLines.length > 0 && (
+        <View style={styles.billSummary}>
+          <View style={styles.billRow}>
+            <Text style={styles.billLabel}>Ovqat</Text>
+            <Text style={styles.billValue}>{formatUZS(foodSubtotal)} so'm</Text>
+          </View>
+          {serviceTotal > 0 && (
+            <View style={styles.billRow}>
+              <Text style={[styles.billLabel, styles.serviceLabel]}>✨ Xizmat haqi</Text>
+              <Text style={[styles.billValue, styles.serviceValue]}>{formatUZS(serviceTotal)} so'm</Text>
+            </View>
+          )}
+          <View style={styles.billDivider} />
+          <View style={styles.billRow}>
+            <Text style={styles.billLabelTotal}>Jami</Text>
+            <Text style={styles.billValueTotal}>{formatUZS(subtotal)} so'm</Text>
+          </View>
+        </View>
+      )}
 
       {/* Modern Footer Actions */}
       <View style={styles.footer}>
@@ -508,11 +470,44 @@ const styles = StyleSheet.create({
   lineComboContainer: { marginTop: 4 },
   lineCombo: { fontSize: 12, color: theme.colors.slate[400] },
 
-  subtotalContainer: { marginTop: theme.spacing.lg },
-  subtotalDivider: { height: 1, backgroundColor: theme.colors.slate[200], marginBottom: theme.spacing.lg },
-  subtotalRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 12 },
-  subtotalLabel: { fontSize: 16, color: theme.colors.slate[600], fontWeight: '600' },
-  subtotalValue: { fontSize: 22, fontWeight: '900', color: theme.colors.slate[900] },
+  billSummary: {
+    backgroundColor: theme.colors.white,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.slate[100],
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+    gap: 6,
+  },
+  billRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  billLabel: { fontSize: 14, color: theme.colors.slate[600] },
+  billValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.slate[800],
+    fontVariant: ['tabular-nums'],
+  },
+  serviceLabel: { color: theme.colors.success, fontWeight: '600' },
+  serviceValue: { color: theme.colors.success },
+  billDivider: {
+    height: 1,
+    backgroundColor: theme.colors.slate[200],
+    marginVertical: 2,
+  },
+  billLabelTotal: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.slate[900],
+  },
+  billValueTotal: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: theme.colors.slate[900],
+    fontVariant: ['tabular-nums'],
+  },
 
   footer: {
     flexDirection: 'row', padding: theme.spacing.lg, gap: 12,

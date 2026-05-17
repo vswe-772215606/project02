@@ -9,6 +9,7 @@ import { NewOrderScreen } from '../screens/NewOrderScreen';
 import { OrderEditScreen } from '../screens/OrderEditScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { ServerSetupScreen } from '../screens/ServerSetupScreen';
+import { MyDayScreen } from '../screens/MyDayScreen';
 
 export type RootStackParamList = {
   ServerSetup: undefined;
@@ -17,6 +18,7 @@ export type RootStackParamList = {
   NewOrder: undefined;
   OrderEdit: { orderId: string };
   Settings: undefined;
+  MyDay: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -35,6 +37,7 @@ export function AppNavigator() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="NewOrder" component={NewOrderScreen} />
             <Stack.Screen name="OrderEdit" component={OrderEditScreen} />
+            <Stack.Screen name="MyDay" component={MyDayScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
           </>
         ) : (

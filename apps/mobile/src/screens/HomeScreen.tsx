@@ -8,52 +8,28 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/auth.store';
 import { authApi } from '../api/auth';
-import { ordersApi, ACTIVE_STATUSES, STATUS_LABELS, Order } from '../api/orders';
+import { ordersApi, ACTIVE_STATUSES } from '../api/orders';
+import { meApi } from '../api/me';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { elapsed, formatUZS } from '../lib/format';
+import { formatUZS } from '../lib/format';
 import { theme } from '../lib/theme';
-import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { OrderCard } from '../components/OrderCard';
+import { ConnectionPill } from '../components/ConnectionPill';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
-const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate'> = {
-  DRAFT: 'warning',
-  SENT: 'primary',
-};
-
-function WorkOrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
-  const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
-  const activeLines = order.lines.filter((l) => !l.isCanceled);
-  const variant = STATUS_VARIANTS[order.status] || 'slate';
-
-  const mealPreview = (() => {
-    const names = activeLines.map((l) => l.name);
-    if (names.length === 0) return null;
-    if (names.length <= 2) return names.join(', ');
-    return `${names.slice(0, 2).join(', ')} ... (+${names.length - 2})`;
-  })();
-
+function SkeletonCard() {
   return (
-    <Card style={styles.card} onPress={onPress}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTable}>{tableLabel}</Text>
-        <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
+    <View style={styles.skeleton}>
+      <View style={[styles.skLine, { width: '40%' }]} />
+      <View style={[styles.skLine, { width: '80%', marginTop: 8 }]} />
+      <View style={styles.skFooter}>
+        <View style={[styles.skLine, { width: 90 }]} />
+        <View style={[styles.skLine, { width: 70 }]} />
       </View>
-
-      {mealPreview ? (
-        <Text style={styles.cardMeals} numberOfLines={1}>{mealPreview}</Text>
-      ) : (
-        <Text style={styles.cardMealsEmpty}>Mahsulot yo'q</Text>
-      )}
-
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardAmount}>{formatUZS(order.totalAmount)} so'm</Text>
-        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
-      </View>
-    </Card>
+    </View>
   );
 }
 
@@ -64,13 +40,20 @@ export function HomeScreen() {
   const status = useConnectionStore((s) => s.status);
   const actionsDisabled = status !== 'online';
 
-  const { data: orders = [], isLoading, refetch } = useQuery({
+  const { data: orders = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['orders', 'mine'],
     queryFn: () => ordersApi.list({ mine: true }),
     refetchInterval: 15_000,
   });
 
+  const { data: stats } = useQuery({
+    queryKey: ['me', 'today-stats'],
+    queryFn: () => meApi.todayStats(),
+    refetchInterval: 30_000,
+  });
+
   const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.status));
+  const serviceEarned = Number(stats?.serviceEarned ?? 0);
 
   const handleLogout = () => {
     Alert.alert('Chiqish', "Chiqishni xohlaysizmi?", [
@@ -88,19 +71,51 @@ export function HomeScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Buyurtmalar</Text>
+        <View style={{ flex: 1 }}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Buyurtmalar</Text>
+            <ConnectionPill />
+          </View>
           <Text style={styles.subtitle}>{user?.fullName}</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => nav.navigate('Settings')} style={styles.headerIconBtn}>
-            <MaterialCommunityIcons name="cog-outline" size={24} color={theme.colors.slate[600]} />
+            <MaterialCommunityIcons name="cog-outline" size={22} color={theme.colors.slate[600]} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
             <MaterialCommunityIcons name="logout" size={20} color={theme.colors.danger} />
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Today stat strip — tappable, opens MyDayScreen */}
+      <TouchableOpacity
+        style={styles.statStrip}
+        onPress={() => nav.navigate('MyDay')}
+        activeOpacity={0.7}
+      >
+        <View style={styles.statLeft}>
+          <Text style={styles.statHello}>Bugun</Text>
+          <Text style={styles.statValue}>
+            {stats?.ordersClosed ?? 0} buyurtma
+          </Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statRight}>
+          <Text style={styles.statHello}>Xizmat haqi</Text>
+          <Text style={[
+            styles.statValue,
+            serviceEarned > 0 && styles.statValueAccent,
+          ]}>
+            {formatUZS(Number(stats?.serviceEarned ?? 0))} so'm
+          </Text>
+        </View>
+        <MaterialCommunityIcons
+          name="chevron-right"
+          size={22}
+          color={theme.colors.slate[400]}
+        />
+      </TouchableOpacity>
 
       {/* Section header with counter + new-order action */}
       <View style={styles.sectionBar}>
@@ -122,21 +137,28 @@ export function HomeScreen() {
         />
       </View>
 
-      {/* Order list */}
-      <FlatList
-        data={activeOrders}
-        keyExtractor={(o) => o.id}
-        renderItem={({ item }) => (
-          <WorkOrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
-        )}
-        contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={theme.colors.primary} />}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>Faol buyurtma yo'q</Text>
-          </View>
-        }
-      />
+      {/* Order list (or skeleton on first load) */}
+      {isLoading && orders.length === 0 ? (
+        <View style={styles.list}>
+          {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
+        </View>
+      ) : (
+        <FlatList
+          data={activeOrders}
+          keyExtractor={(o) => o.id}
+          renderItem={({ item }) => (
+            <OrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
+          )}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} tintColor={theme.colors.primary} />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Faol buyurtma yo'q</Text>
+              <Text style={styles.emptyHint}>Yangi buyurtma yaratish uchun "+ Yangi" tugmasini bosing.</Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -153,6 +175,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.slate[100],
+    gap: theme.spacing.sm,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    flexWrap: 'wrap',
   },
   title: { ...theme.typography.h2, color: theme.colors.slate[900] },
   subtitle: { ...theme.typography.small, color: theme.colors.slate[500], marginTop: 2 },
@@ -174,15 +203,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  statStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.white,
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.slate[200],
+    gap: theme.spacing.md,
+    ...theme.shadows.sm,
+  },
+  statLeft: { flex: 1 },
+  statRight: { flex: 1, alignItems: 'flex-start' },
+  statDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: theme.colors.slate[200],
+  },
+  statHello: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.slate[500],
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.slate[900],
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  statValueAccent: {
+    color: theme.colors.success,
+  },
+
   sectionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.md,
-    backgroundColor: theme.colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.slate[100],
+    backgroundColor: theme.colors.slate[50],
   },
   sectionLabelWrap: {
     flexDirection: 'row',
@@ -214,45 +279,27 @@ const styles = StyleSheet.create({
   },
 
   list: { padding: theme.spacing.lg, paddingBottom: 40 },
-  card: {
-    marginBottom: theme.spacing.md,
+
+  skeleton: {
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.slate[200],
   },
-  cardHeader: {
+  skLine: {
+    height: 12,
+    backgroundColor: theme.colors.slate[200],
+    borderRadius: 4,
+  },
+  skFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.sm,
-  },
-  cardTable: {
-    ...theme.typography.h3,
-    color: theme.colors.slate[900],
-  },
-  cardTime: {
-    ...theme.typography.small,
-  },
-  cardMeals: {
-    fontSize: 14,
-    color: theme.colors.slate[600],
-    marginBottom: theme.spacing.md,
-  },
-  cardMealsEmpty: {
-    fontSize: 14,
-    color: theme.colors.slate[300],
-    fontStyle: 'italic',
-    marginBottom: theme.spacing.md,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  cardAmount: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: theme.colors.slate[900],
+    marginTop: 16,
   },
 
-  empty: { flex: 1, alignItems: 'center', paddingTop: 80 },
-  emptyText: { color: theme.colors.slate[400], fontSize: 16 },
+  empty: { alignItems: 'center', paddingTop: 60, paddingHorizontal: theme.spacing.lg },
+  emptyText: { color: theme.colors.slate[500], fontSize: 16, fontWeight: '600' },
+  emptyHint: { color: theme.colors.slate[400], fontSize: 13, marginTop: 6, textAlign: 'center' },
 });
