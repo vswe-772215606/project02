@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, Platform,
 } from 'react-native';
@@ -40,13 +40,13 @@ export function HomeScreen() {
   const status = useConnectionStore((s) => s.status);
   const actionsDisabled = status !== 'online';
 
-  const { data: orders = [], isLoading, isFetching, refetch } = useQuery({
+  const { data: orders = [], isLoading, refetch } = useQuery({
     queryKey: ['orders', 'mine'],
     queryFn: () => ordersApi.list({ mine: true }),
     refetchInterval: 15_000,
   });
 
-  const { data: stats } = useQuery({
+  const { data: stats, refetch: refetchStats } = useQuery({
     queryKey: ['me', 'today-stats'],
     queryFn: () => meApi.todayStats(),
     refetchInterval: 30_000,
@@ -54,6 +54,18 @@ export function HomeScreen() {
 
   const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.status));
   const serviceEarned = Number(stats?.serviceEarned ?? 0);
+
+  // Manual refresh state — keeps the spinner off during 15s/30s background
+  // polling, only shows when the user actually pulls down.
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), refetchStats()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch, refetchStats]);
 
   const handleLogout = () => {
     Alert.alert('Chiqish', "Chiqishni xohlaysizmi?", [
@@ -150,7 +162,7 @@ export function HomeScreen() {
             <OrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
           )}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetch} tintColor={theme.colors.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Faol buyurtma yo'q</Text>

@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -25,11 +26,21 @@ export function MyDayScreen() {
   const nav = useNavigation<Nav>();
   const user = useAuthStore((s) => s.user);
 
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: ['me', 'today-stats'],
     queryFn: () => meApi.todayStats(),
     refetchInterval: 30_000,
   });
+
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   return (
     <View style={styles.container}>
@@ -46,7 +57,7 @@ export function MyDayScreen() {
 
       <ScrollView
         contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => refetch()} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         <Text style={styles.greeting}>
           Assalomu alaykum, {user?.fullName ?? 'mehmon'}!
