@@ -25,6 +25,8 @@ export const settingsService = {
       return ![
         'daily_report_telegram_enabled',
         'daily_report_telegram_time',
+        'monthly_report_telegram_enabled',
+        'monthly_report_telegram_time',
         'telegram_bot_token',
         'owner_telegram_chat_id',
       ].includes(key);
@@ -39,6 +41,8 @@ export const settingsService = {
       'max_discount_amount',
       'daily_report_telegram_enabled',
       'daily_report_telegram_time',
+      'monthly_report_telegram_enabled',
+      'monthly_report_telegram_time',
       'telegram_bot_token',
       'owner_telegram_chat_id',
     ].includes(key)) {

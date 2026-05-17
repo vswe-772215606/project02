@@ -1,4 +1,4 @@
-import { Receipt, ShoppingBag, Banknote, CreditCard, HandCoins } from 'lucide-react';
+import { Receipt, ShoppingBag, Banknote, HandCoins, Sparkles } from 'lucide-react';
 import type { DailyReport } from '@/api/reports';
 import { formatMoney } from '@/lib/format';
 import { StatTile } from './report-helpers';
@@ -31,9 +31,9 @@ export function SalesSummary({ report }: { report: DailyReport }) {
       <StatTile
         label="Xizmat haqi"
         value={formatMoney(report.sales.serviceCharge)}
-        hint="Ofitsiantlarga"
-        icon={CreditCard}
-        tone="muted"
+        hint="Ofitsiantlar uchun (kishi boshi)"
+        icon={Sparkles}
+        tone={Number(report.sales.serviceCharge) > 0 ? 'good' : 'neutral'}
       />
       <StatTile
         label="Qarzga sotildi"

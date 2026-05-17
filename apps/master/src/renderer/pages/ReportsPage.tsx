@@ -41,6 +41,7 @@ import {
   ArrowUpFromLine,
   HandCoins,
   ShoppingBag,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 
@@ -176,7 +177,7 @@ function MonthlyView({
 }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
         <StatTile
           label="Umumiy tushum"
           value={formatMoney(report.totals.realCashIn)}
@@ -188,6 +189,13 @@ function MonthlyView({
           value={formatMoney(report.totals.netSales)}
           hint="Chegirmadan keyin"
           icon={ShoppingBag}
+        />
+        <StatTile
+          label="Xizmat haqi"
+          value={formatMoney(report.totals.serviceCharge)}
+          hint="Ofitsiantlarga jami"
+          icon={Sparkles}
+          tone={Number(report.totals.serviceCharge) > 0 ? 'good' : 'neutral'}
         />
         <StatTile
           label="Umumiy xarajat"

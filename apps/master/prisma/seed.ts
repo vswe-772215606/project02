@@ -120,6 +120,8 @@ async function main() {
     { key: 'max_discount_amount', value: '100000' },
     { key: 'daily_report_telegram_enabled', value: 'false' },
     { key: 'daily_report_telegram_time', value: '23:30' },
+    { key: 'monthly_report_telegram_enabled', value: 'false' },
+    { key: 'monthly_report_telegram_time', value: '09:00' },
     { key: 'telegram_bot_token', value: '' },
     { key: 'owner_telegram_chat_id', value: '' },
     { key: 'admin_printer_name', value: 'POS-80' },

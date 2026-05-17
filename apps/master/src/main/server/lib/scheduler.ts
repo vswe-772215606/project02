@@ -28,11 +28,17 @@ export function startScheduler(): void {
   draftCleanupInterval = setInterval(() => void runDraftCleanup(), 6 * 60 * 60 * 1000);
 
   void financeReportService.runScheduledDailyTelegram().catch((error) => {
-    console.error('[scheduler] finance report send failed:', error);
+    console.error('[scheduler] daily report send failed:', error);
+  });
+  void financeReportService.runScheduledMonthlyTelegram().catch((error) => {
+    console.error('[scheduler] monthly report send failed:', error);
   });
   financeInterval = setInterval(() => {
     void financeReportService.runScheduledDailyTelegram().catch((error) => {
-      console.error('[scheduler] finance report send failed:', error);
+      console.error('[scheduler] daily report send failed:', error);
+    });
+    void financeReportService.runScheduledMonthlyTelegram().catch((error) => {
+      console.error('[scheduler] monthly report send failed:', error);
     });
   }, 60 * 1000);
 }

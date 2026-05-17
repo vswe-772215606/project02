@@ -156,6 +156,7 @@ export interface MonthlyReport {
     discounts: string;
     netSales: string;
     debtSales: string;
+    serviceCharge: string;
     realCashIn: string;
     expensesNet: string;
     salesBasedProfit: string;

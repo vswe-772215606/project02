@@ -6,6 +6,12 @@ import { reportsService } from './reports.service';
 import { settingsService } from './settings.service';
 import { telegramBotService } from './telegram-bot.service';
 
+function previousMonthBounds(now: Date): { start: Date; key: string } {
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+  return { start, key };
+}
+
 function formatMoney(value: string) {
   return new Intl.NumberFormat('uz-UZ', {
     maximumFractionDigits: 0,
@@ -31,8 +37,10 @@ export const financeReportService = {
     }
 
     const timeSetting = settingsService.get('daily_report_telegram_time') || '23:30';
-    const [hh, mm] = timeSetting.split(':').map((part) => parseInt(part, 10));
-    if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
+    const parts = timeSetting.split(':').map((part) => parseInt(part, 10));
+    const hh = parts[0];
+    const mm = parts[1];
+    if (hh === undefined || mm === undefined || !Number.isFinite(hh) || !Number.isFinite(mm)) {
       return false;
     }
 
@@ -106,6 +114,92 @@ export const financeReportService = {
     }
 
     await this.sendDailyTelegramSummary(now);
+    await settingsService.loadAll();
+  },
+
+  // ─────────── Monthly ───────────
+
+  /**
+   * On day 1 of the month, once the configured time has passed, send the
+   * previous month's owner P&L. Idempotent via monthly_report_last_sent_month.
+   */
+  shouldSendMonthlyTelegram(now = new Date()) {
+    if (!settingsService.getBool('monthly_report_telegram_enabled')) {
+      return false;
+    }
+    // Only on day 1 of the month — keeps the trigger tight.
+    if (now.getDate() !== 1) {
+      return false;
+    }
+    const timeSetting = settingsService.get('monthly_report_telegram_time') || '09:00';
+    const parts = timeSetting.split(':').map((part) => parseInt(part, 10));
+    const hh = parts[0];
+    const mm = parts[1];
+    if (hh === undefined || mm === undefined || !Number.isFinite(hh) || !Number.isFinite(mm)) {
+      return false;
+    }
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const targetMinutes = hh * 60 + mm;
+    return nowMinutes >= targetMinutes;
+  },
+
+  async sendMonthlyTelegramSummary(now = new Date()) {
+    const ownerUserId = await getOwnerUserId();
+    if (!ownerUserId) return;
+
+    const chatId = settingsService.get('owner_telegram_chat_id') || '';
+    const botToken = settingsService.get('telegram_bot_token') || '';
+    if (!chatId || !botToken) {
+      const { key } = previousMonthBounds(now);
+      await auditService.log({
+        userId: ownerUserId,
+        action: 'REPORT_SEND_FAILED',
+        entityType: 'Setting',
+        metadata: { period: key, kind: 'monthly', reason: 'missing_telegram_config' },
+      });
+      return;
+    }
+
+    const { start, key } = previousMonthBounds(now);
+    const report = await reportsService.monthly(start);
+    const message = telegramBotService.formatMonthlyMessage(report);
+
+    try {
+      await telegramBotService.sendMessage(message);
+    } catch (error) {
+      await auditService.log({
+        userId: ownerUserId,
+        action: 'REPORT_SEND_FAILED',
+        entityType: 'Report',
+        metadata: {
+          period: key,
+          kind: 'monthly',
+          reason: error instanceof Error ? error.message : 'Unknown error',
+        },
+      });
+      throw error;
+    }
+
+    await settingRepo.upsert('monthly_report_last_sent_month', key);
+
+    await auditService.log({
+      userId: ownerUserId,
+      action: 'REPORT_SENT',
+      entityType: 'Report',
+      metadata: { period: key, kind: 'monthly', channel: 'telegram' },
+    });
+  },
+
+  async runScheduledMonthlyTelegram(now = new Date()) {
+    if (!this.shouldSendMonthlyTelegram(now)) {
+      return;
+    }
+    const { key } = previousMonthBounds(now);
+    const lastSent = settingsService.get('monthly_report_last_sent_month');
+    if (lastSent === key) {
+      return;
+    }
+    await this.sendMonthlyTelegramSummary(now);
     await settingsService.loadAll();
   },
 };

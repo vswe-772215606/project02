@@ -71,6 +71,17 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
       cell: (row) => <MoneyCell value={row.sales.netSales} />,
     },
     {
+      key: 'service',
+      header: 'Xizmat haqi',
+      align: 'right',
+      cell: (row) => (
+        <MoneyCell
+          value={row.sales.serviceCharge}
+          className={Number(row.sales.serviceCharge) > 0 ? 'text-success' : 'text-muted-foreground'}
+        />
+      ),
+    },
+    {
       key: 'expenses',
       header: 'Chiqim',
       align: 'right',
