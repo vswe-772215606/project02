@@ -5,9 +5,11 @@
   "scripts": {
     "dev:master": "pnpm --filter @chayxana/master dev",
     "dev:kitchen": "pnpm --filter @chayxana/kitchen dev",
+    "dev:order": "pnpm --filter @chayxana/order dev",
     "dev:mobile": "pnpm --filter @chayxana/mobile start",
     "build:master": "pnpm --filter @chayxana/master build",
     "build:kitchen": "pnpm --filter @chayxana/kitchen build",
+    "build:order": "pnpm --filter @chayxana/order build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
