@@ -120,8 +120,13 @@ function createWindow(): void {
     },
   });
 
-  if (process.env.NODE_ENV === 'development' && process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  // Dev mode: load from the electron-vite renderer dev server. Production
+  // (packaged app): load the bundled HTML. `app.isPackaged` is the reliable
+  // signal — electron-vite does not always inject NODE_ENV at runtime.
+  if (!app.isPackaged) {
+    const devUrl = process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:5173/';
+    logger.info(`loading renderer from dev server: ${devUrl}`);
+    void mainWindow.loadURL(devUrl);
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
