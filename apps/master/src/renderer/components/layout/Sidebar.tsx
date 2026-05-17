@@ -16,6 +16,7 @@ import {
   Coins,
   History,
   ClipboardCheck,
+  FileBarChart2,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth.store';
@@ -44,9 +45,6 @@ type NavSection = {
  *   - Expanded: 240px
  *   - Collapsed: 72px (with 40×40 tap targets and 20×20 icons)
  *   - Active item: amber pill matching --primary token
- *
- * Pages hidden from the sidebar but still mounted as routes (URL-reachable):
- *   /reports   ("Hisobotlar") — superseded by upcoming owner P&L (Phase 4)
  */
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -56,6 +54,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/approval-queue', label: 'Tasdiqlash', icon: ClipboardCheck, roles: ['OWNER', 'ADMIN'] },
       { to: '/orders', label: 'Buyurtmalar', icon: ReceiptText, roles: ['OWNER', 'ADMIN', 'WAITER'] },
       { to: '/finance', label: 'Kunlik moliya', icon: Coins, roles: ['OWNER', 'ADMIN'] },
+      { to: '/reports', label: 'Moliyaviy hisobot', icon: FileBarChart2, roles: ['OWNER'] },
     ],
   },
   {
