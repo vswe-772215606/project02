@@ -48,6 +48,8 @@ export const Errors = {
     new AppError('DEBT_NOT_OPEN', 409, 'Qarz allaqachon yopilgan yoki mavjud emas'),
   DebtOverpay: () =>
     new AppError('DEBT_OVERPAY', 400, 'To\'lov summasi qolgan qarzdan katta bo\'lishi mumkin emas'),
+  DebtAlreadyWrittenOff: () =>
+    new AppError('DEBT_ALREADY_WRITTEN_OFF', 409, 'Bu qarz allaqachon yo\'qotilgan deb belgilangan'),
   ExpenseImmutable: () =>
     new AppError('EXPENSE_IMMUTABLE', 409, 'Chiqim yozuvini to\'g\'ridan-to\'g\'ri o\'zgartirib bo\'lmaydi'),
   ExpenseAlreadyReversed: () =>

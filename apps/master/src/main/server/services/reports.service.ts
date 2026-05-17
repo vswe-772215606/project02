@@ -195,14 +195,21 @@ function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
         .filter((repayment) => repayment.paidAt < dayEnd)
         .reduce((sum, repayment) => sum.plus(repayment.amount), new Prisma.Decimal(0));
 
-      const remainingAtDayEnd = dec(debt.originalAmount).minus(repaidUpToDayEnd);
+      const writtenOffAsOfDay = debt.writtenOffAt !== null && debt.writtenOffAt < dayEnd;
+      // For a written-off debt the principal is recognized as a loss and is no
+      // longer considered outstanding. The original is kept for the audit trail.
+      const remainingAtDayEnd = writtenOffAsOfDay
+        ? new Prisma.Decimal(0)
+        : dec(debt.originalAmount).minus(repaidUpToDayEnd);
       const totalRepaidAtDayEnd = dec(debt.originalAmount).minus(remainingAtDayEnd);
       const lastRepaymentAt = debt.repayments
         .filter((repayment) => repayment.paidAt < dayEnd)
         .at(-1)?.paidAt ?? null;
 
-      let statusAsOfDay: 'OPEN' | 'PARTIAL' | 'PAID' = 'OPEN';
-      if (remainingAtDayEnd.lte(0)) {
+      let statusAsOfDay: 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF' = 'OPEN';
+      if (writtenOffAsOfDay) {
+        statusAsOfDay = 'WRITTEN_OFF';
+      } else if (remainingAtDayEnd.lte(0)) {
         statusAsOfDay = 'PAID';
       } else if (totalRepaidAtDayEnd.gt(0)) {
         statusAsOfDay = 'PARTIAL';
@@ -222,9 +229,11 @@ function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
         status: statusAsOfDay,
         lastRepaymentAt: lastRepaymentAt?.toISOString() ?? null,
         openedToday: isWithinDay(debt.openedAt, dayStart, dayEnd),
+        writtenOffAt: debt.writtenOffAt?.toISOString() ?? null,
+        writtenOffReason: debt.writtenOffReason,
       };
     })
-    .filter((debt) => debt.openedToday || debt.repaidToday !== '0' || debt.remainingAmount !== '0');
+    .filter((debt) => debt.openedToday || debt.repaidToday !== '0' || debt.remainingAmount !== '0' || debt.status === 'WRITTEN_OFF');
 
   return rows.sort((a, b) => {
     if (a.remainingAmount !== b.remainingAmount) {

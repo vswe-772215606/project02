@@ -135,14 +135,17 @@ async function confirmDebt(orderId: string, amount: number, debtorName: string, 
 type DebtListItem = {
   id: string;
   orderId: string;
-  status: 'OPEN' | 'PARTIAL' | 'PAID';
+  status: 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF';
   originalAmount: string;
   remainingAmount: string;
   debtorName: string;
+  writtenOffAt?: string | null;
+  writtenOffReason?: string | null;
 };
 type DebtDetail = DebtListItem & {
   repayments: Array<{ id: string; amount: string; method: 'CASH' | 'CARD' }>;
 };
+type DebtResp = DebtDetail;
 
 async function listDebts(): Promise<DebtListItem[]> {
   const { body } = await http<{ items: DebtListItem[] }>('GET', '/api/debts', { token: adminToken });
@@ -275,23 +278,26 @@ async function main() {
   eq('debt2.status', debt2.status, 'OPEN');
   eq('debt2.remainingAmount', debt2.remainingAmount, '30000');
 
-  step('1.7', "Debt write-off endpoint probe");
-  // The user's spec asked for a debt write-off endpoint. The current backend
-  // does NOT expose one: debt.routes.ts has GET '/' + GET '/:id' +
-  // POST '/:id/repayments' only; the DebtStatus enum has OPEN | PARTIAL | PAID
-  // (no WRITTEN_OFF). We probe POST /api/debts/:id/write-off and expect 404 to
-  // document the gap.
-  const probe = await fetch(`${BASE_URL}/api/debts/${debt2.id}/write-off`, {
+  step('1.7', "Debt write-off — debt2 marked WRITTEN_OFF");
+  const writeOffRes = await http<DebtResp>('POST', `/api/debts/${debt2.id}/write-off`, {
+    token: adminToken,
+    body: { reason: 'Mijoz topilmadi' },
+  });
+  eq('debt2.status (after write-off)', writeOffRes.body.status, 'WRITTEN_OFF');
+  // remainingAmount in DB stays at original loss; report excludes it from outstanding.
+  eq('debt2.remainingAmount (DB)', writeOffRes.body.remainingAmount, '30000');
+  if (!writeOffRes.body.writtenOffAt) fail('writtenOffAt should be set');
+  if (writeOffRes.body.writtenOffReason !== 'Mijoz topilmadi') fail('writtenOffReason mismatch');
+  ok('debt2 written off (status WRITTEN_OFF, audit row will be logged)');
+
+  // Idempotency / state guard
+  const repeat = await fetch(`${BASE_URL}/api/debts/${debt2.id}/write-off`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-    body: JSON.stringify({ reason: 'irrecoverable' }),
+    body: JSON.stringify({ reason: 'again' }),
   });
-  if (probe.status === 404) {
-    warn(`POST /api/debts/:id/write-off → 404 (endpoint not implemented). Debt 2 remains OPEN.`);
-    info('DebtStatus enum has no WRITTEN_OFF value. Documented for the report.');
-  } else {
-    fail(`Unexpected /write-off response: ${probe.status}. If this endpoint now exists, update the smoke.`);
-  }
+  if (repeat.status !== 409) fail(`Second write-off should be 409 ALREADY_WRITTEN_OFF, got ${repeat.status}`);
+  ok('Second write-off attempt rejected with 409');
 
   // ────────────────────────────────────────────────────────────────
   // PART 2 — Repayable expense (avans) lifecycle
@@ -404,13 +410,13 @@ async function main() {
   eq('results.cashflowBasedNet', report.results.cashflowBasedNet, '-300000');
 
   step('3.5', 'Debt snapshot');
-  // outstandingTotal is computed by buildDebtLedger() using remainingAtDayEnd =
-  // originalAmount − Σ repayments before dayEnd. Debt 1: 50 000 − 50 000 = 0.
-  // Debt 2: 30 000 − 0 = 30 000. Outstanding total = 30 000.
+  // outstandingTotal excludes WRITTEN_OFF debts via buildDebtLedger's
+  // writtenOffAsOfDay branch. Debt 1: fully repaid → 0. Debt 2: WRITTEN_OFF
+  // → counted as 0 outstanding (the loss is implicit in cashflow). So 0.
   eq('debtSnapshot.openedTodayCount', report.debtSnapshot.openedTodayCount, 2);
   eq('debtSnapshot.openedTodayAmount', report.debtSnapshot.openedTodayAmount, '80000');
   eq('debtSnapshot.repaidTodayAmount', report.debtSnapshot.repaidTodayAmount, '50000');
-  eq('debtSnapshot.outstandingTotal', report.debtSnapshot.outstandingTotal, '30000');
+  eq('debtSnapshot.outstandingTotal', report.debtSnapshot.outstandingTotal, '0');
 
   // ────────────────────────────────────────────────────────────────
   // Verification gate — DB sanity
@@ -421,8 +427,11 @@ async function main() {
   if (!dbDebt1 || !dbDebt2) return fail('Debts missing in DB');
   eq('DB debt1.status', dbDebt1.status, 'PAID');
   eq('DB debt1.remainingAmount', dbDebt1.remainingAmount.toFixed(0), '0');
-  eq('DB debt2.status', dbDebt2.status, 'OPEN');
+  eq('DB debt2.status', dbDebt2.status, 'WRITTEN_OFF');
+  // Write-off does NOT zero remainingAmount in the DB — keeps the loss recorded.
   eq('DB debt2.remainingAmount', dbDebt2.remainingAmount.toFixed(0), '30000');
+  if (!dbDebt2.writtenOffAt) fail('DB debt2.writtenOffAt should be set');
+  eq('DB debt2.writtenOffReason', dbDebt2.writtenOffReason, 'Mijoz topilmadi');
 
   const dbAvans1 = await prisma.expense.findUnique({ where: { id: avans1.id }, include: { returns: true } });
   const dbAvans2 = await prisma.expense.findUnique({ where: { id: avans2.id }, include: { returns: true } });
@@ -445,17 +454,21 @@ async function main() {
   const auditExpenseWriteOff = await prisma.auditLog.count({
     where: { action: 'EXPENSE_WRITTEN_OFF', entityId: avans2.id },
   });
+  const auditDebtWrittenOff = await prisma.auditLog.count({
+    where: { action: 'DEBT_WRITTEN_OFF', entityId: debt2.id },
+  });
   eq('audit DEBT_PAYMENT_RECORDED for debt1', auditRepayments, 3);
   eq('audit DEBT_CLOSED for debt1', auditDebtClosed, 1);
   eq('audit EXPENSE_WRITTEN_OFF for avans2', auditExpenseWriteOff, 1);
+  eq('audit DEBT_WRITTEN_OFF for debt2', auditDebtWrittenOff, 1);
 
   console.log(`\n${c(32, '════════════════════════════════════════════════════════════')}`);
   console.log(`${c(32, '  Debt + Avans smoke green. Daily report cells all match.')}`);
   console.log(`${c(32, '════════════════════════════════════════════════════════════')}\n`);
   info('Part 1 (debt): OPEN → PARTIAL → PARTIAL → PAID across 3 repayments');
-  info('Part 1 (debt write-off): endpoint NOT implemented — see report');
+  info('Part 1 (debt write-off): OPEN → WRITTEN_OFF via POST /:id/write-off');
   info('Part 2 (avans): PENDING → PARTIAL → RETURNED, then WRITTEN_OFF on a second row');
-  info('Part 3 (report): netSales 80 000, operating 150 000, outstanding 30 000');
+  info('Part 3 (report): netSales 80 000, operating 150 000, outstanding 0 (write-off excluded)');
 }
 
 main()

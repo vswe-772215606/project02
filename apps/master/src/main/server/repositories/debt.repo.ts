@@ -226,4 +226,21 @@ export const debtRepo = {
       data,
     });
   },
+
+  async markWrittenOff(
+    id: string,
+    input: { writtenOffById: string; writtenOffReason: string; writtenOffAt: Date },
+    tx?: Tx,
+  ) {
+    return (tx ?? getPrisma()).debt.update({
+      where: { id },
+      data: {
+        status: DebtStatus.WRITTEN_OFF,
+        writtenOffAt: input.writtenOffAt,
+        writtenOffReason: input.writtenOffReason,
+        writtenOffBy: { connect: { id: input.writtenOffById } },
+        closedAt: input.writtenOffAt,
+      },
+    });
+  },
 };

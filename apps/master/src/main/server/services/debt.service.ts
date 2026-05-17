@@ -30,6 +30,8 @@ function mapDebt(item: Awaited<ReturnType<typeof debtRepo.findById>>) {
     openedAt: item.openedAt.toISOString(),
     closedAt: item.closedAt?.toISOString() ?? null,
     status: item.status,
+    writtenOffAt: item.writtenOffAt?.toISOString() ?? null,
+    writtenOffReason: item.writtenOffReason,
     repayments: item.repayments.map((repayment) => ({
       id: repayment.id,
       amount: decimalToString(repayment.amount),
@@ -196,6 +198,52 @@ export const debtService = {
           },
         }, tx);
       }
+    });
+
+    return this.getById(debt.id);
+  },
+
+  async writeOff(input: {
+    debtId: string;
+    reason: string;
+    actorUserId: string;
+  }) {
+    const debt = await debtRepo.findById(input.debtId);
+    if (!debt) {
+      throw Errors.NotFound('Debt');
+    }
+    if (debt.status === DebtStatus.WRITTEN_OFF) {
+      throw Errors.DebtAlreadyWrittenOff();
+    }
+    if (debt.status === DebtStatus.PAID || debt.remainingAmount.lte(0)) {
+      throw Errors.DebtNotOpen();
+    }
+    if (!input.reason.trim()) {
+      throw Errors.Validation('Yo\'qotish sababini yozish kerak');
+    }
+
+    const writtenOffAt = new Date();
+
+    await getPrisma().$transaction(async (tx) => {
+      await debtRepo.markWrittenOff(debt.id, {
+        writtenOffById: input.actorUserId,
+        writtenOffReason: input.reason.trim(),
+        writtenOffAt,
+      }, tx);
+
+      await auditService.log({
+        userId: input.actorUserId,
+        action: 'DEBT_WRITTEN_OFF',
+        entityType: 'Debt',
+        entityId: debt.id,
+        metadata: {
+          debtId: debt.id,
+          reason: input.reason.trim(),
+          originalAmount: debt.originalAmount.toFixed(0),
+          remainingAtWriteOff: debt.remainingAmount.toFixed(0),
+          writtenOffAt: writtenOffAt.toISOString(),
+        },
+      }, tx);
     });
 
     return this.getById(debt.id);

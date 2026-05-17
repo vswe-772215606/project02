@@ -15,6 +15,10 @@ const repaymentSchema = z.object({
   note: z.string().optional(),
 });
 
+const writeOffSchema = z.object({
+  reason: z.string().trim().min(3),
+});
+
 export const debtController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -45,6 +49,19 @@ export const debtController = {
         method: body.method,
         paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
         note: body.note,
+        actorUserId: req.user!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async writeOff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = writeOffSchema.parse(req.body);
+      res.json(await debtService.writeOff({
+        debtId: req.params.id,
+        reason: body.reason,
         actorUserId: req.user!.id,
       }));
     } catch (error) {

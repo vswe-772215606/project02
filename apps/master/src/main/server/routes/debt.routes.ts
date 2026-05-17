@@ -10,3 +10,4 @@ debtRouter.use(requireAuth, requireRole(['ADMIN', 'OWNER']));
 debtRouter.get('/', debtController.list);
 debtRouter.get('/:id', debtController.getById);
 debtRouter.post('/:id/repayments', debtController.recordRepayment);
+debtRouter.post('/:id/write-off', debtController.writeOff);

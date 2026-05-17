@@ -75,6 +75,7 @@ enum DebtStatus {
   OPEN
   PARTIAL
   PAID
+  WRITTEN_OFF
 }
 
 enum MenuItemKind {
@@ -103,6 +104,7 @@ enum AuditAction {
   DEBT_CREATED
   DEBT_PAYMENT_RECORDED
   DEBT_CLOSED
+  DEBT_WRITTEN_OFF
   REPORT_SENT
   REPORT_SEND_FAILED
   INGREDIENT_CREATED
@@ -162,6 +164,7 @@ model User {
   printJobs         PrintJob[]   @relation("PrintJobTrigger")
   expensesCreated   Expense[]    @relation("ExpenseCreator")
   debtsCreated      Debt[]       @relation("DebtCreator")
+  debtsWrittenOff   Debt[]       @relation("DebtWriteOff")
   debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
   ingredientMovements   IngredientMovement[] @relation("IngredientMovementActor")
   purchasesRecorded     Purchase[]           @relation("PurchaseRecorder")
@@ -461,23 +464,27 @@ model ExpenseReturn {
 }
 
 model Debt {
-  id              String     @id @default(cuid())
-  orderId         String     @unique
-  debtorName      String
-  debtorPhone     String?
-  note            String?
-  originalAmount  Decimal
-  remainingAmount Decimal
-  openedAt        DateTime
-  closedAt        DateTime?
-  status          DebtStatus @default(OPEN)
-  createdById     String
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  orderId           String     @unique
+  debtorName        String
+  debtorPhone       String?
+  note              String?
+  originalAmount    Decimal
+  remainingAmount   Decimal
+  openedAt          DateTime
+  closedAt          DateTime?
+  status            DebtStatus @default(OPEN)
+  writtenOffAt      DateTime?
+  writtenOffById    String?
+  writtenOffReason  String?
+  createdById       String
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
-  order           Order            @relation(fields: [orderId], references: [id])
-  createdBy       User             @relation("DebtCreator", fields: [createdById], references: [id])
-  repayments      DebtRepayment[]
+  order             Order            @relation(fields: [orderId], references: [id])
+  createdBy         User             @relation("DebtCreator", fields: [createdById], references: [id])
+  writtenOffBy      User?            @relation("DebtWriteOff", fields: [writtenOffById], references: [id])
+  repayments        DebtRepayment[]
 
   @@index([status])
   @@index([openedAt])

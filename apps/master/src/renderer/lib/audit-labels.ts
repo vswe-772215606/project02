@@ -30,6 +30,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   DEBT_CREATED: 'Qarz ochildi',
   DEBT_PAYMENT_RECORDED: 'Qarz qaytimi qabul qilindi',
   DEBT_CLOSED: 'Qarz yopildi',
+  DEBT_WRITTEN_OFF: 'Qarz yo‘qotildi (write-off)',
 
   // Mahsulot (ingredient)
   INGREDIENT_CREATED: 'Mahsulot yaratildi',
@@ -80,7 +81,7 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
     label: 'Chiqim va qarz',
     values: [
       'EXPENSE_CREATED', 'EXPENSE_REVERSED', 'EXPENSE_RETURN_RECEIVED', 'EXPENSE_WRITTEN_OFF',
-      'DEBT_CREATED', 'DEBT_PAYMENT_RECORDED', 'DEBT_CLOSED',
+      'DEBT_CREATED', 'DEBT_PAYMENT_RECORDED', 'DEBT_CLOSED', 'DEBT_WRITTEN_OFF',
     ],
   },
   {
@@ -99,6 +100,7 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
 export function auditActionTone(action: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (
     ['ORDER_CANCELED', 'WALKOUT_MARKED', 'EXPENSE_REVERSED', 'EXPENSE_WRITTEN_OFF',
+     'DEBT_WRITTEN_OFF',
      'USER_DEACTIVATED', 'INGREDIENT_DEACTIVATED', 'RECIPE_DEACTIVATED',
      'REPORT_SEND_FAILED'].includes(action)
   ) return 'danger';
