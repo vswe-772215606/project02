@@ -11,9 +11,6 @@ const LIST_INCLUDE = {
   lines: {
     orderBy: { createdAt: 'asc' as const },
   },
-  kitchenTickets: {
-    orderBy: { createdAt: 'asc' as const },
-  },
   waiter: {
     select: {
       id: true,
@@ -39,11 +36,7 @@ export const orderRepo = {
         lines: {
           include: {
             menuItem: true,
-            kitchenTicket: true,
           },
-          orderBy: { createdAt: 'asc' },
-        },
-        kitchenTickets: {
           orderBy: { createdAt: 'asc' },
         },
         payments: {

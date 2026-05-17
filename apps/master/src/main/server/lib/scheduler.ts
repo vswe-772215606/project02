@@ -11,7 +11,6 @@ export async function runDraftCleanup(): Promise<void> {
       where: {
         status: 'DRAFT',
         createdAt: { lt: cutoff },
-        kitchenTickets: { none: {} },
       },
     });
     if (result.count > 0) {

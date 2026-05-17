@@ -10,7 +10,6 @@ import { expenseRouter } from './routes/expense.routes';
 import { financeRouter } from './routes/finance.routes';
 import { healthRouter } from './routes/health.routes';
 import { ingredientRouter } from './routes/ingredient.routes';
-import { kitchenRouter } from './routes/kitchen.routes';
 import { menuRouter } from './routes/menu.routes';
 import { ordersRouter } from './routes/orders.routes';
 import { purchaseRouter } from './routes/purchase.routes';
@@ -32,7 +31,6 @@ export function createApp(): Express {
   app.use('/api/menu', menuRouter);
   app.use('/api/tables', tablesRouter);
   app.use('/api/orders', ordersRouter);
-  app.use('/api/kitchen', kitchenRouter);
   app.use('/api/discounts', discountsRouter);
   app.use('/api/expense-categories', expenseCategoryRouter);
   app.use('/api/expenses', expenseRouter);

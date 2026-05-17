@@ -17,9 +17,7 @@ ordersRouter.patch('/:id/lines/:lineId/notes', requireRole(['WAITER', 'OWNER']),
 ordersRouter.post('/:id/lines/:lineId/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelLine);
 ordersRouter.post('/:id/send', requireRole(['WAITER', 'OWNER']), ordersController.send);
 ordersRouter.post('/:id/transfer', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.transfer);
-ordersRouter.post('/:id/request-bill', requireRole(['WAITER', 'OWNER']), ordersController.requestBill);
 ordersRouter.post('/:id/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelOrder);
-ordersRouter.post('/:id/approve', requireRole(['ADMIN', 'OWNER']), ordersController.approve);
-ordersRouter.post('/:id/mark-paid', requireRole(['ADMIN', 'OWNER']), ordersController.markPaid);
+ordersRouter.post('/:id/confirm', requireRole(['ADMIN', 'OWNER']), ordersController.confirm);
 ordersRouter.post('/:id/mark-walkout', requireRole(['ADMIN', 'OWNER']), ordersController.markWalkout);
 ordersRouter.post('/:id/reprint-bill', requireRole(['ADMIN', 'OWNER']), ordersController.reprintBill);

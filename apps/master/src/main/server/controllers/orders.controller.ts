@@ -40,12 +40,9 @@ const updateLineQuantitySchema = z.object({
   quantity: z.number().int().positive(),
 });
 
-const approveSchema = z.object({
-  discountId: z.string().optional(),
-  serviceChargeWaived: z.boolean().default(false),
-});
-
-const markPaidSchema = z.object({
+const confirmSchema = z.object({
+  discountId: z.string().min(1).nullable().optional(),
+  waiveServiceCharge: z.boolean().optional(),
   payments: z.array(z.object({
     method: z.nativeEnum(PaymentMethod),
     amount: z.union([z.number().int(), z.string().min(1)]),
@@ -201,17 +198,6 @@ export const ordersController = {
     }
   },
 
-  async requestBill(req: Request, res: Response, next: NextFunction) {
-    try {
-      res.json(await orderService.requestBill({
-        orderId: req.params.id,
-        waiterId: req.user!.id,
-      }));
-    } catch (error) {
-      next(error);
-    }
-  },
-
   async cancelOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const body = z.object({ reason: z.string().min(1) }).parse(req.body);
@@ -225,26 +211,14 @@ export const ordersController = {
     }
   },
 
-  async approve(req: Request, res: Response, next: NextFunction) {
+  async confirm(req: Request, res: Response, next: NextFunction) {
     try {
-      const body = approveSchema.parse(req.body);
-      res.json(await orderService.approve({
+      const body = confirmSchema.parse(req.body);
+      res.json(await orderService.confirm({
         orderId: req.params.id,
-        adminUserId: req.user!.id,
-        discountId: body.discountId,
-        serviceChargeWaived: body.serviceChargeWaived,
-      }));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async markPaid(req: Request, res: Response, next: NextFunction) {
-    try {
-      const body = markPaidSchema.parse(req.body);
-      res.json(await orderService.markPaid({
-        orderId: req.params.id,
-        adminUserId: req.user!.id,
+        requestingUser: requester(req),
+        discountId: body.discountId ?? null,
+        waiveServiceCharge: body.waiveServiceCharge ?? false,
         payments: body.payments,
         debt: body.debt,
       }));

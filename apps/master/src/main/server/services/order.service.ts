@@ -1,9 +1,8 @@
 import crypto from 'crypto';
-import { KitchenTicketStatus, MenuItemKind, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
+import { MenuItemKind, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
 import { Errors } from '../lib/errors';
-import { deferAfterCommit, deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
+import { deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { getPrisma } from '../lib/prisma';
-import { kitchenRepo } from '../repositories/kitchen.repo';
 import { menuRepo } from '../repositories/menu.repo';
 import { orderLineRepo } from '../repositories/orderLine.repo';
 import { orderRepo } from '../repositories/order.repo';
@@ -13,7 +12,6 @@ import { auditService } from './audit.service';
 import { billingService } from './billing.service';
 import { debtService } from './debt.service';
 import { printService } from './print.service';
-import { settingsService } from './settings.service';
 import { consumptionService } from './consumption.service';
 
 type Tx = Prisma.TransactionClient;
@@ -24,12 +22,7 @@ type RequestingUser = {
 
 type OrderWithDetails = NonNullable<Awaited<ReturnType<typeof orderRepo.findByIdWithDetails>>>;
 
-const ACTIVE_ORDER_STATUSES = [
-  OrderStatus.DRAFT,
-  OrderStatus.SENT,
-  OrderStatus.BILL_REQUESTED,
-  OrderStatus.PENDING_PAYMENT,
-] as const;
+const ACTIVE_ORDER_STATUSES = [OrderStatus.DRAFT, OrderStatus.SENT] as const;
 
 function decimalToInt(value: Prisma.Decimal | string | number | null | undefined): number {
   if (value === null || value === undefined) {
@@ -52,7 +45,7 @@ function mapToDto(order: any) {
   if (!order) return null;
 
   const totalSnapshot = order.totalSnapshot ? decimalToInt(order.totalSnapshot) : 0;
-  
+
   // Calculate totalAmount for active orders that don't have a snapshot yet.
   // SERVICE lines are already part of order.lines, so summing all non-cancelled
   // lines correctly produces (food + xizmat haqi) — no setting lookup needed.
@@ -110,10 +103,6 @@ function ensureReadable(order: { waiterId: string }, requestingUser: RequestingU
   }
 }
 
-function canWaiterCancel(order: OrderWithDetails): boolean {
-  return order.kitchenTickets.every((ticket) => ticket.status === KitchenTicketStatus.PENDING);
-}
-
 async function getOrderOrThrow(orderId: string, tx?: Tx): Promise<OrderWithDetails> {
   const order = await orderRepo.findByIdWithDetails(orderId, tx);
   if (!order) {
@@ -122,46 +111,27 @@ async function getOrderOrThrow(orderId: string, tx?: Tx): Promise<OrderWithDetai
   return order;
 }
 
-async function createAddonTicket(
-  order: OrderWithDetails,
-  waiterId: string,
-  lineIds: string[],
-  tx: Tx,
-) {
-  const ticket = await kitchenRepo.create({
-    order: {
-      connect: { id: order.id },
-    },
-  }, tx);
-
-  await orderLineRepo.attachToTicket(lineIds, ticket.id, tx);
-
-  deferEmit('kitchen', 'ticket:new', { ticketId: ticket.id });
-  deferEmit('admin', 'ticket:new', { ticketId: ticket.id });
-  deferEmit(`waiter:${waiterId}`, 'ticket:new', { ticketId: ticket.id });
-
-  if (order.status === OrderStatus.BILL_REQUESTED) {
-    deferEmit('admin', 'order:updated', { orderId: order.id });
-  }
-
-  deferAfterCommit(() => printService.tryPrintKitchenTicket(ticket.id));
-
-  return ticket;
-}
-
+/**
+ * Restore ingredient stock for a single line.
+ *
+ * New lifecycle rule: stock is only restored when the order is still DRAFT.
+ * Once the order is SENT, dishes are considered prepared and ingredients are
+ * not restored on cancel (conservative rule).
+ */
 async function maybeRestoreLineStock(
   line: OrderWithDetails['lines'][number],
-  ticketStatus: KitchenTicketStatus | null,
+  order: { status: OrderStatus },
   actorUserId: string,
   tx: Tx,
 ) {
-  if (!line.isCanceled && (ticketStatus === null || ticketStatus === KitchenTicketStatus.PENDING)) {
-    await consumptionService.restore(
-      { id: line.id, menuItemId: line.menuItemId, actorUserId },
-      line.quantity,
-      tx,
-    );
-  }
+  if (line.isCanceled) return;
+  if (order.status !== OrderStatus.DRAFT) return;
+  if (!line.menuItemId) return;
+  await consumptionService.restore(
+    { id: line.id, menuItemId: line.menuItemId, actorUserId },
+    line.quantity,
+    tx,
+  );
 }
 
 export const orderService = {
@@ -248,7 +218,7 @@ export const orderService = {
       const order = await getOrderOrThrow(input.orderId);
       ensureWaiterOwns(order, input.waiterId);
 
-      if (![OrderStatus.DRAFT, OrderStatus.SENT, OrderStatus.BILL_REQUESTED].includes(order.status)) {
+      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'ADD_LINE');
       }
 
@@ -260,30 +230,29 @@ export const orderService = {
       const isService = item.kind === MenuItemKind.SERVICE;
 
       return getPrisma().$transaction(async (tx) => {
-        // Merge into existing unsent line for the same item (DRAFT only).
-        // For SERVICE items, also merge when added later — multiple "xizmat haqi"
-        // lines for the same item shouldn't proliferate.
-        const existingUnsentLine = order.status === OrderStatus.DRAFT || isService
+        // In DRAFT, merge same-item lines; for SERVICE always merge so duplicate
+        // service-charge rows don't proliferate. In SENT, append a new line so
+        // the add-on is visible/auditable on the bill.
+        const existingMergeable = order.status === OrderStatus.DRAFT || isService
           ? await tx.orderLine.findFirst({
               where: {
                 orderId: input.orderId,
                 menuItemId: input.menuItemId,
-                kitchenTicketId: null,
                 isCanceled: false,
               },
             })
           : null;
 
-        const line = existingUnsentLine
+        const line = existingMergeable
           ? await orderLineRepo.updateQuantity(
-              existingUnsentLine.id,
-              existingUnsentLine.quantity + input.quantity,
+              existingMergeable.id,
+              existingMergeable.quantity + input.quantity,
               tx,
             )
           : await orderLineRepo.create(
               {
-                orderId: input.orderId,
-                menuItemId: input.menuItemId,
+                order: { connect: { id: input.orderId } },
+                menuItem: { connect: { id: input.menuItemId } },
                 nameSnapshot: item.name,
                 unitPriceSnapshot: item.price,
                 quantity: input.quantity,
@@ -298,11 +267,6 @@ export const orderService = {
             input.quantity,
             tx,
           );
-        }
-
-        // SERVICE lines never spawn a kitchen ticket.
-        if (!existingUnsentLine && !isService && order.status !== OrderStatus.DRAFT) {
-          await createAddonTicket(order, input.waiterId, [line.id], tx);
         }
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
@@ -322,7 +286,7 @@ export const orderService = {
       const order = await getOrderOrThrow(input.orderId);
       ensureWaiterOwns(order, input.waiterId);
 
-      if (![OrderStatus.DRAFT, OrderStatus.SENT, OrderStatus.BILL_REQUESTED].includes(order.status)) {
+      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'ADD_COMBO');
       }
 
@@ -336,8 +300,8 @@ export const orderService = {
         const lines = [];
         for (const component of combo.components) {
           const line = await orderLineRepo.create({
-            orderId: input.orderId,
-            menuItemId: component.menuItemId,
+            order: { connect: { id: input.orderId } },
+            menuItem: { connect: { id: component.menuItemId } },
             comboGroupId: comboGroupId,
             comboNameSnapshot: combo.name,
             nameSnapshot: component.menuItem.name,
@@ -350,10 +314,6 @@ export const orderService = {
             tx,
           );
           lines.push(line);
-        }
-
-        if (order.status !== OrderStatus.DRAFT) {
-          await createAddonTicket(order, input.waiterId, lines.map((l) => l.id), tx);
         }
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
@@ -378,8 +338,8 @@ export const orderService = {
       if (!line || line.orderId !== order.id || line.isCanceled) {
         throw Errors.NotFound('OrderLine');
       }
-      if (line.kitchenTicketId !== null) {
-        throw Errors.Business('LINE_ALREADY_SENT', 'Cannot change quantity of a line already sent to kitchen');
+      if (order.status !== OrderStatus.DRAFT) {
+        throw Errors.Business('LINE_ALREADY_SENT', 'Cannot change quantity once the order is sent');
       }
       if (input.quantity < 1) {
         throw Errors.Business('INVALID_QUANTITY', 'Quantity must be at least 1');
@@ -427,24 +387,13 @@ export const orderService = {
         throw Errors.NotFound('OrderLine');
       }
 
-      if (order.status !== OrderStatus.DRAFT) {
-        // If not draft, check if ticket is still pending
-        if (!line.kitchenTicketId) {
-           // Should not happen if order is SENT, but allow for safety
-        } else {
-          const ticket = await kitchenRepo.findById(line.kitchenTicketId);
-          if (!ticket || ticket.status !== KitchenTicketStatus.PENDING) {
-            throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE (ticket not pending)');
-          }
-        }
+      // Notes can be edited any time before the order is closed/walkout/canceled.
+      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
+        throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE');
       }
 
       const updatedLine = await orderLineRepo.updateNote(input.lineId, input.notes);
-      
-      if (line.kitchenTicketId) {
-        deferEmit('kitchen', 'ticket:noteEdited', { ticketId: line.kitchenTicketId, lineId: line.id });
-        deferEmit('admin', 'ticket:noteEdited', { ticketId: line.kitchenTicketId, lineId: line.id });
-      }
+
       deferEmit('admin', 'order:updated', { orderId: order.id });
       deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
@@ -462,7 +411,7 @@ export const orderService = {
       const order = await getOrderOrThrow(input.orderId);
       ensureReadable(order, input.requestingUser);
 
-      if (![OrderStatus.DRAFT, OrderStatus.SENT, OrderStatus.BILL_REQUESTED].includes(order.status)) {
+      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'CANCEL_LINE');
       }
 
@@ -471,12 +420,18 @@ export const orderService = {
         throw Errors.NotFound('Order line');
       }
 
-      const waiterAllowed = input.requestingUser.role === UserRole.WAITER && 
-        order.waiterId === input.requestingUser.id &&
-        (order.status === OrderStatus.DRAFT || 
-          (order.status === OrderStatus.SENT && (!line.kitchenTicketId || line.kitchenTicket?.status === KitchenTicketStatus.PENDING)));
-      
-      const adminAllowed = [UserRole.ADMIN, UserRole.OWNER].includes(input.requestingUser.role);
+      // Role rules:
+      //   WAITER  → DRAFT only (and must own the order)
+      //   ADMIN/OWNER → DRAFT or SENT
+      const isWaiter = input.requestingUser.role === UserRole.WAITER;
+      const isAdminish = input.requestingUser.role === UserRole.ADMIN
+        || input.requestingUser.role === UserRole.OWNER;
+
+      const waiterAllowed = isWaiter
+        && order.waiterId === input.requestingUser.id
+        && order.status === OrderStatus.DRAFT;
+
+      const adminAllowed = isAdminish;
 
       if (!waiterAllowed && !adminAllowed) {
         throw Errors.Forbidden('Forbidden');
@@ -484,9 +439,8 @@ export const orderService = {
 
       return getPrisma().$transaction(async (tx) => {
         const updated = await orderLineRepo.cancel(input.lineId, input.reason ?? '', tx);
-        await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, input.requestingUser.id, tx);
+        await maybeRestoreLineStock(line, order, input.requestingUser.id, tx);
 
-        deferEmit('kitchen', 'order:updated', { orderId: order.id });
         deferEmit('admin', 'order:updated', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
@@ -501,59 +455,29 @@ export const orderService = {
         const order = await getOrderOrThrow(input.orderId, tx);
         ensureWaiterOwns(order, input.waiterId);
 
-        if (![OrderStatus.DRAFT, OrderStatus.SENT, OrderStatus.BILL_REQUESTED].includes(order.status)) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
-        }
-
-        // SERVICE lines (xizmat haqi) never go to the kitchen — they appear on the
-        // bill but cooks don't see or cook them. Filter them out of the send.
-        const unsentLines = order.lines.filter(
-          (line) => !line.kitchenTicketId && !line.isCanceled && line.menuItem.kind !== MenuItemKind.SERVICE,
-        );
-
-        // If already sent and no new cookable lines, just return success
-        if (order.status !== OrderStatus.DRAFT && unsentLines.length === 0) {
+        if (order.status === OrderStatus.SENT) {
+          // Idempotent: already sent, return as-is.
           return mapToDto(order);
         }
 
-        if (unsentLines.length === 0) {
-          // No food to send; this can happen if the only lines are SERVICE items.
-          // Still allow transitioning DRAFT → SENT so the waiter can request a bill.
-          if (order.status === OrderStatus.DRAFT) {
-            const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
-            if (!updated) {
-              throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
-            }
-            deferEmit('admin', 'order:updated', { orderId: order.id });
-            deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
-            return mapToDto(updated);
-          }
-          throw Errors.Validation('Order has no draft lines');
+        if (order.status !== OrderStatus.DRAFT) {
+          throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
         }
 
-        const ticket = await kitchenRepo.create({
-          order: {
-            connect: { id: order.id },
-          },
-        }, tx);
-
-        await orderLineRepo.attachToTicket(unsentLines.map((line) => line.id), ticket.id, tx);
-        
-        let updatedOrder = order;
-        if (order.status === OrderStatus.DRAFT) {
-          const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
-          if (!updated) {
-            throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
-          }
-          updatedOrder = updated;
+        const activeLines = order.lines.filter((line) => !line.isCanceled);
+        if (activeLines.length === 0) {
+          throw Errors.Validation('Order has no lines');
         }
 
-        deferEmit('kitchen', 'ticket:new', { ticketId: ticket.id });
-        deferEmit('admin', 'ticket:new', { ticketId: ticket.id });
-        deferEmit(`waiter:${input.waiterId}`, 'ticket:new', { ticketId: ticket.id });
-        deferAfterCommit(() => printService.tryPrintKitchenTicket(ticket.id));
+        const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
+        if (!updated) {
+          throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
+        }
 
-        return mapToDto(updatedOrder);
+        deferEmit('admin', 'order:updated', { orderId: order.id });
+        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+
+        return mapToDto(updated);
       });
     });
   },
@@ -568,12 +492,13 @@ export const orderService = {
       ensureReadable(order, input.requestingUser);
 
       const waiterAllowed = input.requestingUser.role === UserRole.WAITER && order.waiterId === input.requestingUser.id;
-      const adminAllowed = [UserRole.ADMIN, UserRole.OWNER].includes(input.requestingUser.role);
+      const adminAllowed = input.requestingUser.role === UserRole.ADMIN
+        || input.requestingUser.role === UserRole.OWNER;
       if (!waiterAllowed && !adminAllowed) {
         throw Errors.Forbidden('Forbidden');
       }
 
-      if (![...ACTIVE_ORDER_STATUSES].includes(order.status)) {
+      if (![...ACTIVE_ORDER_STATUSES].includes(order.status as typeof ACTIVE_ORDER_STATUSES[number])) {
         throw Errors.IllegalStateTransition(order.status, 'TRANSFER');
       }
 
@@ -601,11 +526,6 @@ export const orderService = {
             },
           }, tx);
 
-          deferEmit('kitchen', 'order:transferred', {
-            orderId: order.id,
-            fromTableId: order.tableId,
-            toTableId: input.newTableId,
-          });
           deferEmit('admin', 'order:transferred', {
             orderId: order.id,
             fromTableId: order.tableId,
@@ -628,28 +548,6 @@ export const orderService = {
     });
   },
 
-  async requestBill(input: { orderId: string; waiterId: string }) {
-    return completeEmitContext(async () => {
-      return getPrisma().$transaction(async (tx) => {
-        const order = await getOrderOrThrow(input.orderId, tx);
-        ensureWaiterOwns(order, input.waiterId);
-        if (order.status !== OrderStatus.SENT) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.BILL_REQUESTED);
-        }
-
-        const updated = await orderRepo.setStatus(order.id, OrderStatus.BILL_REQUESTED, OrderStatus.SENT, tx);
-        if (!updated) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.BILL_REQUESTED);
-        }
-
-        deferEmit('admin', 'order:billRequested', { orderId: order.id });
-        deferEmit(`waiter:${input.waiterId}`, 'order:billRequested', { orderId: order.id });
-
-        return mapToDto(updated);
-      });
-    });
-  },
-
   async cancelOrder(input: {
     orderId: string;
     requestingUser: RequestingUser;
@@ -659,12 +557,16 @@ export const orderService = {
       const order = await getOrderOrThrow(input.orderId);
       ensureReadable(order, input.requestingUser);
 
-      const waiterAllowed = input.requestingUser.role === UserRole.WAITER && 
-        order.waiterId === input.requestingUser.id &&
-        (order.status === OrderStatus.DRAFT || (order.status === OrderStatus.SENT && canWaiterCancel(order)));
-      
-      const adminAllowed = [UserRole.ADMIN, UserRole.OWNER].includes(input.requestingUser.role) &&
-        [...ACTIVE_ORDER_STATUSES].includes(order.status);
+      const isWaiter = input.requestingUser.role === UserRole.WAITER;
+      const isAdminish = input.requestingUser.role === UserRole.ADMIN
+        || input.requestingUser.role === UserRole.OWNER;
+
+      const waiterAllowed = isWaiter
+        && order.waiterId === input.requestingUser.id
+        && order.status === OrderStatus.DRAFT;
+
+      const adminAllowed = isAdminish
+        && (order.status === OrderStatus.DRAFT || order.status === OrderStatus.SENT);
 
       if (!waiterAllowed && !adminAllowed) {
         throw Errors.Forbidden('Forbidden');
@@ -673,19 +575,9 @@ export const orderService = {
       return getPrisma().$transaction(async (tx) => {
         const updated = await orderRepo.setCanceled(order.id, input.reason, tx);
 
-        // Mark pending kitchen tickets as canceled
-        for (const ticket of order.kitchenTickets) {
-          if (ticket.status === KitchenTicketStatus.PENDING) {
-            await kitchenRepo.setStatus(ticket.id, KitchenTicketStatus.CANCELED, KitchenTicketStatus.PENDING, tx);
-            deferEmit('kitchen', 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
-            deferEmit('admin', 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
-            deferEmit(`waiter:${order.waiterId}`, 'ticket:canceled', { ticketId: ticket.id, reason: input.reason });
-          }
-        }
-
-        // Restore stock for all non-canceled items that haven't been cooked
+        // Stock restore: only DRAFT cancels return ingredients.
         for (const line of order.lines) {
-          await maybeRestoreLineStock(line, line.kitchenTicket?.status ?? null, input.requestingUser.id, tx);
+          await maybeRestoreLineStock(line, order, input.requestingUser.id, tx);
         }
 
         await auditService.log({
@@ -696,10 +588,10 @@ export const orderService = {
           metadata: {
             orderId: order.id,
             reason: input.reason,
+            fromStatus: order.status,
           },
         }, tx);
 
-        deferEmit('kitchen', 'order:canceled', { orderId: order.id });
         deferEmit('admin', 'order:canceled', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:canceled', { orderId: order.id });
 
@@ -708,74 +600,22 @@ export const orderService = {
     });
   },
 
-  async approve(input: {
+  /**
+   * Combined "Tasdiqlash + To'lov" — the only path from SENT to CLOSED.
+   *
+   * Atomically: compute bill → validate payment sum → snapshot totals →
+   * insert payments (and debt if any) → print bill (blocking) → set CLOSED →
+   * audit ORDER_CONFIRMED → emit order:closed.
+   *
+   * If the bill print fails, the whole transaction rolls back; status stays SENT
+   * so the admin can retry.
+   */
+  async confirm(input: {
     orderId: string;
-    adminUserId: string;
     discountId?: string | null;
-    serviceChargeWaived: boolean;
-  }) {
-    return completeEmitContext(async () => {
-      const order = await getOrderOrThrow(input.orderId);
-      if (![OrderStatus.BILL_REQUESTED, OrderStatus.SENT].includes(order.status)) {
-        throw Errors.IllegalStateTransition(order.status, OrderStatus.PENDING_PAYMENT);
-      }
-
-      const totals = await billingService.computeTotals(order, {
-        discountId: input.discountId,
-        serviceChargeWaived: input.serviceChargeWaived,
-      });
-
-      return getPrisma().$transaction(async (tx) => {
-        await orderRepo.setApproval(order.id, input.adminUserId, input.discountId ?? null, input.serviceChargeWaived, tx);
-        await orderRepo.applyTotals(order.id, {
-          subtotalSnapshot: totals.subtotal,
-          discountAmountSnapshot: totals.discountAmount,
-          serviceChargeSnapshot: totals.serviceCharge,
-          totalSnapshot: totals.total,
-        }, tx);
-
-        const updated = await orderRepo.setStatus(order.id, OrderStatus.PENDING_PAYMENT, order.status, tx);
-        if (!updated) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.PENDING_PAYMENT);
-        }
-
-        await auditService.log({
-          userId: input.adminUserId,
-          action: 'DISCOUNT_APPLIED',
-          entityType: 'Order',
-          entityId: order.id,
-          metadata: {
-            orderId: order.id,
-            discountId: input.discountId,
-          },
-        }, tx);
-
-        if (input.serviceChargeWaived) {
-          await auditService.log({
-            userId: input.adminUserId,
-            action: 'SERVICE_CHARGE_WAIVED',
-            entityType: 'Order',
-            entityId: order.id,
-            metadata: { orderId: order.id },
-          }, tx);
-        }
-
-        deferEmit('admin', 'order:approved', { orderId: order.id });
-        deferEmit(`waiter:${order.waiterId}`, 'order:approved', { orderId: order.id });
-
-        // Print final bill
-        const freshOrder = await getOrderOrThrow(order.id, tx);
-        deferAfterCommit(() => printService.printBill(freshOrder));
-
-        return mapToDto(updated);
-      });
-    });
-  },
-
-  async markPaid(input: {
-    orderId: string;
-    adminUserId: string;
+    waiveServiceCharge?: boolean;
     payments: Array<{ method: PaymentMethod; amount: number | string; reference?: string }>;
+    requestingUser: RequestingUser;
     debt?: {
       debtorName: string;
       debtorPhone?: string;
@@ -784,7 +624,7 @@ export const orderService = {
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      if (order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
       }
 
@@ -793,32 +633,71 @@ export const orderService = {
         throw Errors.DebtMetadataRequired();
       }
 
-      // Verify total
+      const totals = await billingService.computeTotals(order, {
+        discountId: input.discountId ?? null,
+        serviceChargeWaived: input.waiveServiceCharge ?? false,
+      });
+
       const totalPaid = input.payments.reduce((sum, p) => sum + decimalToInt(p.amount), 0);
-      if (totalPaid !== decimalToInt(order.totalSnapshot)) {
-        throw Errors.PaymentMismatch(`Paid ${totalPaid}, but order total is ${order.totalSnapshot}`);
+      const totalDue = totals.total.toNumber();
+      if (totalPaid !== totalDue) {
+        throw Errors.PaymentMismatch(`Paid ${totalPaid}, but order total is ${totalDue}`);
       }
 
       return getPrisma().$transaction(async (tx) => {
         const closedAt = new Date();
+
+        await orderRepo.setApproval(
+          order.id,
+          input.requestingUser.id,
+          input.discountId ?? null,
+          input.waiveServiceCharge ?? false,
+          tx,
+        );
+        await orderRepo.applyTotals(order.id, {
+          subtotalSnapshot: totals.subtotal,
+          discountAmountSnapshot: totals.discountAmount,
+          serviceChargeSnapshot: totals.serviceCharge,
+          totalSnapshot: totals.total,
+        }, tx);
+
         await paymentRepo.createMany(order.id, input.payments, tx);
 
-        if (debtPayment) {
+        if (debtPayment && input.debt) {
           await debtService.createFromClosedOrder({
             orderId: order.id,
             amount: debtPayment.amount,
-            debtorName: input.debt!.debtorName,
-            debtorPhone: input.debt?.debtorPhone,
-            note: input.debt?.note,
-            actorUserId: input.adminUserId,
+            debtorName: input.debt.debtorName,
+            debtorPhone: input.debt.debtorPhone,
+            note: input.debt.note,
+            actorUserId: input.requestingUser.id,
             openedAt: closedAt,
           }, tx);
         }
+
+        // Print bill — blocking. If it throws, the transaction rolls back and
+        // status stays SENT so the admin can retry.
+        const freshOrder = await getOrderOrThrow(order.id, tx);
+        await printService.printBill(freshOrder);
 
         const updated = await orderRepo.setClosed(order.id, closedAt, tx);
         if (!updated) {
           throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
         }
+
+        await auditService.log({
+          userId: input.requestingUser.id,
+          action: 'ORDER_CONFIRMED',
+          entityType: 'Order',
+          entityId: order.id,
+          metadata: {
+            orderId: order.id,
+            discountId: input.discountId ?? null,
+            waiveServiceCharge: input.waiveServiceCharge ?? false,
+            total: totalDue,
+            paymentMethods: input.payments.map((p) => p.method),
+          },
+        }, tx);
 
         deferEmit('admin', 'order:closed', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:closed', { orderId: order.id });
@@ -831,7 +710,7 @@ export const orderService = {
   async markWalkout(input: { orderId: string; adminUserId: string; reason: string }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      if (order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.WALKOUT);
       }
 
@@ -839,13 +718,15 @@ export const orderService = {
         const updated = await orderRepo.setStatus(
           order.id,
           OrderStatus.WALKOUT,
-          OrderStatus.PENDING_PAYMENT,
+          OrderStatus.SENT,
           tx,
         );
 
         if (!updated) {
-          throw Errors.IllegalStateTransition(OrderStatus.PENDING_PAYMENT, OrderStatus.WALKOUT);
+          throw Errors.IllegalStateTransition(OrderStatus.SENT, OrderStatus.WALKOUT);
         }
+
+        // Stock is NOT restored — the food was prepared/consumed.
 
         await auditService.log({
           userId: input.adminUserId,
@@ -869,7 +750,7 @@ export const orderService = {
 
   async reprintBill(input: { orderId: string; requestingUserId: string; reason?: string }) {
     const order = await getOrderOrThrow(input.orderId);
-    if (![OrderStatus.PENDING_PAYMENT, OrderStatus.CLOSED, OrderStatus.WALKOUT].includes(order.status)) {
+    if (order.status !== OrderStatus.CLOSED && order.status !== OrderStatus.WALKOUT) {
       throw Errors.IllegalStateTransition(order.status, 'REPRINT_BILL');
     }
 
@@ -887,3 +768,4 @@ export const orderService = {
     return job;
   },
 };
+

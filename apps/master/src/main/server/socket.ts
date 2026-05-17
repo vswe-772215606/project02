@@ -49,7 +49,6 @@ export function attachSocket(httpServer: HttpServer): IOServer {
     }
     trackSocket(user.id, socket.id);
     if (user.role === 'OWNER' || user.role === 'ADMIN') socket.join('admin');
-    if (user.role === 'KITCHEN') socket.join('kitchen');
     if (user.role === 'WAITER') socket.join(`waiter:${user.id}`);
     socket.on('disconnect', () => {
       untrackSocket(user.id, socket.id);

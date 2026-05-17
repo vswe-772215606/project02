@@ -19,37 +19,6 @@ export const orderLineRepo = {
     });
   },
 
-  async findByTicketId(ticketId: string, tx?: Tx) {
-    return (tx ?? getPrisma()).orderLine.findMany({
-      where: { kitchenTicketId: ticketId },
-      orderBy: { createdAt: 'asc' },
-    });
-  },
-
-  async attachToTicket(lineIds: string[], ticketId: string, tx?: Tx) {
-    const client = tx ?? getPrisma();
-
-    await client.orderLine.updateMany({
-      where: {
-        id: {
-          in: lineIds,
-        },
-      },
-      data: {
-        kitchenTicketId: ticketId,
-      },
-    });
-
-    return client.orderLine.findMany({
-      where: {
-        id: {
-          in: lineIds,
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-  },
-
   async updateNote(id: string, notes: string | null, tx?: Tx) {
     return (tx ?? getPrisma()).orderLine.update({
       where: { id },
@@ -72,17 +41,6 @@ export const orderLineRepo = {
         canceledAt: new Date(),
         canceledReason: reason,
       },
-    });
-  },
-
-  async findUnsentByOrderId(orderId: string, tx?: Tx) {
-    return (tx ?? getPrisma()).orderLine.findMany({
-      where: {
-        orderId,
-        kitchenTicketId: null,
-        isCanceled: false,
-      },
-      orderBy: { createdAt: 'asc' },
     });
   },
 };

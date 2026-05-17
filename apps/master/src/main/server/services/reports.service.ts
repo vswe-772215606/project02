@@ -19,7 +19,6 @@ const reportOrderInclude = {
           category: true,
         },
       },
-      kitchenTicket: true,
     },
     orderBy: {
       createdAt: 'asc' as const,
@@ -170,8 +169,11 @@ function buildMealSales(closedOrders: ReportOrder[]) {
     });
 }
 
-function buildKitchenProduction(orders: ReportOrder[]) {
-  const kitchenMap = new Map<string, {
+function buildKitchenProduction(_orders: ReportOrder[]) {
+  // Kitchen subsystem removed. The Z-report no longer tracks per-line kitchen
+  // production stats. The renderer still references `kitchenProduction` — Phase D
+  // strips it. Returning an empty array keeps the API stable in the interim.
+  return [] as Array<{
     mealName: string;
     qtyOrdered: number;
     qtySent: number;
@@ -179,46 +181,7 @@ function buildKitchenProduction(orders: ReportOrder[]) {
     qtyReady: number;
     qtyCanceledBeforeCooking: number;
     qtyCanceledAfterStart: number;
-  }>();
-
-  for (const order of orders) {
-    for (const line of order.lines) {
-      const existing = kitchenMap.get(line.nameSnapshot) ?? {
-        mealName: line.nameSnapshot,
-        qtyOrdered: 0,
-        qtySent: 0,
-        qtyStarted: 0,
-        qtyReady: 0,
-        qtyCanceledBeforeCooking: 0,
-        qtyCanceledAfterStart: 0,
-      };
-
-      const ticket = line.kitchenTicket;
-      const started = Boolean(ticket?.startedAt) || ticket?.status === 'IN_PROGRESS' || ticket?.status === 'READY';
-      const ready = Boolean(ticket?.readyAt) || ticket?.status === 'READY';
-      const sent = Boolean(line.kitchenTicketId);
-
-      existing.qtyOrdered += line.quantity;
-      if (sent) existing.qtySent += line.quantity;
-      if (started) existing.qtyStarted += line.quantity;
-      if (ready) existing.qtyReady += line.quantity;
-
-      if (line.isCanceled) {
-        if (!sent || (!started && (ticket?.status === 'PENDING' || ticket?.status === 'CANCELED' || !ticket))) {
-          existing.qtyCanceledBeforeCooking += line.quantity;
-        } else {
-          existing.qtyCanceledAfterStart += line.quantity;
-        }
-      }
-
-      kitchenMap.set(line.nameSnapshot, existing);
-    }
-  }
-
-  return Array.from(kitchenMap.values()).sort((a, b) => {
-    if (b.qtyReady !== a.qtyReady) return b.qtyReady - a.qtyReady;
-    return b.qtyOrdered - a.qtyOrdered;
-  });
+  }>;
 }
 
 function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {

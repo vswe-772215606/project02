@@ -3,12 +3,10 @@ import { PrintJobType, Prisma } from '@prisma/client';
 import { promisify } from 'util';
 import { Errors } from '../lib/errors';
 import { printQueue } from '../lib/print-queue';
-import { kitchenRepo } from '../repositories/kitchen.repo';
 import { printJobRepo } from '../repositories/printJob.repo';
 import { settingsService } from './settings.service';
 import { resolveBinaryPath } from '../printer/binary-resolver';
 import { buildBillArgs } from '../printer/receipt-builder';
-import { buildKitchenTicketArgs } from '../printer/kitchen-ticket-builder';
 
 const execFileAsync = promisify(execFile);
 
@@ -158,45 +156,6 @@ export const printService = {
     });
   },
 
-  async tryPrintKitchenTicket(ticketId: string) {
-    if (settingsService.get('kitchen_printer_enabled') !== 'true') {
-      return null;
-    }
-
-    const printerName = settingsService.get('kitchen_printer_name') || '';
-    if (!printerName.trim()) {
-      return null;
-    }
-
-    const ticket = await kitchenRepo.findByIdWithLines(ticketId);
-    if (!ticket) {
-      throw Errors.NotFound('Kitchen ticket');
-    }
-
-    const heading = ticket.order.table?.name ?? 'OSHXONA';
-    const args = buildKitchenTicketArgs(ticket, { heading });
-    const job = await printJobRepo.create({
-      type: PrintJobType.KITCHEN_TICKET,
-      printerName,
-      payload: {
-        ticketId,
-      },
-      ticket: {
-        connect: { id: ticketId },
-      },
-    });
-
-    await runQueuedJob({
-      jobId: job.id,
-      printerName,
-      args,
-      linuxLabel: `KITCHEN_TICKET ticket=${ticketId}`,
-      blocking: false,
-    });
-
-    return printJobRepo.findById(job.id);
-  },
-
   async reprintBill(order: PrintableOrder, requestingUserId?: string) {
     const printerName = settingsService.get('admin_printer_name') || '';
     if (!printerName.trim()) {
@@ -231,47 +190,5 @@ export const printService = {
       linuxLabel: `BILL_REPRINT order=${order.id}`,
       blocking: true,
     });
-  },
-
-  async reprintKitchenTicket(ticketId: string, requestingUserId: string) {
-    if (settingsService.get('kitchen_printer_enabled') !== 'true') {
-      return null;
-    }
-
-    const printerName = settingsService.get('kitchen_printer_name') || '';
-    if (!printerName.trim()) {
-      return null;
-    }
-
-    const ticket = await kitchenRepo.findByIdWithLines(ticketId);
-    if (!ticket) {
-      throw Errors.NotFound('Kitchen ticket');
-    }
-
-    const heading = ticket.order.table?.name ?? 'OSHXONA';
-    const args = buildKitchenTicketArgs(ticket, { heading });
-    const job = await printJobRepo.create({
-      type: PrintJobType.TICKET_REPRINT,
-      printerName,
-      payload: {
-        ticketId,
-      },
-      ticket: {
-        connect: { id: ticketId },
-      },
-      triggeredBy: {
-        connect: { id: requestingUserId },
-      },
-    });
-
-    await runQueuedJob({
-      jobId: job.id,
-      printerName,
-      args,
-      linuxLabel: `TICKET_REPRINT ticket=${ticketId}`,
-      blocking: false,
-    });
-
-    return printJobRepo.findById(job.id);
   },
 };
