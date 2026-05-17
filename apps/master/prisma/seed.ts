@@ -7,7 +7,6 @@ const BCRYPT_ROUNDS = 10;
 const USER_IDS = {
   owner: 'seed-owner',
   admin: 'seed-admin',
-  kitchen: 'seed-kitchen-1',
   waiterBotir: 'seed-waiter-botir',
   waiterAziza: 'seed-waiter-aziza',
 } as const;
@@ -100,14 +99,6 @@ async function main() {
     password: 'admin123',
     fullName: 'Admin',
     role: UserRole.ADMIN,
-  });
-
-  await upsertUser({
-    id: USER_IDS.kitchen,
-    username: 'kitchen1',
-    password: 'kitchen123',
-    fullName: 'Kitchen 1',
-    role: UserRole.KITCHEN,
   });
 
   await upsertUser({

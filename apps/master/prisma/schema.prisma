@@ -15,7 +15,6 @@ datasource db {
 enum UserRole {
   OWNER
   ADMIN
-  KITCHEN
   WAITER
 }
 
@@ -32,17 +31,8 @@ enum OrderType {
 enum OrderStatus {
   DRAFT
   SENT
-  BILL_REQUESTED
-  PENDING_PAYMENT
   CLOSED
   WALKOUT
-  CANCELED
-}
-
-enum KitchenTicketStatus {
-  PENDING
-  IN_PROGRESS
-  READY
   CANCELED
 }
 
@@ -58,10 +48,8 @@ enum PaymentMethod {
 }
 
 enum PrintJobType {
-  KITCHEN_TICKET
   BILL
   BILL_REPRINT
-  TICKET_REPRINT
 }
 
 enum PrintJobStatus {
@@ -101,6 +89,7 @@ enum AuditAction {
   DISCOUNT_EDITED
   DISCOUNT_DELETED
   DISCOUNT_APPLIED
+  ORDER_CONFIRMED
   ORDER_CANCELED
   WALKOUT_MARKED
   TABLE_TRANSFERRED
@@ -322,7 +311,6 @@ model Order {
   approvedBy      User?           @relation("OrderApprover", fields: [approvedById], references: [id])
   appliedDiscount Discount?       @relation(fields: [appliedDiscountId], references: [id])
   lines           OrderLine[]
-  kitchenTickets  KitchenTicket[]
   payments        Payment[]
   debt            Debt?
   printJobs       PrintJob[]
@@ -337,7 +325,6 @@ model OrderLine {
   id                String    @id @default(cuid())
   orderId           String
   menuItemId        String
-  kitchenTicketId   String?
 
   nameSnapshot      String
   unitPriceSnapshot Decimal
@@ -360,31 +347,10 @@ model OrderLine {
 
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem            MenuItem             @relation(fields: [menuItemId], references: [id])
-  kitchenTicket       KitchenTicket?       @relation(fields: [kitchenTicketId], references: [id])
   ingredientMovements IngredientMovement[]
 
   @@index([orderId])
-  @@index([kitchenTicketId])
   @@index([comboGroupId])
-}
-
-model KitchenTicket {
-  id         String              @id @default(cuid())
-  orderId    String
-  status     KitchenTicketStatus @default(PENDING)
-  startedAt  DateTime?
-  readyAt    DateTime?
-  canceledAt DateTime?
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
-
-  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  lines      OrderLine[]
-  printJobs  PrintJob[]
-
-  @@index([orderId])
-  @@index([status])
-  @@index([createdAt])
 }
 
 // ============================================================
@@ -739,18 +705,15 @@ model PrintJob {
   attempts      Int            @default(0)
   errorMessage  String?
   orderId       String?
-  ticketId      String?
   triggeredById String
   createdAt     DateTime       @default(now())
   completedAt   DateTime?
 
   order         Order?         @relation(fields: [orderId], references: [id])
-  ticket        KitchenTicket? @relation(fields: [ticketId], references: [id])
   triggeredBy   User           @relation("PrintJobTrigger", fields: [triggeredById], references: [id])
 
   @@index([status])
   @@index([orderId])
-  @@index([ticketId])
   @@index([createdAt])
 }
 
