@@ -59,7 +59,7 @@ export const expensesApi = {
     byCategory: Array<{ categoryId: string; categoryName: string; amount: string }>;
   }>(`/api/expenses?date=${date}`),
   create: (data: {
-    categoryId: string;
+    categoryId?: string;
     amount: number;
     reason: string;
     note?: string;

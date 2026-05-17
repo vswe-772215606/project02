@@ -1,9 +1,49 @@
-import React, { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ReceiptText, RefreshCw, Calendar, Search, X } from 'lucide-react';
-import { expensesApi } from '../api/expenses';
-import { Modal } from '../components/Modal';
-import { formatDateTimeUZ, formatUZS } from '../utils/format';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Calendar,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { expensesApi, type ExpenseItem } from '@/api/expenses';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageContent } from '@/components/feedback/PageContent';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { EmptyState } from '@/components/feedback/EmptyState';
+import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
+import { MoneyCell } from '@/components/data/MoneyCell';
+import { DateTimeCell } from '@/components/data/DateCell';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { cn } from '@/lib/utils';
+import { ExpenseStatusCell } from '@/components/expenses/ExpenseStatusBadge';
+import {
+  ExpenseCreateDialog,
+} from '@/components/expenses/ExpenseCreateDialog';
+import {
+  ExpenseReverseDialog,
+  type ReversalTarget,
+} from '@/components/expenses/ExpenseReverseDialog';
+import {
+  ExpenseReturnDialog,
+  type ReturnTarget,
+} from '@/components/expenses/ExpenseReturnDialog';
+import {
+  ExpenseWriteOffDialog,
+  type WriteOffTarget,
+} from '@/components/expenses/ExpenseWriteOffDialog';
 
 function localDateString() {
   const now = new Date();
@@ -18,27 +58,50 @@ function isToday(date: string | Date) {
     && value.getDate() === now.getDate();
 }
 
+function StatTile({
+  label,
+  value,
+  icon: Icon,
+  tone = 'neutral',
+  hint,
+}: {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  tone?: 'neutral' | 'danger' | 'warning';
+  hint?: string;
+}) {
+  const toneClass: Record<string, string> = {
+    neutral: 'text-foreground',
+    danger: 'text-destructive',
+    warning: 'text-warning',
+  };
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <CardTitle className="text-xs uppercase tracking-wider font-medium text-muted-foreground">
+          {label}
+        </CardTitle>
+        <Icon className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+      </CardHeader>
+      <CardContent>
+        <div className={cn('text-2xl font-semibold tabular-nums', toneClass[tone])}>{value}</div>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ExpensesPage() {
-  const queryClient = useQueryClient();
-  const reversalNoteRef = useRef<HTMLTextAreaElement | null>(null);
+  usePageTitle('Xarajatlar');
+
   const [date, setDate] = useState(localDateString);
   const [searchQuery, setSearchQuery] = useState('');
   const [openRepayableOnly, setOpenRepayableOnly] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [reason, setReason] = useState('');
-  const [note, setNote] = useState('');
-  const [repayable, setRepayable] = useState(false);
-  const [returnTarget, setReturnTarget] = useState<null | { id: string; reason: string; remainingAmount: string }>(null);
-  const [returnAmount, setReturnAmount] = useState('');
-  const [returnNote, setReturnNote] = useState('');
-  const [returnError, setReturnError] = useState('');
-  const [writeOffTarget, setWriteOffTarget] = useState<null | { id: string; reason: string; remainingAmount: string }>(null);
-  const [writeOffReason, setWriteOffReason] = useState('');
-  const [writeOffError, setWriteOffError] = useState('');
-  const [reversalTarget, setReversalTarget] = useState<null | { id: string; reason: string; amount: string }>(null);
-  const [reversalNote, setReversalNote] = useState('');
-  const [reversalError, setReversalError] = useState('');
-  const [feedback, setFeedback] = useState<null | { type: 'success' | 'error'; message: string }>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [returnTarget, setReturnTarget] = useState<ReturnTarget | null>(null);
+  const [writeOffTarget, setWriteOffTarget] = useState<WriteOffTarget | null>(null);
+  const [reversalTarget, setReversalTarget] = useState<ReversalTarget | null>(null);
 
   const isSearching = searchQuery.trim().length > 0 || openRepayableOnly;
 
@@ -58,549 +121,321 @@ export function ExpensesPage() {
     enabled: isSearching,
   });
 
-  const createMutation = useMutation({
-    mutationFn: () => expensesApi.create({
-      // categoryId is now omitted — server defaults to "Operatsion".
-      // Admin no longer picks a category in the UI.
-      amount: Number(amount),
-      reason,
-      note,
-      occurredAt: new Date(`${date}T12:00:00`).toISOString(),
-      repayable,
-    }),
-    onSuccess: () => {
-      setAmount('');
-      setReason('');
-      setNote('');
-      setRepayable(false);
-      setFeedback({ type: 'success', message: 'Chiqim saqlandi' });
-      queryClient.invalidateQueries({ queryKey: ['expenses', date] });
+  const items: ExpenseItem[] = isSearching
+    ? (searchData?.items ?? [])
+    : (data?.items ?? []);
+
+  const tableLoading = isSearching ? searchLoading : isLoading;
+
+  const repayablePending = useMemo(() => {
+    if (!data) return 0;
+    return data.items
+      .filter((it) => it.repayable && (it.repayStatus === 'PENDING' || it.repayStatus === 'PARTIAL'))
+      .reduce((sum, it) => sum + Number(it.remainingAmount ?? '0'), 0);
+  }, [data]);
+
+  const columns: DataTableColumn<ExpenseItem>[] = [
+    {
+      key: 'when',
+      header: 'Vaqti',
+      cell: (row) => <DateTimeCell value={row.occurredAt} className="text-muted-foreground" />,
+      width: '160px',
     },
-    onError: (error: any) => setFeedback({ type: 'error', message: error.message || 'Chiqimni saqlab bo\'lmadi' }),
-  });
-
-  const recordReturnMutation = useMutation({
-    mutationFn: ({ id, amount: amt, note: n }: { id: string; amount: number; note: string }) =>
-      expensesApi.recordReturn(id, { amount: amt, note: n || undefined }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', date] });
-      setReturnTarget(null);
-      setReturnAmount('');
-      setReturnNote('');
-      setReturnError('');
-      setFeedback({ type: 'success', message: 'Qaytim yozildi' });
+    {
+      key: 'category',
+      header: 'Turkum',
+      cell: (row) => (
+        <Badge variant="outline" className="text-xs">{row.categoryName}</Badge>
+      ),
     },
-    onError: (error: any) => setReturnError(error.message || 'Qaytimni saqlab bo\'lmadi'),
-  });
-
-  const writeOffMutation = useMutation({
-    mutationFn: ({ id, reason: r }: { id: string; reason: string }) => expensesApi.writeOff(id, r),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', date] });
-      setWriteOffTarget(null);
-      setWriteOffReason('');
-      setWriteOffError('');
-      setFeedback({ type: 'success', message: 'Yo\'qotish belgilandi' });
-    },
-    onError: (error: any) => setWriteOffError(error.message || 'Yo\'qotishni belgilab bo\'lmadi'),
-  });
-
-  const reverseMutation = useMutation({
-    mutationFn: ({ id, reversalNote }: { id: string; reversalNote: string }) => expensesApi.reverse(id, reversalNote),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', date] });
-      setReversalTarget(null);
-      setReversalNote('');
-      setReversalError('');
-      setFeedback({ type: 'success', message: 'Chiqim bekor qilindi' });
-    },
-    onError: (error: any) => setReversalError(error.message || 'Chiqimni bekor qilib bo\'lmadi'),
-  });
-
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!amount || !reason.trim()) {
-      setFeedback({ type: 'error', message: 'Summa va sababni to\'ldiring' });
-      return;
-    }
-    setFeedback(null);
-    createMutation.mutate();
-  };
-
-  const handleReverseSubmit = () => {
-    if (!reversalTarget) {
-      return;
-    }
-    const trimmed = reversalNote.trim();
-    if (trimmed.length < 3) {
-      setReversalError('Bekor qilish sababini kamida 3 ta harf bilan yozing');
-      reversalNoteRef.current?.focus();
-      return;
-    }
-    setReversalError('');
-    setFeedback(null);
-    reverseMutation.mutate({ id: reversalTarget.id, reversalNote: trimmed });
-  };
-
-  React.useEffect(() => {
-    if (reversalTarget) {
-      setReversalError('');
-    }
-  }, [reversalTarget]);
-
-  return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="p-3 bg-slate-900 text-white rounded-xl shadow-lg border-b-4 border-red-600">
-            <ReceiptText size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Xarajatlar</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Calendar size={12} />
-              Kunlik chiqimlarni ro'yxatga olish
-            </p>
-          </div>
-        </div>
-        {isFetching && (
-          <div className="flex items-center gap-2 text-blue-600 font-bold text-xs">
-            <RefreshCw size={14} className="animate-spin" />
-            YUKLANMOQDA...
-          </div>
-        )}
-      </div>
-
-      {feedback ? (
-        <div
-          className={`rounded-xl border px-4 py-3 text-sm font-bold ${
-            feedback.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-rose-200 bg-rose-50 text-rose-700'
-          }`}
-        >
-          {feedback.message}
-        </div>
-      ) : null}
-
-      {/* Search bar — needed for finding repayable expenses to record returns against */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col md:flex-row gap-3 md:items-center">
-        <div className="flex-1 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <Search size={16} className="text-slate-400 shrink-0" />
-          <input
-            type="text"
-            placeholder="Sabab yoki izoh bo'yicha qidirish (masalan: Aziza avans)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="text-slate-400 hover:text-slate-700"
-              title="Tozalash"
+    {
+      key: 'reason',
+      header: 'Sabab',
+      cell: (row) => (
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                'text-sm font-medium',
+                row.status === 'REVERSED' && 'line-through text-muted-foreground',
+              )}
             >
-              <X size={14} />
-            </button>
+              {row.reason}
+            </span>
+            {row.purchaseId && (
+              <Badge
+                variant="outline"
+                className="bg-warning/10 text-warning border-warning/30 text-[10px]"
+                title="Bu chiqim Xaridlar sahifasidagi xarid bilan bog'liq"
+              >
+                Xarid
+              </Badge>
+            )}
+          </div>
+          {row.note && (
+            <p className="text-xs italic text-muted-foreground">{row.note}</p>
+          )}
+          {row.repayable && row.returnedTotal && row.returnedTotal !== '0' && (
+            <p className="text-xs text-muted-foreground tabular-nums">
+              Qaytarildi: <MoneyCell value={row.returnedTotal} className="font-medium text-foreground" />
+              {row.remainingAmount && row.remainingAmount !== '0' && (
+                <>
+                  {' · '}Qoldiq: <MoneyCell value={row.remainingAmount} className="font-medium text-foreground" />
+                </>
+              )}
+            </p>
           )}
         </div>
-        <label className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={openRepayableOnly}
-            onChange={(e) => setOpenRepayableOnly(e.target.checked)}
-            className="w-4 h-4 text-amber-600 border-amber-300 rounded focus:ring-amber-500"
-          />
-          <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
-            Faqat qaytariladigan, kutilayotganlar
-          </span>
-        </label>
-        {isSearching && (
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-            Qidiruv natijasi: {searchData?.items.length ?? 0}
-          </div>
-        )}
-      </div>
-
-      {/* Form Section */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="bg-slate-50 px-6 py-3 border-b border-slate-200">
-          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Yangi xarajat qo'shish</span>
-        </div>
-        <form onSubmit={handleCreate} className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-            <div className="md:col-span-2 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SANA</label>
-              <input type="date" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-            <div className="md:col-span-3 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SUMMA (UZS)</label>
-              <input type="number" min="1" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </div>
-            <div className="md:col-span-7 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SABAB / MAQSAD</label>
-              <input
-                className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800"
-                placeholder="Masalan: Bolalar uchun futbol maydoni, Aziza opaga avans, Gaz balloni"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-            <div className="md:col-span-7 space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">IZOH (IXTIYORIY)</label>
-              <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-bold outline-none focus:border-slate-800" placeholder="..." value={note} onChange={(e) => setNote(e.target.value)} />
-            </div>
-            <div className="md:col-span-3 flex items-center">
-              <label className="flex items-start gap-2 cursor-pointer select-none rounded-md border border-amber-200 bg-amber-50 px-3 py-2 w-full">
-                <input
-                  type="checkbox"
-                  checked={repayable}
-                  onChange={(e) => setRepayable(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-amber-600 border-amber-300 rounded focus:ring-amber-500"
-                />
-                <span className="text-xs font-bold text-slate-700">
-                  Qaytariladi
-                  <span className="block text-[10px] font-normal text-slate-500">Avans, zalog, vaqtinchalik qarz</span>
-                </span>
-              </label>
-            </div>
-            <div className="md:col-span-2">
-              <button type="submit" className="w-full rounded-md bg-slate-900 px-4 py-2 text-xs font-black text-white uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50" disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'SAQLANMOQDA...' : 'SAQLASH'}
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      {!isSearching && (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Netto chiqim</div>
-          <div className="text-2xl font-black text-slate-900">{formatUZS(data?.totals.net ?? 0)}</div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm border-l-4 border-red-500">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Bekor qilingan</div>
-          <div className="text-2xl font-black text-red-600">{formatUZS(data?.totals.reversal ?? 0)}</div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Brutto chiqim</div>
-          <div className="text-2xl font-black text-slate-500">{formatUZS(data?.totals.gross ?? 0)}</div>
-        </div>
-      </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-              <tr>
-                <th className="px-6 py-4">Vaqt</th>
-                <th className="px-6 py-4">Kategoriya</th>
-                <th className="px-6 py-4">Sabab</th>
-                <th className="px-6 py-4 text-right">Summa</th>
-                <th className="px-6 py-4">Holat</th>
-                <th className="px-6 py-4 text-right">Amal</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {((isSearching ? searchLoading : isLoading)) && (
-                <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={6}>MA'LUMOTLAR YUKLANMOQDA...</td></tr>
-              )}
-              {isSearching && !searchLoading && (searchData?.items.length ?? 0) === 0 && (
-                <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={6}>Hech narsa topilmadi</td></tr>
-              )}
-              {!(isSearching ? searchLoading : isLoading) && (isSearching ? searchData?.items : data?.items)?.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-xs font-bold text-slate-500">{formatDateTimeUZ(item.occurredAt)}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-slate-100 rounded text-[10px] font-black text-slate-600 uppercase">{item.categoryName}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className={`text-xs font-black ${item.status === 'REVERSED' ? 'line-through text-slate-400' : 'text-slate-800'}`}>{item.reason}</div>
-                      {item.purchaseId && (
-                        <span
-                          className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200"
-                          title="Bu chiqim Xaridlar sahifasidagi xarid bilan bog'liq"
-                        >
-                          Xarid
-                        </span>
-                      )}
-                      {item.repayable && item.repayStatus === 'PENDING' && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">Kutilmoqda</span>
-                      )}
-                      {item.repayable && item.repayStatus === 'PARTIAL' && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200" title={`Qoldiq: ${formatUZS(item.remainingAmount ?? '0')}`}>Qisman</span>
-                      )}
-                      {item.repayable && item.repayStatus === 'RETURNED' && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">Qaytarildi</span>
-                      )}
-                      {item.repayable && item.repayStatus === 'WRITTEN_OFF' && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-50 text-red-700 border border-red-200" title={item.writtenOffReason ?? ''}>Yo'qotildi</span>
-                      )}
-                    </div>
-                    {item.note && <div className="text-[10px] text-slate-400 font-medium italic">{item.note}</div>}
-                    {item.repayable && item.returnedTotal && item.returnedTotal !== '0' && (
-                      <div className="text-[10px] text-slate-500 mt-1">
-                        Qaytarildi: <span className="font-bold">{formatUZS(item.returnedTotal)}</span>
-                        {item.remainingAmount && item.remainingAmount !== '0' && (
-                          <span> · Qoldiq: <span className="font-bold">{formatUZS(item.remainingAmount)}</span></span>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className={`px-6 py-4 text-right text-sm font-black ${item.status === 'REVERSAL' ? 'text-red-600' : 'text-slate-900'}`}>
-                    {item.status === 'REVERSAL' ? '-' : ''}{formatUZS(item.amount)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                      item.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 
-                      item.status === 'REVERSED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {item.status === 'ACTIVE' ? 'FAOAL' : item.status === 'REVERSED' ? 'BEKOR QILINGAN' : 'QAYTARILISH'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex flex-col items-end gap-1">
-                      {item.repayable && (item.repayStatus === 'PENDING' || item.repayStatus === 'PARTIAL') && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setReturnTarget({ id: item.id, reason: item.reason, remainingAmount: item.remainingAmount ?? '0' });
-                              setReturnAmount(item.remainingAmount ?? '');
-                              setReturnNote('');
-                              setReturnError('');
-                            }}
-                            className="text-[10px] font-black text-emerald-700 uppercase tracking-widest hover:underline"
-                          >
-                            Qaytim qo'shish
-                          </button>
-                          <button
-                            onClick={() => {
-                              setWriteOffTarget({ id: item.id, reason: item.reason, remainingAmount: item.remainingAmount ?? '0' });
-                              setWriteOffReason('');
-                              setWriteOffError('');
-                            }}
-                            className="text-[10px] font-black text-red-700 uppercase tracking-widest hover:underline"
-                          >
-                            Yo'qotish
-                          </button>
-                        </div>
-                      )}
-                      {item.status === 'ACTIVE' && !item.repayable ? (
-                        isToday(item.occurredAt) ? (
-                          <button
-                            onClick={() => {
-                              setReversalTarget({ id: item.id, reason: item.reason, amount: item.signedAmount });
-                              setReversalNote('');
-                              setReversalError('');
-                              setFeedback(null);
-                            }}
-                            className="text-[10px] font-black text-red-600 uppercase tracking-widest hover:underline"
-                          >
-                            Bekor qilish
-                          </button>
-                        ) : (
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Faqat bugun</span>
-                        )
-                      ) : null}
-                      {item.repayable && item.repayStatus === 'RETURNED' && (
-                        <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">To'liq qaytarildi</span>
-                      )}
-                      {item.repayable && item.repayStatus === 'WRITTEN_OFF' && (
-                        <span className="text-[10px] font-bold text-red-700 uppercase tracking-widest">Yo'qotildi</span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {reversalTarget && (
-        <Modal
-          title="Chiqimni bekor qilish"
-          onClose={() => {
-            setReversalTarget(null);
-            setReversalNote('');
-            setReversalError('');
-          }}
-          maxWidth="max-w-md"
-          initialFocusRef={reversalNoteRef}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              {formatUZS(reversalTarget.amount)} summalik `{reversalTarget.reason}` chiqimi bekor qilinadi.
-            </p>
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
-              Faqat bugun kiritilgan chiqimni bekor qilish mumkin.
-            </p>
-            <textarea
-              ref={reversalNoteRef}
-              className="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2"
-              placeholder="Bekor qilish sababi"
-              value={reversalNote}
-              onChange={(e) => {
-                setReversalNote(e.target.value);
-                if (reversalError) {
-                  setReversalError('');
-                }
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Summa',
+      align: 'right',
+      cell: (row) => (
+        <span className={cn('tabular-nums', row.status === 'REVERSAL' && 'text-destructive')}>
+          {row.status === 'REVERSAL' ? '-' : ''}
+          <MoneyCell value={row.amount} />
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Holat',
+      cell: (row) => <ExpenseStatusCell item={row} />,
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      cell: (row) => {
+        const buttons: React.ReactNode[] = [];
+        if (row.repayable && (row.repayStatus === 'PENDING' || row.repayStatus === 'PARTIAL')) {
+          buttons.push(
+            <Button
+              key="return"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-success hover:text-success hover:bg-success/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                setReturnTarget({
+                  id: row.id,
+                  reason: row.reason,
+                  remainingAmount: row.remainingAmount ?? '0',
+                });
               }}
-            />
-            {reversalError ? (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-                {reversalError}
-              </div>
-            ) : null}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
-                onClick={() => {
-                  setReversalTarget(null);
-                  setReversalNote('');
-                  setReversalError('');
+            >
+              Qaytim
+            </Button>,
+          );
+          buttons.push(
+            <Button
+              key="writeoff"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                setWriteOffTarget({
+                  id: row.id,
+                  reason: row.reason,
+                  remainingAmount: row.remainingAmount ?? '0',
+                });
+              }}
+            >
+              Yo&apos;qotish
+            </Button>,
+          );
+        }
+        if (row.status === 'ACTIVE' && !row.repayable) {
+          if (isToday(row.occurredAt)) {
+            buttons.push(
+              <Button
+                key="reverse"
+                size="sm"
+                variant="ghost"
+                className="h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setReversalTarget({ id: row.id, reason: row.reason, amount: row.signedAmount });
                 }}
               >
-                Yopish
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                onClick={handleReverseSubmit}
-                disabled={reverseMutation.isPending}
-              >
-                {reverseMutation.isPending ? 'Bekor qilinmoqda...' : 'Bekor qilish'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+                Bekor qilish
+              </Button>,
+            );
+          } else {
+            buttons.push(
+              <span key="hint" className="text-[11px] text-muted-foreground/70">
+                Faqat bugun
+              </span>,
+            );
+          }
+        }
+        if (buttons.length === 0) return <span className="text-muted-foreground">—</span>;
+        return <div className="flex items-center justify-end gap-1">{buttons}</div>;
+      },
+    },
+  ];
 
-      {returnTarget && (
-        <Modal
-          title="Qaytim qo'shish"
-          onClose={() => {
-            setReturnTarget(null);
-            setReturnAmount('');
-            setReturnNote('');
-            setReturnError('');
-          }}
-          maxWidth="max-w-md"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              <span className="font-bold">{returnTarget.reason}</span>
-              <span className="block text-xs text-slate-500 mt-0.5">Qoldiq: <span className="font-bold">{formatUZS(returnTarget.remainingAmount)}</span></span>
-            </p>
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Qaytim summasi</label>
-              <input
-                type="number"
-                min="1"
-                value={returnAmount}
-                onChange={(e) => setReturnAmount(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold"
-                placeholder={returnTarget.remainingAmount}
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Izoh (ixtiyoriy)</label>
-              <input
-                value={returnNote}
-                onChange={(e) => setReturnNote(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="..."
-              />
-            </div>
-            {returnError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{returnError}</div>}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
-                onClick={() => { setReturnTarget(null); setReturnAmount(''); setReturnNote(''); setReturnError(''); }}
-              >
-                Yopish
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-                onClick={() => {
-                  const n = Number(returnAmount);
-                  if (!Number.isFinite(n) || n <= 0) {
-                    setReturnError('Summa 0 dan katta bo\'lishi kerak');
-                    return;
-                  }
-                  recordReturnMutation.mutate({ id: returnTarget.id, amount: n, note: returnNote });
-                }}
-                disabled={recordReturnMutation.isPending}
-              >
-                {recordReturnMutation.isPending ? 'Saqlanmoqda...' : 'Saqlash'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {writeOffTarget && (
-        <Modal
-          title="Yo'qotish deb belgilash"
-          onClose={() => { setWriteOffTarget(null); setWriteOffReason(''); setWriteOffError(''); }}
-          maxWidth="max-w-md"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              <span className="font-bold">{writeOffTarget.reason}</span>
-              <span className="block text-xs text-slate-500 mt-0.5">
-                Yo'qotiladigan qoldiq: <span className="font-bold">{formatUZS(writeOffTarget.remainingAmount)}</span>
+  return (
+    <PageContent>
+      <PageHeader
+        title="Xarajatlar"
+        description="Kunlik chiqimlar va qaytariladigan avanslar"
+        actions={
+          <div className="flex items-center gap-2">
+            {isFetching && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Yangilanmoqda
               </span>
-            </p>
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
-              Yo'qotish deb belgilangach, bu summa haqiqiy chiqimga aylanadi va foyda hisobiga ta'sir qiladi.
-            </p>
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Sabab</label>
-              <textarea
-                value={writeOffReason}
-                onChange={(e) => setWriteOffReason(e.target.value)}
-                className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Masalan: Xodim ishdan ketdi, qaytarib bo'lmadi"
+            )}
+            <div className="flex items-center gap-2">
+              <Label htmlFor="expenses-date" className="text-xs text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" /> Sana:
+              </Label>
+              <Input
+                id="expenses-date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-40 h-9"
               />
             </div>
-            {writeOffError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{writeOffError}</div>}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
-                onClick={() => { setWriteOffTarget(null); setWriteOffReason(''); setWriteOffError(''); }}
-              >
-                Yopish
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                onClick={() => {
-                  const r = writeOffReason.trim();
-                  if (r.length < 3) {
-                    setWriteOffError('Sababini kamida 3 ta harf bilan yozing');
-                    return;
-                  }
-                  writeOffMutation.mutate({ id: writeOffTarget.id, reason: r });
-                }}
-                disabled={writeOffMutation.isPending}
-              >
-                {writeOffMutation.isPending ? 'Yozilmoqda...' : 'Yo\'qotish'}
-              </button>
-            </div>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Yangi xarajat
+            </Button>
           </div>
-        </Modal>
+        }
+      />
+
+      {/* Summary tiles — only for the daily view */}
+      {!isSearching && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <StatTile
+            label="Netto chiqim"
+            value={Number(data?.totals.net ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')}
+            icon={Wallet}
+            hint="Bugungi haqiqiy kassa chiqimi"
+          />
+          <StatTile
+            label="Kutilayotgan qaytim"
+            value={Number(repayablePending).toLocaleString('uz-UZ').replace(/,/g, ' ')}
+            icon={TrendingUp}
+            tone="warning"
+            hint="Bugungi ochiq avanslar"
+          />
+          <StatTile
+            label="Bekor qilingan"
+            value={Number(data?.totals.reversal ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')}
+            icon={TrendingDown}
+            tone="danger"
+            hint="Bugun bekor qilingan chiqimlar"
+          />
+        </div>
       )}
-    </div>
+
+      {/* Search + filters */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex-1 flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9">
+              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                placeholder="Sabab yoki izoh bo'yicha qidirish (masalan: Aziza avans)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-muted-foreground hover:text-foreground"
+                  title="Tozalash"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <label
+              className={cn(
+                'flex items-center gap-2 rounded-md border px-3 h-9 cursor-pointer select-none transition-colors',
+                openRepayableOnly
+                  ? 'border-warning/40 bg-warning/10 text-warning'
+                  : 'border-input bg-background',
+              )}
+            >
+              <Checkbox
+                checked={openRepayableOnly}
+                onCheckedChange={(v) => setOpenRepayableOnly(v === true)}
+              />
+              <span className="text-xs font-medium whitespace-nowrap">
+                Faqat ochiq qaytariladiganlar
+              </span>
+            </label>
+            {isSearching && (
+              <div className="text-xs text-muted-foreground tabular-nums">
+                Topildi: <span className="font-medium text-foreground">{searchData?.items.length ?? 0}</span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <DataTable
+        columns={columns}
+        data={items}
+        isLoading={tableLoading}
+        rowKey={(row) => row.id}
+        emptyState={
+          <EmptyState
+            icon={ReceiptText}
+            title={isSearching ? 'Hech narsa topilmadi' : 'Bugun chiqimlar yo\'q'}
+            hint={
+              isSearching
+                ? "Filtrlarni o'zgartiring yoki tozalang."
+                : 'Yangi xarajat qo\'shish uchun yuqoridagi tugmadan foydalaning.'
+            }
+            action={
+              !isSearching ? (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  Yangi xarajat
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+      />
+
+      <ExpenseCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        date={date}
+        onCreated={() => toast.success('Chiqim saqlandi')}
+      />
+
+      <ExpenseReverseDialog
+        target={reversalTarget}
+        onClose={() => setReversalTarget(null)}
+        onSuccess={() => toast.success('Chiqim bekor qilindi')}
+      />
+
+      <ExpenseReturnDialog
+        target={returnTarget}
+        onClose={() => setReturnTarget(null)}
+        onSuccess={() => toast.success('Qaytim yozildi')}
+      />
+
+      <ExpenseWriteOffDialog
+        target={writeOffTarget}
+        onClose={() => setWriteOffTarget(null)}
+        onSuccess={() => toast.success("Yo'qotish belgilandi")}
+      />
+    </PageContent>
   );
 }
