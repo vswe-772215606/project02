@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Package, Plus, Loader2 } from 'lucide-react';
+import { Package, Plus, Loader2, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ingredientsApi, type Ingredient } from '@/api/ingredients';
@@ -47,11 +47,23 @@ export function IngredientsPage() {
   const queryClient = useQueryClient();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<Ingredient | null>(null);
+  const [search, setSearch] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['ingredients'],
     queryFn: () => ingredientsApi.list(),
   });
+
+  const filteredData = useMemo(() => {
+    if (!data) return data;
+    const q = search.trim().toLowerCase();
+    if (!q) return data;
+    return data.filter((row) => {
+      if (row.name.toLowerCase().includes(q)) return true;
+      const parent = row.parentMenuItem?.name ?? '';
+      return parent.toLowerCase().includes(q);
+    });
+  }, [data, search]);
 
   const { data: menuItems = [] } = useQuery({
     queryKey: ['menu', 'items'],
@@ -179,9 +191,30 @@ export function IngredientsPage() {
         }
       />
 
+      <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          type="text"
+          placeholder="Nom yoki taom bo'yicha qidirish..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="text-muted-foreground hover:text-foreground"
+            title="Tozalash"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       <DataTable
         columns={columns}
-        data={data}
+        data={filteredData}
         isLoading={isLoading}
         rowKey={(row) => row.id}
         onRowClick={openEdit}

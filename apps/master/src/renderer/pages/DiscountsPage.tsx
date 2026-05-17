@@ -1,16 +1,18 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { 
-  Percent, 
-  Plus, 
-  Pencil, 
-  Trash2, 
+import {
+  Percent,
+  Plus,
+  Pencil,
+  Trash2,
   Tag,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  Search,
+  X
 } from 'lucide-react';
 import { discountsApi, Discount } from '../api/discounts';
 import { settingsApi } from '../api/settings';
@@ -31,12 +33,19 @@ export function DiscountsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editDiscount, setEditDiscount] = useState<Discount | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [search, setSearch] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: discounts = [], isLoading } = useQuery({
     queryKey: ['discounts', showInactive],
     queryFn: () => discountsApi.list(showInactive),
   });
+
+  const filteredDiscounts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return discounts;
+    return discounts.filter((d) => d.name.toLowerCase().includes(q));
+  }, [discounts, search]);
 
   const { data: settings = {} } = useQuery({
     queryKey: ['settings'],
@@ -105,12 +114,35 @@ export function DiscountsPage() {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          <Search size={16} className="text-slate-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Nom bo'yicha qidirish..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="text-slate-400 hover:text-slate-700"
+              title="Tozalash"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {isLoading ? (
           <div className="col-span-full flex justify-center py-12">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
           </div>
-        ) : discounts.map((discount) => (
+        ) : filteredDiscounts.map((discount) => (
           <div key={discount.id} className={`bg-white rounded-2xl border p-6 shadow-sm hover:shadow-md transition-all ${!discount.isActive ? 'bg-slate-50 border-dashed border-slate-300 opacity-60' : 'border-slate-200'}`}>
             <div className="flex items-start justify-between mb-4">
               <div className={`p-3 rounded-xl border ${!discount.isActive ? 'bg-slate-200 text-slate-400 border-slate-300' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
@@ -148,9 +180,9 @@ export function DiscountsPage() {
             </div>
           </div>
         ))}
-        {discounts.length === 0 && !isLoading && (
+        {filteredDiscounts.length === 0 && !isLoading && (
           <div className="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
-            Chegirmalar mavjud emas
+            {search.trim() ? 'Qidiruv bo\'yicha hech narsa topilmadi' : 'Chegirmalar mavjud emas'}
           </div>
         )}
       </div>

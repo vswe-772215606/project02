@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Plus, ShoppingCart } from 'lucide-react';
+import { Loader2, Plus, Search, ShoppingCart, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { purchasesApi, type Purchase } from '@/api/purchases';
@@ -52,11 +52,22 @@ export function PurchasesPage() {
   usePageTitle('Xaridlar');
   const queryClient = useQueryClient();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   const { data: purchases, isLoading } = useQuery({
     queryKey: ['purchases'],
     queryFn: () => purchasesApi.list(),
   });
+
+  const filteredPurchases = useMemo(() => {
+    if (!purchases) return purchases;
+    const q = search.trim().toLowerCase();
+    if (!q) return purchases;
+    return purchases.filter((p) => {
+      if (p.ingredient.name.toLowerCase().includes(q)) return true;
+      return (p.supplierNote ?? '').toLowerCase().includes(q);
+    });
+  }, [purchases, search]);
 
   const { data: ingredients } = useQuery({
     queryKey: ['ingredients', { isActive: true }],
@@ -168,9 +179,30 @@ export function PurchasesPage() {
         }
       />
 
+      <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          type="text"
+          placeholder="Mahsulot yoki izoh bo'yicha qidirish..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="text-muted-foreground hover:text-foreground"
+            title="Tozalash"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       <DataTable
         columns={columns}
-        data={purchases}
+        data={filteredPurchases}
         isLoading={isLoading}
         rowKey={(row) => row.id}
         emptyState={

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Loader2, Plus, Power, Trash2 } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Power, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { menuApi, type MenuItem } from '@/api/menu';
@@ -70,6 +70,7 @@ export function RecipesPage() {
   const [rows, setRows] = useState<EditorIngredientRow[]>([]);
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const { data: items, isLoading: itemsLoading } = useQuery({
     queryKey: ['menu', 'items'],
@@ -102,11 +103,14 @@ export function RecipesPage() {
   });
 
   const rowsForTable: Row[] = useMemo(
-    () =>
-      (items ?? [])
+    () => {
+      const q = search.trim().toLowerCase();
+      return (items ?? [])
         .filter((item) => item.kind !== 'SERVICE')
-        .map((item) => ({ item, recipe: recipeQueries.data?.get(item.id) ?? null })),
-    [items, recipeQueries.data],
+        .filter((item) => !q || item.name.toLowerCase().includes(q))
+        .map((item) => ({ item, recipe: recipeQueries.data?.get(item.id) ?? null }));
+    },
+    [items, recipeQueries.data, search],
   );
 
   const upsertMutation = useMutation({
@@ -240,6 +244,27 @@ export function RecipesPage() {
           title="Retseptlar"
           description="Har bir taom uchun ishlatiladigan mahsulotlar miqdori. Retsept faollashganda buyurtmada hisoblanadi."
         />
+
+        <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            placeholder="Taom nomi bo'yicha qidirish..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="text-muted-foreground hover:text-foreground"
+              title="Tozalash"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
 
         <DataTable
           columns={columns}

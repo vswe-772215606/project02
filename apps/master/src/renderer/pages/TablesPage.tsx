@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { 
-  Armchair, 
-  Plus, 
-  Pencil, 
-  Trash2, 
+import {
+  Armchair,
+  Plus,
+  Pencil,
+  Trash2,
   RotateCcw,
   Hash,
-  Eye,
-  EyeOff
+  Search,
+  X
 } from 'lucide-react';
 import { tablesApi, Table } from '../api/tables';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -30,6 +30,7 @@ export function TablesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editTable, setEditTable] = useState<Table | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [search, setSearch] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: tables = [], isLoading } = useQuery({
@@ -37,7 +38,12 @@ export function TablesPage() {
     queryFn: () => tablesApi.list(showInactive),
   });
 
-  const sortedTables = [...tables].sort((a, b) => a.displayOrder - b.displayOrder);
+  const sortedTables = useMemo(() => {
+    const sorted = [...tables].sort((a, b) => a.displayOrder - b.displayOrder);
+    const q = search.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((t) => t.name.toLowerCase().includes(q));
+  }, [tables, search]);
 
   const createMutation = useMutation({
     mutationFn: (data: TableForm) => tablesApi.create(data),
@@ -96,9 +102,36 @@ export function TablesPage() {
         </div>
       </div>
 
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          <Search size={16} className="text-slate-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Nom bo'yicha qidirish (masalan: Xona 1, Stol 3)..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="text-slate-400 hover:text-slate-700"
+              title="Tozalash"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
       {isLoading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+        </div>
+      ) : sortedTables.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
+          {search.trim() ? 'Qidiruv bo\'yicha hech narsa topilmadi' : 'Stollar mavjud emas'}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

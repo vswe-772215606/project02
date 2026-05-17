@@ -12,7 +12,7 @@ export type DebtListItem = {
   repaidAmount: string;
   openedAt: string;
   closedAt: string | null;
-  status: 'OPEN' | 'PARTIAL' | 'PAID';
+  status: 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF';
 };
 
 export type DebtDetail = {
@@ -27,7 +27,7 @@ export type DebtDetail = {
   repaidAmount: string;
   openedAt: string;
   closedAt: string | null;
-  status: 'OPEN' | 'PARTIAL' | 'PAID';
+  status: 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF';
   repayments: Array<{
     id: string;
     amount: string;

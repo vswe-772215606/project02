@@ -1,13 +1,24 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { HandCoins, RefreshCw, Users, Plus, Info } from 'lucide-react';
+import { HandCoins, RefreshCw, Users, Plus, Info, Search, X } from 'lucide-react';
 import { debtsApi } from '../api/debts';
 import { formatDateTimeUZ, formatUZS } from '../utils/format';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
+type DebtStatusFilter = '' | 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF';
+
+const STATUS_FILTERS: Array<{ value: DebtStatusFilter; label: string }> = [
+  { value: '', label: 'Barchasi' },
+  { value: 'OPEN', label: 'Ochiq' },
+  { value: 'PARTIAL', label: 'Qisman' },
+  { value: 'PAID', label: 'Yopilgan' },
+  { value: 'WRITTEN_OFF', label: 'Yo\'qotilgan' },
+];
+
 export function DebtsPage() {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<DebtStatusFilter>('');
+  const [search, setSearch] = useState('');
   const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
   const [repayAmount, setRepayAmount] = useState('');
   const [repayMethod, setRepayMethod] = useState<'CASH' | 'CARD'>('CASH');
@@ -18,6 +29,17 @@ export function DebtsPage() {
     queryKey: ['debts', status],
     queryFn: () => debtsApi.list({ status: status || undefined }),
   });
+
+  const filteredItems = useMemo(() => {
+    const items = data?.items ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => {
+      const nameMatch = item.debtorName.toLowerCase().includes(q);
+      const phoneMatch = (item.debtorPhone ?? '').toLowerCase().includes(q);
+      return nameMatch || phoneMatch;
+    });
+  }, [data, search]);
 
   const { data: detail } = useQuery({
     queryKey: ['debts', 'detail', selectedDebtId],
@@ -68,14 +90,44 @@ export function DebtsPage() {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Filter:</div>
-        <select className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-black uppercase outline-none focus:border-slate-800 transition-all" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">Barchasi</option>
-          <option value="OPEN">Ochiq</option>
-          <option value="PARTIAL">Qisman to'langan</option>
-          <option value="PAID">Yopilgan</option>
-        </select>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          <Search size={16} className="text-slate-400 shrink-0" />
+          <input
+            type="text"
+            placeholder="Qarzdorni qidirish (ism yoki telefon)..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="text-slate-400 hover:text-slate-700"
+              title="Tozalash"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Holat:</div>
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value || 'all'}
+              type="button"
+              onClick={() => setStatus(f.value)}
+              className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors ${
+                status === f.value
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -95,7 +147,12 @@ export function DebtsPage() {
                 {isLoading && (
                   <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={4}>YUKLANMOQDA...</td></tr>
                 )}
-                {!isLoading && data?.items.map((item) => (
+                {!isLoading && filteredItems.length === 0 && (
+                  <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={4}>
+                    {search.trim() ? 'QIDIRUV BO\'YICHA HECH NARSA TOPILMADI' : 'QARZLAR MAVJUD EMAS'}
+                  </td></tr>
+                )}
+                {!isLoading && filteredItems.map((item) => (
                   <tr 
                     key={item.id} 
                     className={`cursor-pointer transition-colors ${selectedDebtId === item.id ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`} 
@@ -114,10 +171,14 @@ export function DebtsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                        item.status === 'PAID' ? 'bg-green-100 text-green-700' : 
-                        item.status === 'PARTIAL' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                        item.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                        item.status === 'PARTIAL' ? 'bg-blue-100 text-blue-700' :
+                        item.status === 'WRITTEN_OFF' ? 'bg-red-100 text-red-700' :
+                        'bg-amber-100 text-amber-700'
                       }`}>
-                        {item.status === 'PAID' ? 'YOPILDI' : item.status === 'PARTIAL' ? 'QISMAN' : 'OCHIQ'}
+                        {item.status === 'PAID' ? 'YOPILDI' :
+                          item.status === 'PARTIAL' ? 'QISMAN' :
+                          item.status === 'WRITTEN_OFF' ? 'YO\'QOTILDI' : 'OCHIQ'}
                       </span>
                     </td>
                   </tr>
