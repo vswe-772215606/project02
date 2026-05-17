@@ -5,7 +5,7 @@ import { authService } from '../services/auth.service';
 
 export type RequestUser = {
   id: string;
-  role: 'OWNER' | 'ADMIN' | 'KITCHEN' | 'WAITER';
+  role: 'OWNER' | 'ADMIN' | 'WAITER';
   fullName: string;
 };
 

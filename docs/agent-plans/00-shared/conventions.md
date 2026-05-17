@@ -29,8 +29,8 @@ packages:
 Package names are scoped under `@chayxana`:
 
 - `@chayxana/master`
-- `@chayxana/kitchen`
 - `@chayxana/mobile`
+- `@chayxana/order`
 - `@chayxana/shared-types`
 - `@chayxana/shared-api`
 

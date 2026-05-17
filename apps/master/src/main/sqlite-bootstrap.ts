@@ -148,9 +148,7 @@ async function seedIfEmpty(logger: StartupLogger): Promise<void> {
     data: [
       { key: 'max_discount_percent',  value: '15' },
       { key: 'max_discount_amount',   value: '100000' },
-      { key: 'kitchen_printer_enabled', value: 'false' },
       { key: 'admin_printer_name',    value: 'POS-80' },
-      { key: 'kitchen_printer_name',  value: '' },
       { key: 'store_heading',         value: 'Chayxana' },
       { key: 'variance_alert_threshold',    value: '50000' },
       { key: 'monthly_kitchen_overhead_uzs', value: '0' },

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), a Kitchen Display Electron app (`kitchen`), and an Expo React Native waiter app (`mobile`). LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
+Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
 
 Source-of-truth docs (read these before non-trivial changes):
 - `docs/PROJECT_TECHNICAL_OVERVIEW.md` — system overview.
@@ -18,10 +18,10 @@ Run from repo root unless noted. Node ≥20, pnpm 9, packageManager pinned.
 
 ```bash
 pnpm dev:master      # Electron-vite dev for master (admin UI + API server on :4000)
-pnpm dev:kitchen     # Electron-vite dev for kitchen display
+pnpm dev:order       # Electron-vite dev for the desktop waiter app
 pnpm dev:mobile      # expo start (use tunnel mode — see "Mobile dev" below)
 pnpm build:master    # production build (runs prepare-prisma-package first)
-pnpm build:kitchen
+pnpm build:order
 pnpm typecheck       # tsc --noEmit across all workspaces
 pnpm lint            # noop in most packages today
 ```
@@ -43,22 +43,22 @@ Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no te
 ## Architecture
 
 ### Master (`apps/master/`)
-Electron app where the **main process hosts the Express + Socket.io server**, and the renderer is the admin desktop UI. The same binary serves API clients from kitchen + mobile.
+Electron app where the **main process hosts the Express + Socket.io server**, and the renderer is the admin desktop UI. The same binary serves API clients from the order desktop app and mobile.
 
 - `src/main/index.ts` — Electron bootstrap. Acquires single-instance lock, sets up Prisma runtime (`prisma-runtime.ts`), bootstraps packaged SQLite (`sqlite-bootstrap.ts`), then starts the HTTP server before opening the BrowserWindow. Heavy startup logging into `userData/`.
 - `src/main/server/` — backend in layered style:
   - `routes/*.routes.ts` → `controllers/` → `services/*.service.ts` → `repositories/` (only place that touches Prisma).
-  - `socket.ts` — Socket.io rooms `admin`, `kitchen`, `waiter:{userId}`. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
+  - `socket.ts` — Socket.io rooms `admin` and `waiter:{userId}`. There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }`.
-  - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer.
-- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `KitchenTicket`, `DailyStock`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. A partial unique index enforces "one active order per table".
+  - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain.
+- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. A partial unique index enforces "one active order per table".
 - `src/renderer/` — React 18 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state.
 
-### Kitchen (`apps/kitchen/`)
-Electron app, no backend. Renderer connects to master via Socket.io (`MASTER_URL` env) and shows tickets in real time. Marks tickets `IN_PROGRESS` / `READY`, toggles item availability.
+### Order (`apps/order/`)
+Electron desktop waiter app — the keyboard/touchscreen equivalent of the mobile app. PIN login, create/edit drafts, send orders. Connects to master via REST + Socket.io using a `MasterUrlProvider` that persists the server URL in `userData`. Same renderer style as master (sidebar shell, shadcn primitives, TanStack Query).
 
 ### Mobile (`apps/mobile/`)
-Expo React Native (SDK 54, RN 0.81, React 19). Waiter app: PIN login, take/send orders, request bills. Talks to master over REST + Socket.io at `extra.MASTER_URL` (set by `app.config.js`, defaults to `http://192.168.1.50:4000`).
+Expo React Native (SDK 54, RN 0.81, React 19). Waiter app: PIN login, take/send orders. Talks to master over REST + Socket.io at `extra.MASTER_URL` (set by `app.config.js`, defaults to `http://192.168.1.50:4000`).
 
 ## Mobile dev (pnpm + Expo + monorepo)
 
@@ -82,10 +82,10 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 
 ## Domain rules to respect
 
-- **Order state machine** is enforced server-side; do not bypass it from the renderer. See `decisions.md` for the full graph (DRAFT → SENT → BILL_REQUESTED → PENDING_PAYMENT → CLOSED/WALKOUT, with CANCELED branches).
-- **Stock**: orders containing tracked items are rejected atomically if `DailyStock.currentCount` is insufficient.
-- **Bill approval prints first**: `BILL_REQUESTED → PENDING_PAYMENT` rolls back if the receipt print fails.
-- **Roles**: OWNER sees finance/profit; ADMIN does not. KITCHEN and WAITER are role-scoped. Don't expose owner-only data to lower roles.
+- **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `SENT → WALKOUT` and `DRAFT|SENT → CANCELED` as terminal branches. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
+- **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. It atomically validates payments, snapshots totals, inserts `Payment`/`Debt` rows, prints the bill (blocking — failure rolls the whole transaction back), and flips the order to `CLOSED`.
+- **Stock**: orders containing tracked items are rejected atomically if any `Ingredient.currentStock` is insufficient. Cancelling from `DRAFT` restores stock; cancelling from `SENT` does not.
+- **Roles**: OWNER sees finance/profit; ADMIN does not. WAITER is mobile/order-app only. Don't expose owner-only data to lower roles.
 - **v1 scope explicitly excludes**: split/merge bills, per-line discounts, Click/Payme, structured modifiers, multi-tenant. Don't add them speculatively.
 
 ## Printer

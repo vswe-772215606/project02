@@ -14,45 +14,47 @@ Every decision in this file is final unless the human explicitly says otherwise.
 | Role | Capabilities |
 |---|---|
 | OWNER | Everything. Sees all revenue, debt, expense, profit, and owner-only reports. Receives the daily Telegram finance summary. |
-| ADMIN | Operations: menu CRUD, users, tables, discounts (create + apply), bill approval, mark paid, mark walkout, cancellations after kitchen started, audit log read. Can record expenses, debt sales, and debt repayments. **Cannot see owner financial reports or profit totals.** |
-| KITCHEN | Per-station account. Logs in once on the monoblock. Marks tickets `IN_PROGRESS` and `READY`. Toggles item availability. |
-| WAITER | Mobile-only. PIN auth. Creates orders, adds items, sends to kitchen, requests bills, transfers tables (own orders), cancels orders only while all tickets are still `PENDING`. |
+| ADMIN | Operations: menu CRUD, users, tables, ingredients/recipes/purchases, discounts (create + apply), the single "Tasdiqlash + To'lov" action that confirms and closes an order in one step, mark walkout, cancellations from `DRAFT` or `SENT`, audit log read. Can record expenses, debt sales, and debt repayments. Toggles item availability. **Cannot see owner financial reports or profit totals.** There is no separate kitchen station — the admin is the single point of approval and payment. |
+| WAITER | Mobile (`@chayxana/mobile`) or desktop order app (`@chayxana/order`). PIN auth. Creates orders, adds items, sends to admin, transfers tables (own orders), cancels their own orders **only while they are still `DRAFT`**. |
 
 ## Order lifecycle
 
 States:
 
 ```
-DRAFT → SENT → BILL_REQUESTED → PENDING_PAYMENT → CLOSED
-                                                 ↘ WALKOUT
-CANCELED  (terminal, from DRAFT/SENT/BILL_REQUESTED only — never from PENDING_PAYMENT or CLOSED)
+DRAFT ──"Yuborish"──► SENT ──"Tasdiqlash + To'lov"──► CLOSED
+                       │
+                       ├──"Walkout"──► WALKOUT (terminal, from SENT only)
+                       │
+                       └──"Bekor qilish"──► CANCELED
+DRAFT ──"Bekor qilish"──► CANCELED
 ```
+
+There is no `BILL_REQUESTED` and no `PENDING_PAYMENT` state. There is no `KitchenTicket`. Approval and payment are a single atomic action (see "Approval flow" below).
 
 Transitions:
 
-- `DRAFT → SENT`: waiter taps "Send to Kitchen". Creates a `KitchenTicket` containing all draft lines.
-- `SENT → BILL_REQUESTED`: waiter taps "Request Bill". Items can still be added in this state — fires more `KitchenTicket`s.
-- `BILL_REQUESTED → PENDING_PAYMENT`: admin approves bill. **Receipt prints. If print fails, transition is rolled back.**
-- `PENDING_PAYMENT → CLOSED`: admin marks paid (with payment rows: cash, card, or mixed).
-- `PENDING_PAYMENT → WALKOUT`: admin marks walkout (customer didn't pay).
-- Any non-terminal → `CANCELED`: cancellation rules below.
+- `DRAFT → SENT`: waiter taps "Yuborish". Order becomes visible on the admin's approval queue. No ticket is created.
+- `SENT → CLOSED`: admin taps "Tasdiqlash + To'lov" and supplies payment rows. Single transactional path. Bill prints (blocking); if the print fails, the whole transaction rolls back and the order stays at `SENT` so the admin can retry.
+- `SENT → WALKOUT`: admin marks the customer as left without paying. Terminal.
+- `DRAFT → CANCELED` or `SENT → CANCELED`: cancellation rules below.
 
 Cancellation rules:
 
-- **Waiter** can cancel only while ALL kitchen tickets on the order are `status: PENDING`.
-- **Admin** can cancel from `DRAFT`, `SENT`, `BILL_REQUESTED`. Not from `PENDING_PAYMENT` or `CLOSED`.
-- Cancellation always emits a banner notification to the kitchen room.
+- **Waiter** can cancel only while the order is still in `DRAFT`. Once it is `SENT`, only an admin (or owner) can cancel it.
+- **Admin / Owner** can cancel from `DRAFT` or `SENT`. Never from `CLOSED`, `WALKOUT`, or `CANCELED`.
+- Cancelling a `DRAFT` line or order restores any consumed ingredient stock. Cancelling from `SENT` does **not** restore stock — the dish is assumed to have been prepared (conservative rule).
 
 Add-ons:
 
-- Adding an item after `SEND` creates a NEW `KitchenTicket` containing only the new item. Kitchen never sees "the full updated order" — only what was just fired.
-- Quantity changes: increase = add a new line (new ticket fires). Decrease = admin must cancel the line (partial void). No quantity edit on existing tickets.
-- Note edits: allowed only while the line's ticket is `PENDING`. Locked once `IN_PROGRESS` or later.
+- Items can still be added after `SENT` (live bill — the admin's approval card updates via socket). The order does **not** revert to `DRAFT`; it stays `SENT` and the new line is included in the next bill computation.
+- Quantity changes: increase = add a new line. Decrease before confirm = admin cancels the line (partial void on a `SENT` order — no stock restore).
+- Free-text notes on a line are editable while the order is `DRAFT`. Once `SENT`, notes are locked.
 
 Server-side drafts:
 
 - Drafts are persisted to the database immediately. Every "add item" hits the API.
-- Old drafts (>12 hours, no kitchen ticket) are cleaned up by a daily scheduled task.
+- Old drafts (>12 hours, status `DRAFT`) are cleaned up by a daily scheduled task. There is no ticket-presence guard any more — only the timestamp.
 
 ## Tables
 
@@ -101,12 +103,25 @@ Service charge:
 - Admin can waive per-bill at approval time. Audit-logged.
 - NOT counted as restaurant revenue. Tracked separately as a pass-through to waiters.
 
-Approval flow (two-step):
+Approval flow (single step — "Tasdiqlash + To'lov"):
 
-1. Admin clicks "Approve" → bill calculation finalized, snapshotted onto Order, receipt prints. **If print fails, rollback — order stays at `BILL_REQUESTED`.** On success, status moves to `PENDING_PAYMENT`.
-2. Admin clicks "Mark Paid" → records `Payment` rows, status moves to `CLOSED`.
+Admin opens the approval card for a `SENT` order, picks the discount + optional service-charge waive + the payment rows (cash / card / debt, mixed allowed), and clicks one button. The server endpoint is `POST /api/orders/:id/confirm`. Inside a single Prisma `$transaction`, in this exact order:
 
-Items can be added during `BILL_REQUESTED` (live bill — admin's screen updates via socket).
+1. Re-fetch the order; reject unless `status === SENT`.
+2. If any payment row is `DEBT`, require debt metadata (`debtorName`, optional phone/note) — otherwise throw `Errors.DebtMetadataRequired`.
+3. Recompute the bill via `billingService.computeTotals` (subtotal − discount + service, snapshot rules per "Bills, discounts, service charge" below).
+4. Validate that the payment rows sum **exactly** to the recomputed total — otherwise throw `Errors.PaymentMismatch`.
+5. Snapshot the totals onto the `Order` row (`subtotalSnapshot`, `discountAmountSnapshot`, `serviceChargeSnapshot`, `totalSnapshot`), along with `discountId`, `serviceChargeWaived`, and the approving admin.
+6. Insert the `Payment` rows in bulk.
+7. If a `DEBT` payment exists, create the `Debt` record (`debtService.createFromClosedOrder`) inside the same transaction.
+8. **Print the bill** (blocking call into the `p-queue` printer mutex). If the printer call throws, the entire transaction rolls back — status stays `SENT`, no payments, no debt, no audit log. The admin can retry.
+9. On successful print, flip the status to `CLOSED` and stamp `closedAt`.
+10. Write an `AuditLog` row with action `ORDER_CONFIRMED` and metadata `{ orderId, discountId, waiveServiceCharge, total, paymentMethods }`.
+11. After commit, emit `order:closed { orderId }` to the `admin` room and to `waiter:{waiterId}`.
+
+There is no separate "Approve" then "Mark Paid". The legacy `ORDER_APPROVED` audit action is retained only for reading old audit rows.
+
+Items can still be added by the waiter while the order is `SENT` (live bill — the admin's approval card updates via socket and the next confirm call recomputes against the new lines).
 
 ## Payments
 
@@ -195,13 +210,13 @@ The bottleneck ingredient (the `min` argument) is returned alongside the number 
 ### Role visibility
 
 - **OWNER / ADMIN**: `GET /api/menu/yield` returns `{ possiblePortions, bottleneckIngredientId, bottleneckIngredientName, bottleneckCurrentStock, bottleneckUnit }` per item. Shown in MenuPage as a per-row badge with traffic-light colors (red 0, amber ≤5, green >5).
-- **WAITER / KITCHEN**: see only `effectivelyAvailable: boolean` in `/api/menu`. No numbers leaked.
+- **WAITER**: sees only `effectivelyAvailable: boolean` in `/api/menu`. No numbers leaked.
 
 ### Consumption flow
 
 - **Decrement on `addLine`** (and on combo expansion, and on quantity increase delta). Atomic per-ingredient: `UPDATE Ingredient SET currentStock = currentStock - need WHERE id = :id AND currentStock >= :need`. If any single ingredient returns `updateMany count: 0`, the whole order-line transaction rolls back.
 - For each touched ingredient, write `IngredientMovement(type=CONSUME, orderLineId, quantity, resultingStock, resultingAvgCost)`.
-- **Restore on cancel** only if the canceled line's ticket is still `PENDING`. Mirror logic with `IngredientMovement(type=RESTORE)`. No restore for `IN_PROGRESS`/`READY`/walkout.
+- **Restore on cancel** only if the canceled line belongs to an order still in `DRAFT`. Mirror logic with `IngredientMovement(type=RESTORE)`. No restore for cancellations from `SENT`, and no restore on walkout.
 - **Quantity convention**: `IngredientMovement.quantity` is always positive. Conservation sum is sign-aware (`CONSUME`/`WASTE`/`STOCKTAKE_DECREASE` → minus; rest → plus).
 
 ### Errors
@@ -227,20 +242,20 @@ When upserting a `Recipe`, the service rejects any `ingredientId` whose `parentM
 
 ## Receipts and printer
 
-- Two receipt types in v1: `KITCHEN_TICKET`, `BILL`. Plus `BILL_REPRINT`, `TICKET_REPRINT`.
-- 1 admin printer (required, used for bills). 1 kitchen printer (optional, per-installation).
-- C++ binary `receipt.exe` is a child process spawned per print via `execFile`. NOT a long-running service. NOT HTTP.
+- One receipt type in v1: `BILL`. Plus `BILL_REPRINT`. There is no kitchen ticket — `KITCHEN_TICKET` and `TICKET_REPRINT` types are gone, and `kitchen-ticket-builder.ts` is deleted.
+- 1 admin printer (required, used for bills). There is no kitchen printer.
+- C++ binary `receipt.exe` is a child process spawned per print via `execFile`. NOT a long-running service. NOT HTTP. Unchanged from before.
 - Node-side serialization mutex (`p-queue` with `concurrency: 1`) prevents simultaneous spawns colliding on the printer.
-- Bill printing is BLOCKING: failure rolls back the approval transaction.
-- Kitchen ticket printing is NON-BLOCKING: kitchen display is the source of truth, printer is optional backup. Failure is logged to `PrintJob`, doesn't fail the request.
-- Reprint allowed for both, audit-logged.
+- Bill printing is BLOCKING: failure rolls back the `confirm` transaction (see "Approval flow"); the order stays `SENT`.
+- Reprint allowed, audit-logged (`RECEIPT_REPRINTED`).
 - All print attempts logged in `PrintJob` table.
 - Receipt language: Uzbek. Heading, "Buyurtma", "Stol", "Jami", "Chegirma", "Umumiy", footer "Xaridingiz uchun rahmat!".
 
 ## Real-time
 
 - WebSocket via `socket.io`. Mounted on the same HTTP server, default `/socket.io` path.
-- Rooms: `kitchen`, `admin`, `waiter:{userId}`. Server joins clients to rooms based on role at handshake time.
+- Rooms: `admin`, `waiter:{userId}`. The `kitchen` room is gone. All `ticket:*` events are gone.
+- Server joins clients to rooms based on role at handshake time. The admin desktop and the order desktop app both join `admin` if their user is OWNER/ADMIN; the order app joins `waiter:{userId}` when the logged-in user is a waiter, same as mobile.
 - Sockets are notification-only. Payloads are minimal (`{ id }` style). Clients re-fetch via REST after every socket event to get actual data.
 - Server keeps NO event buffer. On reconnect, clients re-fetch the relevant active state via REST.
 - Authentication at socket handshake: `auth: { token }` validated against `Session` table.
@@ -256,8 +271,8 @@ When upserting a `Recipe`, the service rejects any `ingredientId` whose `parentM
 
 ## Auth
 
-- **Owner / Admin / Kitchen**: username + password. bcryptjs hashing (cost 10).
-- **Waiter**: 4-digit PIN. bcryptjs hashing (same cost).
+- **Owner / Admin**: username + password. bcryptjs hashing (cost 10).
+- **Waiter**: 4-digit PIN. bcryptjs hashing (same cost). Same PIN works in both the mobile app and the desktop order app.
 - DB-backed session tokens (32-byte base64url). Stored in `Session` table.
 - Token lifetime: waiter mobile = 30 days, desktop roles = 8 hours.
 - Auth header: `Authorization: Bearer <token>` on every REST request and on socket handshake.
@@ -346,14 +361,14 @@ NOT in v1: top items, hourly distribution, average order value, CSV/PDF export.
 - **Backend**: Node.js + Express + TypeScript.
 - **Database**: PostgreSQL 16 + Prisma.
 - **Real-time**: socket.io.
-- **Master UI / Kitchen UI**: Electron + React (Vite) + TypeScript.
+- **Master UI / Order UI**: Electron + React (Vite) + TypeScript. The order app (`@chayxana/order`) is the desktop equivalent of the mobile waiter app — a thin client that talks to master over REST + Socket.io.
 - **Mobile**: React Native + Expo (managed workflow). TypeScript.
 - **State**: TanStack Query (server state) + Zustand (local global state).
 - **Validation**: zod.
 - **Hashing**: bcryptjs (NOT bcrypt — avoids native build issues on Windows).
-- **HTTP client (mobile + kitchen)**: native `fetch`.
+- **HTTP client (mobile + order)**: native `fetch`.
 - **Print queue**: `p-queue`.
-- **Code organization**: pnpm monorepo. Apps in `apps/`, shared packages in `packages/`.
+- **Code organization**: pnpm monorepo. Apps in `apps/` (`master`, `mobile`, `order`), shared packages in `packages/`.
 - **Master ↔ Master UI**: HTTP, not Electron IPC. Master UI is just another HTTP client.
-- **OS target**: Windows 10 x64 for Master and Kitchen monoblock. Android 9+ for waiter phones.
+- **OS target / Hardware**: Windows 10 x64 for the Master monoblok (admin + server). Windows 10 x64 for the Order monoblok (touchscreen or keyboard+mouse) running `@chayxana/order`. On a tiny install the master and order apps may coexist on the same machine. Android 9+ for waiter phones running the mobile app. There is no kitchen monoblok any more.
 - **Network**: single Wi-Fi LAN, Master at static `192.168.1.10:4000`.

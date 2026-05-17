@@ -271,11 +271,8 @@ function PrinterSettingsGroup({
   const availablePrinters = printersData?.printers ?? [];
 
   const adminPrinter = getVal('admin_printer_name');
-  const kitchenPrinter = getVal('kitchen_printer_name');
-  const kitchenEnabled = getVal('kitchen_printer_enabled') === 'true';
 
   const adminMissing = adminPrinter && availablePrinters.length > 0 && !availablePrinters.includes(adminPrinter);
-  const kitchenMissing = kitchenEnabled && kitchenPrinter && availablePrinters.length > 0 && !availablePrinters.includes(kitchenPrinter);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -298,32 +295,6 @@ function PrinterSettingsGroup({
 
       <div className="p-6 divide-y divide-slate-50">
         <SettingItem
-          label="Oshxona printeri"
-          description="Yangi buyurtma kelganda avtomatik chek chiqarish"
-        >
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={kitchenEnabled}
-              onClick={() => onChange('kitchen_printer_enabled', kitchenEnabled ? 'false' : 'true')}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none ${
-                kitchenEnabled ? 'bg-blue-600' : 'bg-slate-200'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform ${
-                  kitchenEnabled ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-            <span className="text-sm font-semibold text-slate-700">
-              {kitchenEnabled ? 'Yoqilgan' : 'O\'chirilgan'}
-            </span>
-          </label>
-        </SettingItem>
-
-        <SettingItem
           label="Kassa printeri nomi"
           description="Hisob cheki chiqaradigan printer"
         >
@@ -339,28 +310,6 @@ function PrinterSettingsGroup({
               <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
                 <AlertTriangle size={13} />
                 <span>"{adminPrinter}" tizimda topilmadi</span>
-              </div>
-            )}
-          </div>
-        </SettingItem>
-
-        <SettingItem
-          label="Oshxona printeri nomi"
-          description="Oshxonaga buyurtma yuboradigan printer"
-        >
-          <div className="w-full space-y-2">
-            <PrinterSelect
-              value={kitchenPrinter}
-              printers={availablePrinters}
-              isLoading={printersLoading}
-              onChange={(v) => onChange('kitchen_printer_name', v)}
-              placeholder="Printer tanlang yoki nomini kiriting"
-              disabled={!kitchenEnabled}
-            />
-            {kitchenMissing && (
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
-                <AlertTriangle size={13} />
-                <span>"{kitchenPrinter}" tizimda topilmadi</span>
               </div>
             )}
             {availablePrinters.length === 0 && !printersLoading && (

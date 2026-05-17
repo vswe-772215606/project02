@@ -8,8 +8,10 @@ The project is a **monorepo** managed by `pnpm`, following a client-server-displ
 
 ### Core Applications (`apps/`)
 - **Master (`@chayxana/master`)**: The central hub. It functions as both the API server (Socket.io + REST) and the Admin Desktop UI. Built with **Electron**, **Vite**, and **React**.
-- **Kitchen (`@chayxana/kitchen`)**: A real-time Kitchen Display System (KDS). Built with **Electron** and **React**. It consumes live ticket updates via Socket.io.
+- **Order (`@chayxana/order`)**: Desktop waiter app — Electron monoblok variant for taking orders inside the venue (touchscreen or keyboard+mouse). Talks to master over REST + Socket.io.
 - **Mobile (`@chayxana/mobile`)**: A mobile application for waitstaff to take orders. Built with **React Native (Expo)**.
+
+There is no separate kitchen application: the admin (on the master desktop) is the single point of order approval and payment. See `docs/agent-plans/00-shared/decisions.md` for the locked role model.
 
 ## 2. Tech Stack
 
@@ -21,7 +23,7 @@ The project is a **monorepo** managed by `pnpm`, following a client-server-displ
 - **Validation**: **Zod** for request body and state transition validation.
 - **Auth**: Custom middleware with **bcryptjs** (PIN for waiters, passwords for others), DB-backed sessions (single-device rule).
 
-### Frontend (Master UI, Kitchen, Mobile)
+### Frontend (Master UI, Order, Mobile)
 - **Framework**: React 19 (Web/Electron) / React Native (Mobile).
 - **State Management**: **TanStack Query** (server state) and **Zustand** (local/global UI state).
 - **Styling**: **Tailwind CSS** (Desktop) / StyleSheet (Mobile).
@@ -34,9 +36,9 @@ The project is a **monorepo** managed by `pnpm`, following a client-server-displ
 
 The system uses a comprehensive Prisma schema (`apps/master/prisma/schema.prisma`) covering:
 
-- **Auth**: `User`, `Session` (Role-based: OWNER, ADMIN, KITCHEN, WAITER).
+- **Auth**: `User`, `Session` (Role-based: OWNER, ADMIN, WAITER).
 - **Menu**: `Category`, `MenuItem`, `Combo` (flat category structure, price snapshotting on order).
-- **Orders**: `Order`, `OrderLine`, `KitchenTicket` (Order state machine: DRAFT → SENT → BILL_REQUESTED → PENDING_PAYMENT → CLOSED/WALKOUT).
+- **Orders**: `Order`, `OrderLine` (Order state machine: `DRAFT → SENT → CLOSED`, with `SENT → WALKOUT` and `DRAFT|SENT → CANCELED` as terminal branches). Approval and payment are a single atomic action: `POST /api/orders/:id/confirm`.
 - **Stock Tracking**: `Ingredient` (per-dish scope via `parentMenuItemId`), `Recipe`/`RecipeIngredient` for cooked dishes, `Ingredient.isSelfMenuItem` for direct-stock items (cola/non/suv), `IngredientMovement` ledger.
 - **Operations**: `Discount` (Percent/Fixed, with Admin-set caps), `Payment` (Cash/Card, mixed support), `AuditLog`, `PrintJob`.
 
@@ -54,12 +56,12 @@ Served by Master at a static LAN IP (e.g., `192.168.1.10:4000`).
 - Auth via `Authorization: Bearer <token>`.
 
 ### WebSocket (Socket.io)
-- **Rooms**: `admin`, `kitchen`, `waiter:{userId}`.
-- **Pattern**: Server-to-client events only (e.g., `ticket:new`, `order:billRequested`). Clients use these as triggers to invalidate TanStack Query caches.
+- **Rooms**: `admin`, `waiter:{userId}`. There is no `kitchen` room.
+- **Pattern**: Server-to-client events only (e.g., `order:sent`, `order:closed`, `order:walkout`, `menu:*`, `ingredient:stockChanged`). Clients use these as triggers to invalidate TanStack Query caches.
 
 ## 5. Development & Build
 
-- **Monorepo Commands**: `pnpm dev:master`, `pnpm dev:kitchen`, `pnpm dev:mobile`.
+- **Monorepo Commands**: `pnpm dev:master`, `pnpm dev:order`, `pnpm dev:mobile`.
 - **Printer Build**: C++ code is cross-compiled or built via MSVC/MinGW on Windows. The artifact `receipt.exe` is stored in `apps/master/resources/bin/`.
 - **Database**: Migrations are managed via `prisma migrate`.
 

@@ -9,8 +9,7 @@ import {
   Pencil, 
   UserMinus, 
   UserCheck, 
-  Shield, 
-  ChefHat, 
+  Shield,
   HandPlatter,
   Lock,
   Eye,
@@ -25,7 +24,7 @@ import { Modal } from '../components/Modal';
 
 const userSchema = z.object({
   fullName: z.string().min(1, "FIO kiritilishi shart"),
-  role: z.enum(['OWNER', 'ADMIN', 'KITCHEN', 'WAITER']),
+  role: z.enum(['OWNER', 'ADMIN', 'WAITER']),
   username: z.string().optional(),
   password: z.string().optional(),
   pin: z.string().optional(),
@@ -261,7 +260,6 @@ function RoleBadge({ role, isActive }: { role: string, isActive: boolean }) {
   const configs: any = {
     OWNER: { label: 'Ega', icon: Shield, color: 'bg-purple-100 text-purple-700' },
     ADMIN: { label: 'Admin', icon: Lock, color: 'bg-blue-100 text-blue-700' },
-    KITCHEN: { label: 'Oshpaz', icon: ChefHat, color: 'bg-orange-100 text-orange-700' },
     WAITER: { label: 'Ofitsiant', icon: HandPlatter, color: 'bg-green-100 text-green-700' },
   };
   const config = configs[role];
@@ -325,7 +323,6 @@ function UserModal({ user, currentUserRole, onClose, onSave }: any) {
           >
             {currentUserRole === 'OWNER' && <option value="OWNER">Ega (Owner)</option>}
             <option value="ADMIN">Administrator</option>
-            <option value="KITCHEN">Oshpaz (Kitchen)</option>
             <option value="WAITER">Ofitsiant (Waiter)</option>
           </select>
         </div>
