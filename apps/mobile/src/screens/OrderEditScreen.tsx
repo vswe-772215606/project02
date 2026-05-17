@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ordersApi, Order, OrderLine, STATUS_LABELS, TICKET_LABELS, TicketStatus } from '../api/orders';
+import { ordersApi, Order, OrderLine, STATUS_LABELS } from '../api/orders';
 import { tablesApi } from '../api/tables';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -22,18 +22,9 @@ import { Input } from '../components/ui/Input';
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OrderEdit'>;
 type Route = RouteProp<RootStackParamList, 'OrderEdit'>;
 
-const TICKET_VARIANTS: Record<TicketStatus, 'slate' | 'warning' | 'success' | 'danger'> = {
-  PENDING: 'slate',
-  IN_PROGRESS: 'warning',
-  READY: 'success',
-  CANCELED: 'danger',
-};
-
 const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate' | 'success' | 'danger'> = {
   DRAFT: 'warning',
   SENT: 'primary',
-  BILL_REQUESTED: 'info',
-  PENDING_PAYMENT: 'slate',
   CLOSED: 'success',
   WALKOUT: 'danger',
   CANCELED: 'slate',
@@ -45,8 +36,6 @@ function LineRow({
   line: OrderLine; canEditNote: boolean; canCancelLine: boolean;
   onNote: () => void; onCancel: () => void;
 }) {
-  const ticketStatus = line.kitchenTicket?.status;
-
   if (line.isCanceled) {
     return (
       <View style={[styles.lineRow, styles.lineRowCanceled]}>
@@ -72,11 +61,8 @@ function LineRow({
           <Text style={styles.lineName}>{line.name}</Text>
           <Text style={styles.lineQty}>× {line.quantity}</Text>
         </View>
-        {ticketStatus && (
-          <Badge label={TICKET_LABELS[ticketStatus]} variant={TICKET_VARIANTS[ticketStatus]} />
-        )}
       </View>
-      
+
       <View style={styles.linePriceRow}>
         <Text style={styles.linePriceDetails}>
           {formatUZS(line.price)} × {line.quantity}
@@ -144,11 +130,6 @@ export function OrderEditScreen() {
     onSuccess: invalidate,
     onError: (err: any) => Alert.alert('Xato', err.message || "Yuborib bo'lmadi"),
   });
-  const billMutation = useMutation({
-    mutationFn: () => ordersApi.requestBill(orderId),
-    onSuccess: invalidate,
-    onError: (err: any) => Alert.alert('Xato', err.message || "Hisob so'rab bo'lmadi"),
-  });
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(orderId, reason),
     onSuccess: () => { invalidate(); nav.goBack(); },
@@ -181,9 +162,8 @@ export function OrderEditScreen() {
 
   const activeLines = order.lines.filter((l) => !l.isCanceled);
   const subtotal = activeLines.reduce((s, l) => s + l.price * l.quantity, 0);
-  const allTicketsPending = order.kitchenTickets.every((t) => t.status === 'PENDING');
-  const canCancel = allTicketsPending && ['DRAFT', 'SENT', 'BILL_REQUESTED'].includes(order.status);
-  const isEditable = ['DRAFT', 'SENT', 'BILL_REQUESTED'].includes(order.status);
+  const canCancel = order.status === 'DRAFT';
+  const isEditable = ['DRAFT', 'SENT'].includes(order.status);
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
   const badgeVariant = STATUS_VARIANTS[order.status] || 'slate';
 
@@ -275,14 +255,13 @@ export function OrderEditScreen() {
               </View>
             ) : (
               order.lines.map((line) => {
-                const canEditNote = !line.isCanceled &&
-                  (!line.kitchenTicket || line.kitchenTicket.status === 'PENDING');
+                const canEditNote = !line.isCanceled && order.status === 'DRAFT';
                 return (
                   <LineRow
                     key={line.id}
                     line={line}
                     canEditNote={canEditNote && !offline}
-                    canCancelLine={!line.isCanceled && allTicketsPending && !offline}
+                    canCancelLine={!line.isCanceled && order.status === 'DRAFT' && !offline}
                     onNote={() => openNoteModal(line)}
                     onCancel={() => openCancelLine(line)}
                   />
@@ -327,28 +306,13 @@ export function OrderEditScreen() {
             style={styles.footerMainBtn}
           />
         )}
-        
-        {order.status === 'SENT' && (
-          <Button
-            title="Hisob so'rash"
-            variant="info"
-            disabled={offline}
-            loading={billMutation.isPending}
-            onPress={() => Alert.alert("Hisob so'rash", "Tasdiqlaysizmi?", [
-              { text: "Yo'q", style: 'cancel' },
-              { text: 'Ha', onPress: () => billMutation.mutate() },
-            ])}
-            style={styles.footerMainBtn}
-          />
-        )}
 
-        {order.status === 'BILL_REQUESTED' && (
+        {order.status === 'SENT' && (
           <View style={styles.waitingContainer}>
-            <ActivityIndicator size="small" color={theme.colors.slate[400]} style={{ marginRight: 8 }} />
             <Text style={styles.waitingText}>Kassir tasdiqlashi kutilmoqda</Text>
           </View>
         )}
-        
+
         {!isEditable && (
           <View style={styles.waitingContainer}>
             <Badge label={STATUS_LABELS[order.status]} variant={badgeVariant} outline />

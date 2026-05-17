@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { fireReadyNotification } from '../lib/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth.store';
 import { useConnectionStore } from '../stores/connection.store';
@@ -85,15 +84,6 @@ export function useSocket() {
         });
     });
 
-    socket.on('ticket:new', () => qc.invalidateQueries({ queryKey: ['orders'] }));
-    socket.on('ticket:statusChanged', ({ status }: { ticketId: string; status: string }) => {
-      void qc.invalidateQueries({ queryKey: ['orders'] });
-      if (status === 'READY') {
-        void fireReadyNotification();
-      }
-    });
-    socket.on('ticket:canceled', () => qc.invalidateQueries({ queryKey: ['orders'] }));
-    socket.on('order:approved', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:closed', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:walkout', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:transferred', () => {

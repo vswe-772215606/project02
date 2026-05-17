@@ -1,15 +1,7 @@
 import { api } from './client';
 
-export type TicketStatus = 'PENDING' | 'IN_PROGRESS' | 'READY' | 'CANCELED';
-export type OrderStatus = 'DRAFT' | 'SENT' | 'BILL_REQUESTED' | 'PENDING_PAYMENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+export type OrderStatus = 'DRAFT' | 'SENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
 export type OrderType = 'DINE_IN' | 'TAKEAWAY';
-
-export type KitchenTicket = {
-  id: string;
-  orderId: string;
-  status: TicketStatus;
-  createdAt: string;
-};
 
 export type OrderLine = {
   id: string;
@@ -24,8 +16,6 @@ export type OrderLine = {
   notes: string | null;
   isCanceled: boolean;
   createdAt: string;
-  kitchenTicketId: string | null;
-  kitchenTicket?: { id: string; status: TicketStatus } | null;
   menuItem?: { id: string; name: string; price: number } | null;
 };
 
@@ -48,7 +38,6 @@ export type Order = {
   createdAt: string;
   updatedAt: string;
   lines: OrderLine[];
-  kitchenTickets: KitchenTicket[];
 };
 
 export const ordersApi = {
@@ -75,28 +64,16 @@ export const ordersApi = {
   send: (orderId: string) => api.post<Order>(`/api/orders/${orderId}/send`),
   transfer: (orderId: string, tableId: string) =>
     api.post<Order>(`/api/orders/${orderId}/transfer`, { tableId }),
-  requestBill: (orderId: string) => api.post<Order>(`/api/orders/${orderId}/request-bill`),
   cancel: (orderId: string, reason: string) =>
     api.post<Order>(`/api/orders/${orderId}/cancel`, { reason }),
 };
 
-export const ACTIVE_STATUSES: OrderStatus[] = ['DRAFT', 'SENT', 'BILL_REQUESTED'];
-export const WORK_STATUSES: OrderStatus[] = ['DRAFT', 'SENT'];
-export const BILL_STATUSES: OrderStatus[] = ['BILL_REQUESTED', 'PENDING_PAYMENT'];
+export const ACTIVE_STATUSES: OrderStatus[] = ['DRAFT', 'SENT'];
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborildi',
-  BILL_REQUESTED: "Hisob so'raldi",
-  PENDING_PAYMENT: "To'lov kutilmoqda",
   CLOSED: 'Yopildi',
-  WALKOUT: 'Ketib qoldi',
+  WALKOUT: "To'lovsiz ketdi",
   CANCELED: 'Bekor qilindi',
-};
-
-export const TICKET_LABELS: Record<TicketStatus, string> = {
-  PENDING: 'Kutilmoqda',
-  IN_PROGRESS: 'Pishirilmoqda',
-  READY: 'Tayyor',
-  CANCELED: 'Bekor',
 };

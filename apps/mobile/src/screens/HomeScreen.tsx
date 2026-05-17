@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, Platform,
 } from 'react-native';
@@ -8,7 +8,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/auth.store';
 import { authApi } from '../api/auth';
-import { ordersApi, WORK_STATUSES, BILL_STATUSES, STATUS_LABELS, Order } from '../api/orders';
+import { ordersApi, ACTIVE_STATUSES, STATUS_LABELS, Order } from '../api/orders';
 import { useConnectionStore } from '../stores/connection.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { elapsed, formatUZS } from '../lib/format';
@@ -22,55 +22,9 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate'> = {
   DRAFT: 'warning',
   SENT: 'primary',
-  BILL_REQUESTED: 'info',
-  PENDING_PAYMENT: 'slate',
 };
 
 function WorkOrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
-  const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
-  const hasReady = order.kitchenTickets.some((t) => t.status === 'READY');
-  const activeLines = order.lines.filter((l) => !l.isCanceled);
-  const variant = STATUS_VARIANTS[order.status] || 'slate';
-
-  const mealPreview = (() => {
-    const names = activeLines.map((l) => l.name);
-    if (names.length === 0) return null;
-    if (names.length <= 2) return names.join(', ');
-    return `${names.slice(0, 2).join(', ')} ... (+${names.length - 2})`;
-  })();
-
-  return (
-    <Card
-      style={[styles.card, hasReady && styles.cardReady]}
-      onPress={onPress}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTable}>{tableLabel}</Text>
-        <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
-      </View>
-      
-      {mealPreview ? (
-        <Text style={styles.cardMeals} numberOfLines={1}>{mealPreview}</Text>
-      ) : (
-        <Text style={styles.cardMealsEmpty}>Mahsulot yo'q</Text>
-      )}
-
-      <View style={styles.cardFooter}>
-        <Text style={styles.cardAmount}>{formatUZS(order.totalAmount)} so'm</Text>
-        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
-      </View>
-
-      {hasReady && (
-        <View style={styles.readyBanner}>
-          <MaterialCommunityIcons name="check-bold" size={16} color={theme.colors.white} style={{ marginRight: 6 }} />
-          <Text style={styles.readyBannerText}>TAYYOR — OLIB KELING!</Text>
-        </View>
-      )}
-    </Card>
-  );
-}
-
-function BillOrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
   const activeLines = order.lines.filter((l) => !l.isCanceled);
   const variant = STATUS_VARIANTS[order.status] || 'slate';
@@ -86,16 +40,18 @@ function BillOrderCard({ order, onPress }: { order: Order; onPress: () => void }
     <Card style={styles.card} onPress={onPress}>
       <View style={styles.cardHeader}>
         <Text style={styles.cardTable}>{tableLabel}</Text>
-        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
+        <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
       </View>
 
-      {mealPreview && (
+      {mealPreview ? (
         <Text style={styles.cardMeals} numberOfLines={1}>{mealPreview}</Text>
+      ) : (
+        <Text style={styles.cardMealsEmpty}>Mahsulot yo'q</Text>
       )}
 
       <View style={styles.cardFooter}>
-        <Text style={[styles.cardAmount, styles.billAmount]}>{formatUZS(order.totalAmount)} so'm</Text>
-        <Text style={styles.cardTime}>{elapsed(order.createdAt)}</Text>
+        <Text style={styles.cardAmount}>{formatUZS(order.totalAmount)} so'm</Text>
+        <Badge label={STATUS_LABELS[order.status]} variant={variant} />
       </View>
     </Card>
   );
@@ -107,7 +63,6 @@ export function HomeScreen() {
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const status = useConnectionStore((s) => s.status);
   const actionsDisabled = status !== 'online';
-  const [tab, setTab] = useState<'work' | 'bill'>('work');
 
   const { data: orders = [], isLoading, refetch } = useQuery({
     queryKey: ['orders', 'mine'],
@@ -115,9 +70,7 @@ export function HomeScreen() {
     refetchInterval: 15_000,
   });
 
-  const workOrders = orders.filter((o) => WORK_STATUSES.includes(o.status));
-  const billOrders = orders.filter((o) => BILL_STATUSES.includes(o.status));
-  const hasReadyAny = workOrders.some((o) => o.kitchenTickets.some((t) => t.status === 'READY'));
+  const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.status));
 
   const handleLogout = () => {
     Alert.alert('Chiqish', "Chiqishni xohlaysizmi?", [
@@ -130,8 +83,6 @@ export function HomeScreen() {
       },
     ]);
   };
-
-  const listData = tab === 'work' ? workOrders : billOrders;
 
   return (
     <View style={styles.container}>
@@ -151,40 +102,15 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* Modern Tab Bar */}
-      <View style={styles.tabBarContainer}>
-        <View style={styles.tabBar}>
-          <TouchableOpacity
-            style={[styles.tabItem, tab === 'work' && styles.tabItemActive]}
-            onPress={() => setTab('work')}
-          >
-            <Text style={[styles.tabText, tab === 'work' && styles.tabTextActive]}>Faol</Text>
-            {workOrders.length > 0 && (
-              <View style={[
-                styles.tabBadge,
-                tab === 'work' ? styles.tabBadgeActive : styles.tabBadgeInactive,
-                hasReadyAny && styles.tabBadgeReady
-              ]}>
-                <Text style={[styles.tabBadgeText, tab === 'work' && styles.tabBadgeTextActive]}>
-                  {workOrders.length}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabItem, tab === 'bill' && styles.tabItemActive]}
-            onPress={() => setTab('bill')}
-          >
-            <Text style={[styles.tabText, tab === 'bill' && styles.tabTextActive]}>Hisob</Text>
-            {billOrders.length > 0 && (
-              <View style={[styles.tabBadge, tab === 'bill' ? styles.tabBadgeActive : styles.tabBadgeInactive]}>
-                <Text style={[styles.tabBadgeText, tab === 'bill' && styles.tabBadgeTextActive]}>
-                  {billOrders.length}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+      {/* Section header with counter + new-order action */}
+      <View style={styles.sectionBar}>
+        <View style={styles.sectionLabelWrap}>
+          <Text style={styles.sectionLabel}>Faol</Text>
+          {activeOrders.length > 0 && (
+            <View style={styles.sectionBadge}>
+              <Text style={styles.sectionBadgeText}>{activeOrders.length}</Text>
+            </View>
+          )}
         </View>
 
         <Button
@@ -198,20 +124,16 @@ export function HomeScreen() {
 
       {/* Order list */}
       <FlatList
-        data={listData}
+        data={activeOrders}
         keyExtractor={(o) => o.id}
-        renderItem={({ item }) =>
-          tab === 'work'
-            ? <WorkOrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
-            : <BillOrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
-        }
+        renderItem={({ item }) => (
+          <WorkOrderCard order={item} onPress={() => nav.navigate('OrderEdit', { orderId: item.id })} />
+        )}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={theme.colors.primary} />}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>
-              {tab === 'work' ? 'Faol buyurtma yo\'q' : 'Hisob kutilmaydi'}
-            </Text>
+            <Text style={styles.emptyText}>Faol buyurtma yo'q</Text>
           </View>
         }
       />
@@ -252,67 +174,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  tabBarContainer: {
+  sectionBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.md,
     backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.slate[100],
   },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.slate[100],
-    borderRadius: 12,
-    padding: 4,
-    flex: 1,
-    marginRight: theme.spacing.md,
-  },
-  tabItem: {
-    flex: 1,
+  sectionLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
+    gap: 8,
   },
-  tabItemActive: {
-    backgroundColor: theme.colors.white,
-    ...theme.shadows.sm,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: theme.colors.slate[500],
-  },
-  tabTextActive: {
-    color: theme.colors.primary,
-  },
-  tabBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  tabBadgeInactive: {
-    backgroundColor: theme.colors.slate[200],
-  },
-  tabBadgeActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  tabBadgeReady: {
-    backgroundColor: theme.colors.success,
-  },
-  tabBadgeText: {
-    fontSize: 11,
+  sectionLabel: {
+    fontSize: 16,
     fontWeight: '800',
-    color: theme.colors.slate[600],
+    color: theme.colors.slate[900],
   },
-  tabBadgeTextActive: {
+  sectionBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
     color: theme.colors.white,
   },
   newBtn: {
@@ -324,11 +217,6 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: theme.spacing.md,
     padding: theme.spacing.lg,
-  },
-  cardReady: {
-    borderColor: theme.colors.success,
-    borderWidth: 2,
-    backgroundColor: theme.colors.successLight,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -363,24 +251,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: theme.colors.slate[900],
-  },
-  billAmount: {
-    color: theme.colors.info,
-    fontSize: 18,
-  },
-  readyBanner: {
-    marginTop: theme.spacing.md,
-    backgroundColor: theme.colors.success,
-    borderRadius: 8,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  readyBannerText: {
-    color: theme.colors.white,
-    fontWeight: '800',
-    fontSize: 13,
   },
 
   empty: { flex: 1, alignItems: 'center', paddingTop: 80 },
