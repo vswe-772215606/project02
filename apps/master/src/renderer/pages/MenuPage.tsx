@@ -19,9 +19,16 @@ import {
 } from 'lucide-react';
 import { menuApi, Category, MenuItem, Combo } from '../api/menu';
 import { yieldApi } from '../api/yield';
-import { formatUZS } from '../utils/format';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { PageContent } from '@/components/feedback/PageContent';
+import { EmptyState } from '@/components/feedback/EmptyState';
+import { MoneyCell } from '@/components/data/MoneyCell';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Nom kiritilishi shart'),
@@ -52,6 +59,7 @@ type ItemFormSubmit = {
 };
 
 export function MenuPage() {
+  usePageTitle('Menyu');
   const queryClient = useQueryClient();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [editCategory, setEditCategory] = useState<Category | null>(null);
@@ -178,63 +186,53 @@ export function MenuPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center space-x-3">
-          <BookOpen className="text-slate-400" size={28} />
-          <h1 className="text-2xl font-bold text-slate-800">Menyu boshqaruvi</h1>
-        </div>
-        <div className="flex items-center space-x-4 flex-wrap gap-y-2">
-          {view === 'items' && (
-            <div className="relative">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                size={18}
-              />
+    <PageContent>
+      <PageHeader
+        title="Menyu"
+        description="Kategoriyalar, taomlar va kombolar."
+        actions={
+          <>
+            <label className="flex items-center gap-2 cursor-pointer rounded-md border border-input bg-background px-3 h-9 text-sm">
               <input
-                type="text"
-                placeholder="Mahsulot yoki kategoriya nomi"
-                className="pl-10 pr-8 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 w-72 text-sm bg-white"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
               />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  title="Tozalash"
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
+              <span className="text-xs text-muted-foreground">Faolsizlarni ko'rsatish</span>
+            </label>
+            <Tabs value={view} onValueChange={(v) => setView(v as 'items' | 'combos')}>
+              <TabsList>
+                <TabsTrigger value="items">Mahsulotlar</TabsTrigger>
+                <TabsTrigger value="combos">Kombolar</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </>
+        }
+      />
+
+      {view === 'items' && (
+        <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            placeholder="Mahsulot yoki kategoriya nomi..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-muted-foreground hover:text-foreground"
+              title="Tozalash"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
-          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
-            <input 
-              type="checkbox" 
-              checked={showInactive} 
-              onChange={(e) => setShowInactive(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-            />
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ko'rsatish</span>
-          </label>
-          <div className="flex bg-slate-200/50 p-1 rounded-lg">
-            <button 
-              onClick={() => setView('items')}
-              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'items' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Mahsulotlar
-            </button>
-            <button 
-              onClick={() => setView('combos')}
-              className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${view === 'combos' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Kombolar
-            </button>
-          </div>
         </div>
-      </div>
+      )}
 
       {view === 'items' ? (
         <div className="grid grid-cols-12 gap-6 items-start">
@@ -312,13 +310,10 @@ export function MenuPage() {
               <h2 className={`font-bold text-slate-500 text-xs uppercase tracking-widest ${!activeCategory?.isActive ? 'italic line-through' : ''}`}>
                 {activeCategory?.name || 'Mahsulotlar'} {!activeCategory?.isActive && '(Nofaol)'}
               </h2>
-              <button 
-                onClick={() => setIsAddingItem(true)}
-                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center space-x-1 shadow-sm"
-              >
-                <Plus size={16} />
-                <span>Qo'shish</span>
-              </button>
+              <Button size="sm" onClick={() => setIsAddingItem(true)}>
+                <Plus className="h-4 w-4" />
+                Qo'shish
+              </Button>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -341,8 +336,8 @@ export function MenuPage() {
                         <div className={`font-bold ${!item.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{item.name}</div>
                         {item.description && <div className="text-xs text-slate-400 mt-0.5 truncate max-w-xs">{item.description}</div>}
                       </td>
-                      <td className={`px-6 py-4 font-semibold ${!item.isActive ? 'text-slate-400' : 'text-slate-700'}`}>
-                        {formatUZS(item.price)}
+                      <td className={cn('px-6 py-4 font-semibold tabular-nums', !item.isActive ? 'text-slate-400' : 'text-slate-700')}>
+                        <MoneyCell value={item.price} className={!item.isActive ? 'text-slate-400' : undefined} />
                       </td>
                       <td className="px-6 py-4 text-center">
                         {!y || y.kind === 'UNTRACKED' ? (
@@ -442,7 +437,7 @@ export function MenuPage() {
           onCancel={() => setPendingConfirm(null)}
         />
       )}
-    </div>
+    </PageContent>
   );
 }
 

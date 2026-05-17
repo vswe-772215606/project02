@@ -1,27 +1,53 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
+  AlertCircle,
+  Pencil,
   Percent,
   Plus,
-  Pencil,
-  Trash2,
-  Tag,
-  AlertCircle,
   RotateCcw,
   Search,
-  X
+  Tag,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { discountsApi, Discount } from '../api/discounts';
+import { discountsApi, type Discount } from '../api/discounts';
 import { settingsApi } from '../api/settings';
-import { formatUZS } from '../utils/format';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { Modal } from '../components/Modal';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { PageContent } from '@/components/feedback/PageContent';
+import { EmptyState } from '@/components/feedback/EmptyState';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { formatMoney } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 const discountSchema = z.object({
-  name: z.string().min(1, "Nom kiritilishi shart"),
+  name: z.string().min(1, 'Nom kiritilishi shart'),
   type: z.enum(['PERCENT', 'FIXED']),
   value: z.number().min(0, "Qiymat noto'g'ri"),
 });
@@ -29,6 +55,7 @@ const discountSchema = z.object({
 type DiscountForm = z.infer<typeof discountSchema>;
 
 export function DiscountsPage() {
+  usePageTitle('Chegirmalar');
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editDiscount, setEditDiscount] = useState<Discount | null>(null);
@@ -57,7 +84,7 @@ export function DiscountsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discounts'] });
       setIsAdding(false);
-    }
+    },
   });
 
   const updateMutation = useMutation({
@@ -65,12 +92,12 @@ export function DiscountsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['discounts'] });
       setEditDiscount(null);
-    }
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => discountsApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discounts'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['discounts'] }),
   });
 
   const handleToggleActive = (discount: Discount) => {
@@ -87,215 +114,337 @@ export function DiscountsPage() {
     }
   };
 
+  const dialogOpen = isAdding || !!editDiscount;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <Percent className="text-slate-400" size={28} />
-          <h1 className="text-2xl font-bold text-slate-800">Chegirmalar boshqaruvi</h1>
-        </div>
-        <div className="flex items-center space-x-4">
-          <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
-            <input 
-              type="checkbox" 
-              checked={showInactive} 
-              onChange={(e) => setShowInactive(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-            />
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-tight">Faolsizlarni ko'rsatish</span>
-          </label>
-          <button 
-            onClick={() => setIsAdding(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center space-x-2 shadow-sm"
+    <PageContent>
+      <PageHeader
+        title="Chegirmalar"
+        description="Yopish vaqtida buyurtmaga qo'llaniladigan chegirmalar."
+        actions={
+          <>
+            <label className="flex items-center gap-2 cursor-pointer rounded-md border border-input bg-background px-3 h-9 text-sm">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              <span className="text-xs text-muted-foreground">Faolsizlarni ko'rsatish</span>
+            </label>
+            <Button onClick={() => setIsAdding(true)}>
+              <Plus className="h-4 w-4" />
+              Yangi chegirma
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        <input
+          type="text"
+          placeholder="Nom bo'yicha qidirish..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="text-muted-foreground hover:text-foreground"
+            title="Tozalash"
           >
-            <Plus size={20} />
-            <span>Yangi chegirma</span>
+            <X className="h-3.5 w-3.5" />
           </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <Search size={16} className="text-slate-400 shrink-0" />
-          <input
-            type="text"
-            placeholder="Nom bo'yicha qidirish..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className="text-slate-400 hover:text-slate-700"
-              title="Tozalash"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {isLoading ? (
-          <div className="col-span-full flex justify-center py-12">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-          </div>
-        ) : filteredDiscounts.map((discount) => (
-          <div key={discount.id} className={`bg-white rounded-2xl border p-6 shadow-sm hover:shadow-md transition-all ${!discount.isActive ? 'bg-slate-50 border-dashed border-slate-300 opacity-60' : 'border-slate-200'}`}>
-            <div className="flex items-start justify-between mb-4">
-              <div className={`p-3 rounded-xl border ${!discount.isActive ? 'bg-slate-200 text-slate-400 border-slate-300' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-                {discount.type === 'PERCENT' ? <Percent size={24} /> : <Tag size={24} />}
-              </div>
-              <div className="flex items-center space-x-1">
-                <button 
-                  onClick={() => setEditDiscount(discount)}
-                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                >
-                  <Pencil size={18} />
-                </button>
-                <button 
-                  onClick={() => handleToggleActive(discount)}
-                  className={`p-2 rounded-lg transition-all ${
-                    discount.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'
-                  }`}
-                  title={discount.isActive ? "Faolsizlantirish" : "Faollashtirish"}
-                >
-                  {discount.isActive ? <Trash2 size={18} /> : <RotateCcw size={18} />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <h3 className={`text-lg font-black ${!discount.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>
-                {discount.name}
-              </h3>
-              <p className={`text-2xl font-black mt-1 ${!discount.isActive ? 'text-slate-400' : 'text-blue-600'}`}>
-                {discount.type === 'PERCENT' ? `${discount.value}%` : formatUZS(discount.value)}
-              </p>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">
-                {discount.type === 'PERCENT' ? 'Foizli' : 'Belgilangan summa'}
-              </p>
-            </div>
-          </div>
-        ))}
-        {filteredDiscounts.length === 0 && !isLoading && (
-          <div className="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-400">
-            {search.trim() ? 'Qidiruv bo\'yicha hech narsa topilmadi' : 'Chegirmalar mavjud emas'}
-          </div>
         )}
       </div>
 
-      {(isAdding || editDiscount) && (
-        <DiscountModal
-          discount={editDiscount}
-          settings={settings}
-          onClose={() => { setIsAdding(false); setEditDiscount(null); }}
-          onSave={(data: DiscountForm) => editDiscount
-            ? updateMutation.mutate({ id: editDiscount.id, data })
-            : createMutation.mutate(data)
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <Card key={idx}>
+              <CardContent className="p-5 space-y-3">
+                <Skeleton className="h-10 w-10 rounded-md" />
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-7 w-20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : filteredDiscounts.length === 0 ? (
+        <EmptyState
+          icon={Percent}
+          title={search.trim() ? 'Hech narsa topilmadi' : "Chegirmalar yo'q"}
+          hint={
+            search.trim()
+              ? 'Boshqa nom bilan qidirib ko\'ring.'
+              : "Birinchi chegirmani qo'shing — yopish vaqtida tanlash mumkin."
+          }
+          action={
+            !search.trim() ? (
+              <Button onClick={() => setIsAdding(true)}>
+                <Plus className="h-4 w-4" />
+                Yangi chegirma
+              </Button>
+            ) : undefined
           }
         />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {filteredDiscounts.map((discount) => (
+            <DiscountCard
+              key={discount.id}
+              discount={discount}
+              onEdit={() => setEditDiscount(discount)}
+              onToggleActive={() => handleToggleActive(discount)}
+            />
+          ))}
+        </div>
       )}
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsAdding(false);
+            setEditDiscount(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DiscountFormDialog
+            key={editDiscount?.id ?? 'new'}
+            discount={editDiscount}
+            settings={settings}
+            onClose={() => {
+              setIsAdding(false);
+              setEditDiscount(null);
+            }}
+            onSave={(data) =>
+              editDiscount
+                ? updateMutation.mutate({ id: editDiscount.id, data })
+                : createMutation.mutate(data)
+            }
+            isPending={createMutation.isPending || updateMutation.isPending}
+          />
+        </DialogContent>
+      </Dialog>
 
       {pendingConfirm && (
         <ConfirmDialog
           message={pendingConfirm.message}
           variant="danger"
-          onConfirm={() => { pendingConfirm.onConfirm(); setPendingConfirm(null); }}
+          onConfirm={() => {
+            pendingConfirm.onConfirm();
+            setPendingConfirm(null);
+          }}
           onCancel={() => setPendingConfirm(null)}
         />
       )}
-    </div>
+    </PageContent>
   );
 }
 
-function DiscountModal({ discount, settings, onClose, onSave }: any) {
+function DiscountCard({
+  discount,
+  onEdit,
+  onToggleActive,
+}: {
+  discount: Discount;
+  onEdit: () => void;
+  onToggleActive: () => void;
+}) {
+  const isPercent = discount.type === 'PERCENT';
+  return (
+    <Card className={cn(!discount.isActive && 'border-dashed bg-muted/30')}>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-start justify-between gap-2">
+          <div
+            className={cn(
+              'p-2.5 rounded-md border',
+              !discount.isActive
+                ? 'bg-muted text-muted-foreground border-border'
+                : 'bg-primary/10 text-primary border-primary/20',
+            )}
+          >
+            {isPercent ? <Percent className="h-5 w-5" /> : <Tag className="h-5 w-5" />}
+          </div>
+          {discount.isActive ? (
+            <Badge variant="outline" className="bg-success/10 text-success border-success/20 font-medium">
+              Faol
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">Nofaol</Badge>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <h3
+            className={cn(
+              'text-base font-semibold truncate',
+              !discount.isActive && 'text-muted-foreground line-through',
+            )}
+            title={discount.name}
+          >
+            {discount.name}
+          </h3>
+          <p
+            className={cn(
+              'text-2xl font-semibold tabular-nums',
+              !discount.isActive ? 'text-muted-foreground' : 'text-primary',
+            )}
+          >
+            {isPercent ? `${discount.value}%` : formatMoney(discount.value)}
+          </p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {isPercent ? 'Foizli' : 'Belgilangan summa (UZS)'}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-1 pt-2 border-t border-border/60">
+          <Button variant="ghost" size="icon" onClick={onEdit} title="Tahrirlash">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleActive}
+            title={discount.isActive ? 'Faolsizlantirish' : 'Faollashtirish'}
+            className={discount.isActive ? 'text-muted-foreground hover:text-destructive' : 'text-success hover:text-success'}
+          >
+            {discount.isActive ? <Trash2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DiscountFormDialog({
+  discount,
+  settings,
+  onClose,
+  onSave,
+  isPending,
+}: {
+  discount: Discount | null;
+  settings: Record<string, string>;
+  onClose: () => void;
+  onSave: (data: DiscountForm) => void;
+  isPending: boolean;
+}) {
   const [formError, setFormError] = useState<string | null>(null);
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<DiscountForm>({
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm<DiscountForm>({
     resolver: zodResolver(discountSchema),
-    defaultValues: discount || { name: '', type: 'PERCENT', value: 0 }
+    defaultValues: discount
+      ? { name: discount.name, type: discount.type, value: discount.value }
+      : { name: '', type: 'PERCENT', value: 0 },
   });
 
   const selectedType = watch('type');
   const maxPercent = Number(settings.max_discount_percent || 100);
   const maxAmount = Number(settings.max_discount_amount || 1000000);
 
-  const onSubmit = (data: DiscountForm) => {
+  const submit = (data: DiscountForm) => {
     if (data.type === 'PERCENT' && data.value > maxPercent) {
       setFormError(`Chegirma foizi ${maxPercent}% dan oshmasligi kerak`);
       return;
     }
     if (data.type === 'FIXED' && data.value > maxAmount) {
-      setFormError(`Chegirma summasi ${formatUZS(maxAmount)} dan oshmasligi kerak`);
+      setFormError(`Chegirma summasi ${formatMoney(maxAmount)} dan oshmasligi kerak`);
       return;
     }
+    setFormError(null);
     onSave(data);
   };
 
   return (
-    <Modal title={discount ? "Chegirmani tahrirlash" : "Yangi chegirma"} onClose={onClose} maxWidth="max-w-md">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Chegirma nomi</label>
-          <input 
+    <>
+      <DialogHeader>
+        <DialogTitle>{discount ? 'Chegirmani tahrirlash' : 'Yangi chegirma'}</DialogTitle>
+        <DialogDescription>
+          Yopish vaqtida tanlanadigan chegirma — foiz yoki belgilangan summa.
+        </DialogDescription>
+      </DialogHeader>
+      <form onSubmit={handleSubmit(submit)} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="discount-name">Chegirma nomi</Label>
+          <Input
+            id="discount-name"
+            autoFocus
+            placeholder="Masalan: 10% Bayram chegirmasi"
             {...register('name')}
-            className={`w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 ${
-              errors.name ? 'border-red-500 bg-red-50' : 'border-slate-300'
-            }`}
-            placeholder="Masalan: 10% Bayramidagi chegirma"
           />
-          {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name.message}</p>}
+          {errors.name && (
+            <p className="text-xs text-destructive">{errors.name.message}</p>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Turi</label>
-            <select 
-              {...register('type')}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="discount-type">Turi</Label>
+            <Select
+              value={selectedType}
+              onValueChange={(v) => setValue('type', v as 'PERCENT' | 'FIXED')}
             >
-              <option value="PERCENT">Foiz (%)</option>
-              <option value="FIXED">Summa (UZS)</option>
-            </select>
+              <SelectTrigger id="discount-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PERCENT">Foiz (%)</SelectItem>
+                <SelectItem value="FIXED">Summa (UZS)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Qiymati</label>
-            <input 
+          <div className="space-y-1.5">
+            <Label htmlFor="discount-value">Qiymati</Label>
+            <Input
+              id="discount-value"
               type="number"
+              step="0.01"
+              className="tabular-nums"
               {...register('value', { valueAsNumber: true })}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {errors.value && (
+              <p className="text-xs text-destructive">{errors.value.message}</p>
+            )}
           </div>
         </div>
 
-        <div className="bg-amber-50 p-4 rounded-lg border border-amber-100 flex items-start space-x-3 mt-2">
-          <AlertCircle className="text-amber-500 shrink-0" size={18} />
-          <div className="text-xs text-amber-700 leading-relaxed font-medium">
-            <p>Maksimal chegirma: <b>{selectedType === 'PERCENT' ? `${maxPercent}%` : formatUZS(maxAmount)}</b></p>
-            <p className="mt-1">Chegirma qiymati ushbu miqdordan oshmasligi kerak.</p>
-          </div>
-        </div>
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Maksimal chegirma:{' '}
+            <b className="tabular-nums">
+              {selectedType === 'PERCENT' ? `${maxPercent}%` : formatMoney(maxAmount)}
+            </b>
+            . Chegirma qiymati ushbu miqdordan oshmasligi kerak.
+          </AlertDescription>
+        </Alert>
 
-        {formError && <p className="text-xs text-red-600 font-semibold rounded-lg bg-red-50 px-3 py-2">{formError}</p>}
+        {formError && (
+          <Alert variant="destructive">
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        )}
 
-        <div className="flex space-x-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-          >
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Bekor qilish
-          </button>
-          <button
-            type="submit"
-            className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-100 transition-all"
-          >
+          </Button>
+          <Button type="submit" disabled={isPending}>
             Saqlash
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </form>
-    </Modal>
+    </>
   );
 }

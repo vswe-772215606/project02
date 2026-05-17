@@ -1,9 +1,38 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { HandCoins, RefreshCw, Users, Plus, Info, Search, X } from 'lucide-react';
-import { debtsApi } from '../api/debts';
-import { formatDateTimeUZ, formatUZS } from '../utils/format';
+import { HandCoins, Info, Loader2, Plus, Search, X } from 'lucide-react';
+import { debtsApi, type DebtListItem } from '../api/debts';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { PageContent } from '@/components/feedback/PageContent';
+import { PageHeader } from '@/components/feedback/PageHeader';
+import { EmptyState } from '@/components/feedback/EmptyState';
+import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
+import { MoneyCell } from '@/components/data/MoneyCell';
+import { DateTimeCell } from '@/components/data/DateCell';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { formatMoney, formatDateTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 type DebtStatusFilter = '' | 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF';
 
@@ -12,20 +41,44 @@ const STATUS_FILTERS: Array<{ value: DebtStatusFilter; label: string }> = [
   { value: 'OPEN', label: 'Ochiq' },
   { value: 'PARTIAL', label: 'Qisman' },
   { value: 'PAID', label: 'Yopilgan' },
-  { value: 'WRITTEN_OFF', label: 'Yo\'qotilgan' },
+  { value: 'WRITTEN_OFF', label: "Yo'qotilgan" },
 ];
 
+const STATUS_LABEL: Record<DebtListItem['status'], string> = {
+  OPEN: 'Ochiq',
+  PARTIAL: 'Qisman',
+  PAID: 'Yopilgan',
+  WRITTEN_OFF: "Yo'qotilgan",
+};
+
+function DebtStatusBadge({ status }: { status: DebtListItem['status'] }) {
+  const classes: Record<DebtListItem['status'], string> = {
+    OPEN: 'bg-warning/10 text-warning border-warning/20',
+    PARTIAL: 'bg-info/10 text-info border-info/20',
+    PAID: 'bg-success/10 text-success border-success/20',
+    WRITTEN_OFF: 'bg-destructive/10 text-destructive border-destructive/20',
+  };
+  return (
+    <Badge variant="outline" className={cn('font-medium', classes[status])}>
+      {STATUS_LABEL[status]}
+    </Badge>
+  );
+}
+
 export function DebtsPage() {
+  usePageTitle('Qarzlar');
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<DebtStatusFilter>('');
   const [search, setSearch] = useState('');
   const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
+
+  const [repayOpen, setRepayOpen] = useState(false);
   const [repayAmount, setRepayAmount] = useState('');
   const [repayMethod, setRepayMethod] = useState<'CASH' | 'CARD'>('CASH');
   const [repayNote, setRepayNote] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['debts', status],
     queryFn: () => debtsApi.list({ status: status || undefined }),
   });
@@ -48,18 +101,27 @@ export function DebtsPage() {
   });
 
   const repayMutation = useMutation({
-    mutationFn: () => debtsApi.repay(selectedDebtId!, {
-      amount: Number(repayAmount),
-      method: repayMethod,
-      note: repayNote,
-    }),
+    mutationFn: () =>
+      debtsApi.repay(selectedDebtId!, {
+        amount: Number(repayAmount),
+        method: repayMethod,
+        note: repayNote,
+      }),
     onSuccess: () => {
       setRepayAmount('');
       setRepayNote('');
+      setRepayOpen(false);
       queryClient.invalidateQueries({ queryKey: ['debts'] });
     },
-    onError: (error: any) => setErrorMessage(error.message || "Qarz to'lovini saqlab bo'lmadi"),
+    onError: (error: Error) => setErrorMessage(error.message || "Qarz to'lovini saqlab bo'lmadi"),
   });
+
+  // Close repay dialog if selection changes
+  useEffect(() => {
+    setRepayOpen(false);
+    setRepayAmount('');
+    setRepayNote('');
+  }, [selectedDebtId]);
 
   const handleRepay = (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,209 +129,309 @@ export function DebtsPage() {
     repayMutation.mutate();
   };
 
+  const columns: DataTableColumn<DebtListItem>[] = [
+    {
+      key: 'opened',
+      header: 'Sana / Chek',
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <DateTimeCell value={row.openedAt} className="text-xs text-muted-foreground" />
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Chek #{row.orderNumber}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'debtor',
+      header: 'Mijoz',
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="font-medium truncate">{row.debtorName}</span>
+          {row.debtorPhone && (
+            <span className="text-xs text-muted-foreground tabular-nums">{row.debtorPhone}</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'original',
+      header: 'Asl summa',
+      align: 'right',
+      cell: (row) => <MoneyCell value={row.originalAmount} className="text-muted-foreground" />,
+    },
+    {
+      key: 'repaid',
+      header: "To'langan",
+      align: 'right',
+      cell: (row) => <MoneyCell value={row.repaidAmount} className="text-muted-foreground" />,
+    },
+    {
+      key: 'remaining',
+      header: 'Qoldiq',
+      align: 'right',
+      cell: (row) => <MoneyCell value={row.remainingAmount} className="font-semibold" />,
+    },
+    {
+      key: 'status',
+      header: 'Holat',
+      cell: (row) => <DebtStatusBadge status={row.status} />,
+    },
+    {
+      key: 'lastActivity',
+      header: 'Oxirgi yangilanish',
+      cell: (row) => (
+        <DateTimeCell value={row.closedAt ?? row.openedAt} className="text-muted-foreground" />
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="p-3 bg-slate-900 text-white rounded-xl shadow-lg border-b-4 border-amber-500">
-            <HandCoins size={28} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Qarzlar</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Users size={12} />
-              Mijozlar qarzlari va qaytimlar nazorati
-            </p>
-          </div>
-        </div>
-        {isFetching && (
-          <div className="flex items-center gap-2 text-blue-600 font-bold text-xs">
-            <RefreshCw size={14} className="animate-spin" />
-            YANGILANMOQDA...
-          </div>
-        )}
-      </div>
+    <PageContent>
+      <PageHeader
+        title="Qarzlar"
+        description="Mijozlar qarzlari, qaytimlar tarixi va to'lovni qabul qilish."
+      />
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <Search size={16} className="text-slate-400 shrink-0" />
-          <input
-            type="text"
-            placeholder="Qarzdorni qidirish (ism yoki telefon)..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400 placeholder:font-normal"
+      <Card>
+        <CardContent className="pt-4 space-y-3">
+          <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 h-9 max-w-md">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              placeholder="Qarzdorni qidirish (ism yoki telefon)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="text-muted-foreground hover:text-foreground"
+                title="Tozalash"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <Tabs value={status || '__all__'} onValueChange={(v) => setStatus((v === '__all__' ? '' : v) as DebtStatusFilter)}>
+            <TabsList>
+              {STATUS_FILTERS.map((f) => (
+                <TabsTrigger key={f.value || '__all__'} value={f.value || '__all__'}>
+                  {f.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        <div className="lg:col-span-7">
+          <DataTable
+            columns={columns}
+            data={filteredItems}
+            isLoading={isLoading}
+            rowKey={(row) => row.id}
+            onRowClick={(row) => setSelectedDebtId(row.id)}
+            emptyState={
+              <EmptyState
+                icon={HandCoins}
+                title={search.trim() ? 'Hech narsa topilmadi' : "Qarzlar yo'q"}
+                hint={
+                  search.trim()
+                    ? "Filtrlar yoki qidiruv so'rovini o'zgartiring."
+                    : 'Buyurtmani qarz tarzida yopganda shu yerda paydo bo\'ladi.'
+                }
+              />
+            }
           />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className="text-slate-400 hover:text-slate-700"
-              title="Tozalash"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Holat:</div>
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.value || 'all'}
-              type="button"
-              onClick={() => setStatus(f.value)}
-              className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors ${
-                status === f.value
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Debt List */}
-        <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                <tr>
-                  <th className="px-6 py-4">Sana / Chek</th>
-                  <th className="px-6 py-4">Mijoz</th>
-                  <th className="px-6 py-4 text-right">Qoldiq</th>
-                  <th className="px-6 py-4">Holat</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {isLoading && (
-                  <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={4}>YUKLANMOQDA...</td></tr>
-                )}
-                {!isLoading && filteredItems.length === 0 && (
-                  <tr><td className="px-6 py-12 text-center text-slate-400 font-bold text-xs" colSpan={4}>
-                    {search.trim() ? 'QIDIRUV BO\'YICHA HECH NARSA TOPILMADI' : 'QARZLAR MAVJUD EMAS'}
-                  </td></tr>
-                )}
-                {!isLoading && filteredItems.map((item) => (
-                  <tr 
-                    key={item.id} 
-                    className={`cursor-pointer transition-colors ${selectedDebtId === item.id ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`} 
-                    onClick={() => setSelectedDebtId(item.id)}
-                  >
-                    <td className="px-6 py-4">
-                      <div className="text-xs font-bold text-slate-500">{formatDateTimeUZ(item.openedAt)}</div>
-                      <div className="text-[10px] font-black text-slate-400 mt-1 uppercase tracking-tighter">CHEK #{item.orderNumber}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-black text-slate-800 uppercase">{item.debtorName}</div>
-                      {item.debtorPhone && <div className="text-[10px] text-slate-400 font-bold mt-0.5">{item.debtorPhone}</div>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="text-sm font-black text-slate-900">{formatUZS(item.remainingAmount)}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
-                        item.status === 'PAID' ? 'bg-green-100 text-green-700' :
-                        item.status === 'PARTIAL' ? 'bg-blue-100 text-blue-700' :
-                        item.status === 'WRITTEN_OFF' ? 'bg-red-100 text-red-700' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>
-                        {item.status === 'PAID' ? 'YOPILDI' :
-                          item.status === 'PARTIAL' ? 'QISMAN' :
-                          item.status === 'WRITTEN_OFF' ? 'YO\'QOTILDI' : 'OCHIQ'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
 
-        {/* Right Column: Detail & Repay */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-3 lg:sticky lg:top-4">
           {!detail ? (
-            <div className="bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 p-12 text-center text-slate-400">
-              <Info className="mx-auto mb-3 opacity-20" size={48} />
-              <p className="text-xs font-black uppercase tracking-widest">Tafsilotlar uchun qarzni tanlang</p>
-            </div>
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Info className="mx-auto mb-3 h-6 w-6 text-muted-foreground/60" strokeWidth={1.5} />
+                <p className="text-sm font-medium text-foreground">Qarzni tanlang</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tafsilotlar va to'lov qabul qilish uchun chap tomondan qarzni tanlang.
+                </p>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-              <div className="bg-slate-900 text-white rounded-xl p-6 shadow-lg border-b-4 border-amber-500">
-                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Mijoz</div>
-                <div className="text-2xl font-black truncate">{detail.debtorName}</div>
-                <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-800 pt-4">
+            <>
+              <Card>
+                <CardContent className="pt-5 pb-5 space-y-4">
                   <div>
-                    <div className="text-[9px] font-bold text-slate-500 uppercase">Asl qarz</div>
-                    <div className="text-sm font-black">{formatUZS(detail.originalAmount)}</div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Mijoz</p>
+                    <p className="text-lg font-semibold truncate">{detail.debtorName}</p>
+                    {detail.debtorPhone && (
+                      <p className="text-xs text-muted-foreground tabular-nums mt-0.5">{detail.debtorPhone}</p>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <div className="text-[9px] font-bold text-slate-500 uppercase">Qoldiq</div>
-                    <div className="text-xl font-black text-amber-400">{formatUZS(detail.remainingAmount)}</div>
-                  </div>
-                </div>
-              </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="bg-slate-50 px-5 py-3 border-b border-slate-200">
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Qaytimlar tarixi</span>
-                </div>
-                <div className="p-4 space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                  {detail.repayments.map((repayment) => (
-                    <div key={repayment.id} className="bg-slate-50 rounded-lg p-3 border border-slate-100 flex justify-between items-center">
-                      <div>
-                        <div className="text-xs font-black text-slate-900">{formatUZS(repayment.amount)}</div>
-                        <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">{formatDateTimeUZ(repayment.paidAt)}</div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${repayment.method === 'CASH' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{repayment.method === 'CASH' ? 'NAQD' : 'KARTA'}</span>
-                        <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase">{repayment.receivedByName}</div>
-                      </div>
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border/60">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Asl qarz</p>
+                      <p className="text-sm font-medium tabular-nums mt-0.5">{formatMoney(detail.originalAmount)}</p>
                     </div>
-                  ))}
-                  {detail.repayments.length === 0 && <div className="py-8 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Hali to'lov qilinmagan</div>}
-                </div>
-              </div>
-
-              {detail.status !== 'PAID' && (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex items-center gap-2">
-                    <Plus size={14} className="text-slate-400" />
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">To'lov qabul qilish</span>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">To'langan</p>
+                      <p className="text-sm font-medium tabular-nums mt-0.5">{formatMoney(detail.repaidAmount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Qoldiq</p>
+                      <p
+                        className={cn(
+                          'text-base font-semibold tabular-nums mt-0.5',
+                          Number(detail.remainingAmount) > 0 ? 'text-warning' : 'text-success',
+                        )}
+                      >
+                        {formatMoney(detail.remainingAmount)}
+                      </p>
+                    </div>
                   </div>
-                  <form onSubmit={handleRepay} className="p-5 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">SUMMA</label>
-                        <input type="number" min="1" className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-black outline-none focus:border-slate-800" placeholder="0" value={repayAmount} onChange={(e) => setRepayAmount(e.target.value)} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">TUR</label>
-                        <select className="w-full rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-black uppercase outline-none focus:border-slate-800" value={repayMethod} onChange={(e) => setRepayMethod(e.target.value as 'CASH' | 'CARD')}>
-                          <option value="CASH">Naqd</option>
-                          <option value="CARD">Karta</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">IZOH</label>
-                      <input className="w-full rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold outline-none focus:border-slate-800" placeholder="..." value={repayNote} onChange={(e) => setRepayNote(e.target.value)} />
-                    </div>
-                    <button type="submit" className="w-full bg-slate-900 text-white rounded-md py-3 text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50" disabled={repayMutation.isPending}>
-                      {repayMutation.isPending ? 'SAQLANMOQDA...' : 'TO\'LOVNI TASDIQLASH'}
-                    </button>
-                  </form>
-                </div>
-              )}
-            </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                    <DebtStatusBadge status={detail.status} />
+                    {detail.status !== 'PAID' && detail.status !== 'WRITTEN_OFF' && (
+                      <Button size="sm" onClick={() => setRepayOpen(true)}>
+                        <Plus className="h-4 w-4" />
+                        To'lov qabul qilish
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="pt-4 pb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                      Qaytimlar tarixi
+                    </p>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {detail.repayments.length}
+                    </span>
+                  </div>
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {detail.repayments.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic text-center py-6">
+                        Hali to'lov qilinmagan
+                      </p>
+                    ) : (
+                      detail.repayments.map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between rounded-md border border-border/60 bg-muted/30 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium tabular-nums">{formatMoney(r.amount)}</p>
+                            <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                              {formatDateTime(r.paidAt)}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                'font-medium',
+                                r.method === 'CASH'
+                                  ? 'bg-success/10 text-success border-success/20'
+                                  : 'bg-info/10 text-info border-info/20',
+                              )}
+                            >
+                              {r.method === 'CASH' ? 'Naqd' : 'Karta'}
+                            </Badge>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[120px]">
+                              {r.receivedByName}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
       </div>
-    {errorMessage && (
-      <ConfirmDialog message={errorMessage} onConfirm={() => setErrorMessage(null)} />
-    )}
-    </div>
+
+      <Dialog open={repayOpen} onOpenChange={setRepayOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>To'lov qabul qilish</DialogTitle>
+            <DialogDescription>
+              {detail?.debtorName ? `${detail.debtorName} uchun yangi qaytim.` : "Yangi qaytim."}
+              {detail && (
+                <>
+                  {' '}Qoldiq: <span className="font-medium tabular-nums">{formatMoney(detail.remainingAmount)}</span>.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleRepay} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="repay-amount">Summa</Label>
+                <Input
+                  id="repay-amount"
+                  type="number"
+                  min="1"
+                  autoFocus
+                  className="tabular-nums"
+                  placeholder="0"
+                  value={repayAmount}
+                  onChange={(e) => setRepayAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="repay-method">Tur</Label>
+                <Select value={repayMethod} onValueChange={(v) => setRepayMethod(v as 'CASH' | 'CARD')}>
+                  <SelectTrigger id="repay-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">Naqd</SelectItem>
+                    <SelectItem value="CARD">Karta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="repay-note">Izoh (ixtiyoriy)</Label>
+              <Input
+                id="repay-note"
+                placeholder="..."
+                value={repayNote}
+                onChange={(e) => setRepayNote(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRepayOpen(false)}
+                disabled={repayMutation.isPending}
+              >
+                Bekor qilish
+              </Button>
+              <Button type="submit" disabled={repayMutation.isPending || !repayAmount}>
+                {repayMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                To'lovni tasdiqlash
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {errorMessage && (
+        <ConfirmDialog message={errorMessage} onConfirm={() => setErrorMessage(null)} />
+      )}
+    </PageContent>
   );
 }
