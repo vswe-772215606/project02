@@ -676,9 +676,11 @@ export const orderService = {
         }
 
         // Print bill — blocking. If it throws, the transaction rolls back and
-        // status stays SENT so the admin can retry.
+        // status stays SENT so the admin can retry. Pass `tx` so the PrintJob row
+        // shares the open SQLite write lock instead of waiting on the default
+        // client (which would deadlock).
         const freshOrder = await getOrderOrThrow(order.id, tx);
-        await printService.printBill(freshOrder);
+        await printService.printBill(freshOrder, tx);
 
         const updated = await orderRepo.setClosed(order.id, closedAt, tx);
         if (!updated) {
@@ -703,7 +705,7 @@ export const orderService = {
         deferEmit(`waiter:${order.waiterId}`, 'order:closed', { orderId: order.id });
 
         return mapToDto(updated);
-      });
+      }, { timeout: 30_000, maxWait: 10_000 });
     });
   },
 

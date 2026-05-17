@@ -70,25 +70,28 @@ async function executeBinary(input: PrintExecutionInput): Promise<void> {
   });
 }
 
+type Tx = Prisma.TransactionClient;
+
 async function runQueuedJob(options: {
   jobId: string;
   printerName: string;
   args: string[];
   linuxLabel: string;
   blocking: boolean;
+  tx?: Tx;
 }) {
   const task = async () => {
-    await printJobRepo.incrementAttempts(options.jobId);
+    await printJobRepo.incrementAttempts(options.jobId, options.tx);
     try {
       await executeBinary({
         printerName: options.printerName,
         args: options.args,
         linuxLabel: options.linuxLabel,
       });
-      await printJobRepo.markSuccess(options.jobId);
+      await printJobRepo.markSuccess(options.jobId, options.tx);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown print error';
-      await printJobRepo.markFailed(options.jobId, message);
+      await printJobRepo.markFailed(options.jobId, message, options.tx);
       if (options.blocking) {
         throw Errors.PrintFailed(message);
       }
@@ -98,13 +101,13 @@ async function runQueuedJob(options: {
 
   if (options.blocking) {
     await printQueue.add(task);
-    return printJobRepo.findById(options.jobId);
+    return printJobRepo.findById(options.jobId, options.tx);
   }
 
   await printQueue.add(task).catch((error: unknown) => {
     console.error('[printService] queued print failed', error);
   });
-  return printJobRepo.findById(options.jobId);
+  return printJobRepo.findById(options.jobId, options.tx);
 }
 
 function getStoreHeading(): string {
@@ -120,7 +123,7 @@ function getStoreAddress(): string | undefined {
 }
 
 export const printService = {
-  async printBill(order: PrintableOrder) {
+  async printBill(order: PrintableOrder, tx?: Tx) {
     const printerName = settingsService.get('admin_printer_name') || '';
     if (!printerName.trim()) {
       throw Errors.PrintFailed('Admin printer not configured');
@@ -145,7 +148,7 @@ export const printService = {
             connect: { id: order.approvedById },
           }
         : undefined,
-    });
+    }, tx);
 
     return runQueuedJob({
       jobId: job.id,
@@ -153,6 +156,7 @@ export const printService = {
       args,
       linuxLabel: `BILL order=${order.id}`,
       blocking: true,
+      tx,
     });
   },
 

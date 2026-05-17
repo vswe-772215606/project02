@@ -245,6 +245,42 @@ async function main() {
     });
   }
 
+  await prisma.discount.upsert({
+    where: { id: 'seed-discount-10pct' },
+    create: {
+      id: 'seed-discount-10pct',
+      name: "10% chegirma",
+      type: 'PERCENT',
+      value: '10',
+      isActive: true,
+      createdById: USER_IDS.owner,
+    },
+    update: {
+      name: "10% chegirma",
+      type: 'PERCENT',
+      value: '10',
+      isActive: true,
+    },
+  });
+
+  await prisma.discount.upsert({
+    where: { id: 'seed-discount-fixed-5k' },
+    create: {
+      id: 'seed-discount-fixed-5k',
+      name: "5 000 so'm chegirma",
+      type: 'FIXED',
+      value: '5000',
+      isActive: true,
+      createdById: USER_IDS.owner,
+    },
+    update: {
+      name: "5 000 so'm chegirma",
+      type: 'FIXED',
+      value: '5000',
+      isActive: true,
+    },
+  });
+
   await prisma.combo.upsert({
     where: { id: COMBO_ID },
     create: {
