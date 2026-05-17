@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
-    flexWrap: 'wrap',
+    minHeight: 32,
   },
   title: { ...theme.typography.h2, color: theme.colors.slate[900] },
   subtitle: { ...theme.typography.small, color: theme.colors.slate[500], marginTop: 2 },
