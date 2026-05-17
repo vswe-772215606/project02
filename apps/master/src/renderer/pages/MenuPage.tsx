@@ -3,18 +3,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { 
-  BookOpen, 
-  Plus, 
-  ChevronUp, 
-  ChevronDown, 
-  Pencil, 
-  Trash2, 
-  Eye, 
+import {
+  BookOpen,
+  Plus,
+  ChevronUp,
+  ChevronDown,
+  Pencil,
+  Trash2,
+  Eye,
   EyeOff,
   Package,
   RotateCcw,
-  X
+  X,
+  Search,
 } from 'lucide-react';
 import { menuApi, Category, MenuItem, Combo } from '../api/menu';
 import { yieldApi } from '../api/yield';
@@ -23,18 +24,32 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 const categorySchema = z.object({
-  name: z.string().min(1, "Nom kiritilishi shart"),
+  name: z.string().min(1, 'Nom kiritilishi shart'),
   displayOrder: z.number().int().default(0),
 });
 
 const itemSchema = z.object({
-  name: z.string().min(1, "Nom kiritilishi shart"),
-  categoryId: z.string().min(1, "Kategoriya tanlanishi shart"),
+  name: z.string().min(1, 'Nom kiritilishi shart'),
+  categoryId: z.string().min(1, 'Kategoriya tanlanishi shart'),
   price: z.number().min(0, "Narx noto'g'ri"),
   description: z.string().optional(),
   displayOrder: z.number().int().default(0),
   isService: z.boolean().default(false),
 });
+
+type CategoryFormData = {
+  name: string;
+  displayOrder: number;
+};
+
+type ItemFormSubmit = {
+  name: string;
+  categoryId: string;
+  price: number;
+  description?: string;
+  displayOrder: number;
+  kind: 'FOOD' | 'SERVICE';
+};
 
 export function MenuPage() {
   const queryClient = useQueryClient();
@@ -45,6 +60,7 @@ export function MenuPage() {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [view, setView] = useState<'items' | 'combos'>('items');
   const [showInactive, setShowInactive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const { data: menuData } = useQuery({
@@ -53,8 +69,26 @@ export function MenuPage() {
   });
 
   const categories = menuData?.categories || [];
-  const activeCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
-  const items = activeCategory?.items || [];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const isSearching = normalizedQuery.length > 0;
+
+  const filteredCategories = isSearching
+    ? categories.filter((c) =>
+        c.name.toLowerCase().includes(normalizedQuery) ||
+        (c.items ?? []).some((it) => it.name.toLowerCase().includes(normalizedQuery)),
+      )
+    : categories;
+
+  const activeCategory =
+    filteredCategories.find((c) => c.id === selectedCategoryId) || filteredCategories[0];
+
+  const items = activeCategory
+    ? isSearching && !activeCategory.name.toLowerCase().includes(normalizedQuery)
+      ? (activeCategory.items ?? []).filter((it) =>
+          it.name.toLowerCase().includes(normalizedQuery),
+        )
+      : (activeCategory.items ?? [])
+    : [];
 
   const { data: combos = [] } = useQuery({
     queryKey: ['menu', 'combos', showInactive],
@@ -145,12 +179,37 @@ export function MenuPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center space-x-3">
           <BookOpen className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Menyu boshqaruvi</h1>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-4 flex-wrap gap-y-2">
+          {view === 'items' && (
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Mahsulot yoki kategoriya nomi"
+                className="pl-10 pr-8 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 w-72 text-sm bg-white"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  title="Tozalash"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          )}
           <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
             <input 
               type="checkbox" 
@@ -193,7 +252,12 @@ export function MenuPage() {
             </div>
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="divide-y divide-slate-100">
-                {categories.map((cat, idx) => (
+                {filteredCategories.length === 0 && (
+                  <div className="px-3 py-6 text-center text-xs text-slate-400 italic">
+                    Topilmadi
+                  </div>
+                )}
+                {filteredCategories.map((cat, idx) => (
                   <div 
                     key={cat.id}
                     onClick={() => setSelectedCategoryId(cat.id)}
@@ -209,16 +273,16 @@ export function MenuPage() {
                       {cat.name} {!cat.isActive && '(Nofaol)'}
                     </span>
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
+                      <button
                         onClick={(e) => { e.stopPropagation(); reorderCategory(cat, 'up'); }}
-                        disabled={idx === 0}
+                        disabled={isSearching || categories.indexOf(cat) === 0}
                         className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"
                       >
                         <ChevronUp size={14} />
                       </button>
-                      <button 
+                      <button
                         onClick={(e) => { e.stopPropagation(); reorderCategory(cat, 'down'); }}
-                        disabled={idx === categories.length - 1}
+                        disabled={isSearching || categories.indexOf(cat) === categories.length - 1}
                         className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30"
                       >
                         <ChevronDown size={14} />
@@ -332,7 +396,7 @@ export function MenuPage() {
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
-                        Ushbu kategoriyada mahsulotlar yo'q
+                        {isSearching ? 'Topilmadi' : "Ushbu kategoriyada mahsulotlar yo'q"}
                       </td>
                     </tr>
                   )}
@@ -347,10 +411,10 @@ export function MenuPage() {
 
       {/* Modals */}
       {(isAddingCategory || editCategory) && (
-        <CategoryModal 
-          category={editCategory} 
+        <CategoryModal
+          category={editCategory}
           onClose={() => { setIsAddingCategory(false); setEditCategory(null); }}
-          onSave={(data) => editCategory 
+          onSave={(data: CategoryFormData) => editCategory
             ? updateCategoryMutation.mutate({ id: editCategory.id, data })
             : createCategoryMutation.mutate(data)
           }
@@ -363,7 +427,7 @@ export function MenuPage() {
           categories={categories}
           initialCategoryId={activeCategory?.id}
           onClose={() => { setIsAddingItem(false); setEditItem(null); }}
-          onSave={(data) => editItem
+          onSave={(data: ItemFormSubmit) => editItem
             ? updateItemMutation.mutate({ id: editItem.id, data })
             : createItemMutation.mutate(data)
           }
