@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardCheck, Clock, ShoppingBag, type LucideIcon } from 'lucide-react';
+import { ClipboardCheck, ShoppingBag, type LucideIcon } from 'lucide-react';
 import { ordersApi, type Order } from '../api/orders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
@@ -14,19 +14,15 @@ import { formatDate } from '@/lib/format';
 
 const STATUS_LABEL: Record<Order['status'], string> = {
   DRAFT: 'Qoralama',
-  SENT: 'Oshxonada',
-  BILL_REQUESTED: 'Hisob so\'ralgan',
-  PENDING_PAYMENT: "To'lov kutilmoqda",
+  SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: 'Tarbiya',
+  WALKOUT: "To'lovsiz ketdi",
   CANCELED: 'Bekor qilingan',
 };
 
 const STATUS_VARIANT: Record<Order['status'], string> = {
   DRAFT: 'bg-muted text-muted-foreground',
   SENT: 'bg-info/15 text-info border-info/30',
-  BILL_REQUESTED: 'bg-warning/15 text-warning-foreground border-warning/30',
-  PENDING_PAYMENT: 'bg-primary/15 text-primary border-primary/30',
   CLOSED: 'bg-success/15 text-success border-success/30',
   WALKOUT: 'bg-destructive/15 text-destructive border-destructive/30',
   CANCELED: 'bg-muted text-muted-foreground border-muted',
@@ -89,9 +85,8 @@ export function DashboardPage() {
     refetchInterval: 10000,
   });
 
-  const activeCount = allOrders.filter((o) => o.status === 'SENT' || o.status === 'BILL_REQUESTED').length;
-  const pendingApprovalCount = allOrders.filter((o) => o.status === 'BILL_REQUESTED').length;
-  const pendingPaymentCount = allOrders.filter((o) => o.status === 'PENDING_PAYMENT').length;
+  const activeCount = allOrders.filter((o) => o.status === 'SENT').length;
+  const draftCount = allOrders.filter((o) => o.status === 'DRAFT').length;
 
   const recentOrders = [...allOrders]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -145,26 +140,19 @@ export function DashboardPage() {
         description={`Bugun: ${formatDate(new Date())}`}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <StatCard
-          label="Faol buyurtmalar"
-          value={activeCount}
-          icon={ShoppingBag}
-          hint="Hozir tayyorlanayotgan buyurtmalar"
-          isLoading={isLoading}
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <StatCard
           label="Tasdiqlash kutilmoqda"
-          value={pendingApprovalCount}
+          value={activeCount}
           icon={ClipboardCheck}
-          hint="Hisob so'ralgan buyurtmalar"
+          hint="Yuborilgan, tasdiqlash kutayotgan buyurtmalar"
           isLoading={isLoading}
         />
         <StatCard
-          label="To'lov kutilmoqda"
-          value={pendingPaymentCount}
-          icon={Clock}
-          hint="Tasdiqlangan, to'lov kutilmoqda"
+          label="Qoralama buyurtmalar"
+          value={draftCount}
+          icon={ShoppingBag}
+          hint="Ofitsiantlar tahrirlayotgan buyurtmalar"
           isLoading={isLoading}
         />
       </div>

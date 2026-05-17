@@ -65,28 +65,10 @@ export function useSocket() {
     });
 
     // Generic invalidation strategy: any event re-fetches relevant queries.
-    nextSocket.on('order:billRequested', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:updated', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
-    nextSocket.on('order:approved', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:closed', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:walkout', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:transferred', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
-    nextSocket.on('ticket:new', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
-      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-    });
-    nextSocket.on('ticket:statusChanged', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
-      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-    });
-    nextSocket.on('ticket:noteEdited', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
-      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-    });
-    nextSocket.on('ticket:canceled', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['kitchen', 'tickets'] });
-      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-    });
     nextSocket.on('menu:itemAvailability', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));
     nextSocket.on('ingredient:stockChanged', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['ingredients'] });

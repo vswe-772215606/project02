@@ -11,6 +11,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   DISCOUNT_DELETED: 'Chegirma o‘chirildi',
   DISCOUNT_APPLIED: 'Chegirma qo‘llanildi',
 
+  ORDER_CONFIRMED: "Buyurtma tasdiqlandi va to'landi",
   ORDER_CANCELED: 'Buyurtma bekor qilindi',
   WALKOUT_MARKED: 'To‘lovsiz ketdi (walkout)',
   TABLE_TRANSFERRED: 'Stol o‘zgartirildi',
@@ -65,7 +66,7 @@ export const AUDIT_LABELS: Record<string, string> = {
 export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
   {
     label: 'Buyurtma',
-    values: ['ORDER_CANCELED', 'WALKOUT_MARKED', 'TABLE_TRANSFERRED', 'RECEIPT_REPRINTED', 'DISCOUNT_APPLIED', 'SERVICE_CHARGE_WAIVED'],
+    values: ['ORDER_CONFIRMED', 'ORDER_CANCELED', 'WALKOUT_MARKED', 'TABLE_TRANSFERRED', 'RECEIPT_REPRINTED', 'DISCOUNT_APPLIED', 'SERVICE_CHARGE_WAIVED'],
   },
   {
     label: 'Mahsulot va retsept',
@@ -107,7 +108,7 @@ export function auditActionTone(action: string): 'neutral' | 'success' | 'warnin
   ) return 'warning';
 
   if (
-    ['USER_CREATED', 'INGREDIENT_CREATED', 'INGREDIENT_ACTIVATED',
+    ['ORDER_CONFIRMED', 'USER_CREATED', 'INGREDIENT_CREATED', 'INGREDIENT_ACTIVATED',
      'RECIPE_CREATED', 'RECIPE_ACTIVATED', 'DISCOUNT_CREATED',
      'EXPENSE_RETURN_RECEIVED', 'DEBT_PAYMENT_RECORDED', 'DEBT_CLOSED',
      'STOCKTAKE_COMPLETED', 'REPORT_SENT'].includes(action)

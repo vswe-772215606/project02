@@ -1,70 +1,64 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  ReceiptText, 
-  Search, 
-  ChevronDown, 
-  ChevronUp, 
-  Printer, 
-  Ban, 
-  CreditCard,
-  CheckCircle2,
-  User as UserIcon,
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  AlertCircle,
   Armchair,
+  Ban,
+  ChevronDown,
   History,
-  AlertCircle
+  Printer,
+  ReceiptText,
+  Search,
+  User as UserIcon,
 } from 'lucide-react';
-import { ordersApi, Order } from '../api/orders';
-import { formatUZS, formatDateTimeUZ } from '../utils/format';
-import { StatusBadge, OrderStatus, KitchenStatusBadge } from '../components/StatusBadge';
-import { PaymentModal } from '../components/PaymentModal';
+import { Order, ordersApi } from '../api/orders';
+import { formatDateTimeUZ, formatUZS } from '../utils/format';
+import { OrderStatus, StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
-import { summarizeOrderLines } from '../utils/order-line-summary';
 
 function localDateString() {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
 }
 
 function locationLabel(order: Order) {
-  return order.tableName || (order.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan');
+  return (
+    order.tableName || (order.orderType === 'TAKEAWAY' ? 'Olib ketish' : 'Stol biriktirilmagan')
+  );
 }
 
-const TABS: { label: string; status: OrderStatus }[] = [
-  { label: 'BILL_REQUESTED', status: 'BILL_REQUESTED' },
-  { label: 'PENDING_PAYMENT', status: 'PENDING_PAYMENT' },
-  { label: 'SENT', status: 'SENT' },
-  { label: 'CLOSED', status: 'CLOSED' },
-  { label: 'WALKOUT', status: 'WALKOUT' },
-  { label: 'CANCELED', status: 'CANCELED' },
+const TABS: { status: OrderStatus }[] = [
+  { status: 'SENT' },
+  { status: 'CLOSED' },
+  { status: 'WALKOUT' },
+  { status: 'CANCELED' },
 ];
 
 const TAB_LABELS: Record<OrderStatus, string> = {
+  DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
-  BILL_REQUESTED: 'Hisob kutilmoqda',
-  PENDING_PAYMENT: 'To\'lov kutilmoqda',
   CLOSED: 'Yopilgan',
-  WALKOUT: 'To\'lanmagan',
+  WALKOUT: "To'lovsiz ketdi",
   CANCELED: 'Bekor qilingan',
-  DRAFT: 'Qoralama'
 };
 
 export function OrdersPage() {
-  const [activeTab, setActiveTab] = useState<OrderStatus>('BILL_REQUESTED');
+  const [activeTab, setActiveTab] = useState<OrderStatus>('SENT');
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null);
-  const [walkoutOrder, setWalkoutOrder] = useState<Order | null>(null);
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['orders', activeTab],
-    queryFn: () => ordersApi.list({ status: activeTab, date: activeTab === 'CLOSED' ? localDateString() : undefined }),
+    queryFn: () =>
+      ordersApi.list({
+        status: activeTab,
+        date: activeTab === 'CLOSED' ? localDateString() : undefined,
+      }),
   });
 
-  // Fetch counts for tabs
-  // In a real app, I'd have a specific endpoint for counts. 
-  // For now, I'll just rely on the current active query or fetch all active ones.
   const { data: activeOrders = [] } = useQuery({
     queryKey: ['orders', 'active_counts'],
     queryFn: () => ordersApi.list(),
@@ -76,9 +70,10 @@ export function OrdersPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const filteredOrders = orders.filter(o => 
-    (o.orderNumber?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
-    (o.tableName && o.tableName.toLowerCase().includes(search.toLowerCase()))
+  const filteredOrders = orders.filter(
+    (o) =>
+      (o.orderNumber?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
+      (o.tableName && o.tableName.toLowerCase().includes(search.toLowerCase())),
   );
 
   return (
@@ -88,11 +83,14 @@ export function OrdersPage() {
           <ReceiptText className="text-slate-400" size={28} />
           <h1 className="text-2xl font-bold text-slate-800">Buyurtmalar</h1>
         </div>
-        
+
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input 
-            type="text" 
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            size={18}
+          />
+          <input
+            type="text"
             placeholder="Buyurtma yoki stol..."
             className="pl-10 pr-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 w-64 text-sm"
             value={search}
@@ -103,26 +101,33 @@ export function OrdersPage() {
 
       {/* Tabs */}
       <div className="flex space-x-1 bg-slate-200/50 p-1 rounded-xl overflow-x-auto no-scrollbar">
-        {TABS.map((tab) => (
-          <button
-            key={tab.status}
-            onClick={() => setActiveTab(tab.status)}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
-              activeTab === tab.status
-                ? 'bg-white text-blue-600 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
-            }`}
-          >
-            <span>{TAB_LABELS[tab.status]}</span>
-            {(counts[tab.status] > 0 || activeTab === tab.status) && (
-              <span className={`px-2 py-0.5 rounded-full text-xs ${
-                activeTab === tab.status ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'
-              }`}>
-                {counts[tab.status] || 0}
-              </span>
-            )}
-          </button>
-        ))}
+        {TABS.map((tab) => {
+          const count = counts[tab.status] ?? 0;
+          return (
+            <button
+              key={tab.status}
+              onClick={() => setActiveTab(tab.status)}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
+                activeTab === tab.status
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+              }`}
+            >
+              <span>{TAB_LABELS[tab.status]}</span>
+              {(count > 0 || activeTab === tab.status) && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-xs ${
+                    activeTab === tab.status
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* List */}
@@ -138,79 +143,68 @@ export function OrdersPage() {
           </div>
         ) : (
           filteredOrders.map((order) => (
-            <OrderListItem 
-              key={order.id} 
-              order={order} 
+            <OrderListItem
+              key={order.id}
+              order={order}
               isExpanded={expandedId === order.id}
               onToggle={() => setExpandedId(expandedId === order.id ? null : order.id)}
-              onPay={() => setPaymentOrder(order)}
               onCancel={() => setCancelOrder(order)}
-              onWalkout={() => setWalkoutOrder(order)}
             />
           ))
         )}
       </div>
 
-      {paymentOrder && <PaymentModal order={paymentOrder} onClose={() => setPaymentOrder(null)} />}
-      
       {cancelOrder && (
-        <CancelOrderModal 
-          order={cancelOrder} 
-          onClose={() => setCancelOrder(null)} 
-        />
-      )}
-
-      {walkoutOrder && (
-        <WalkoutOrderModal 
-          order={walkoutOrder} 
-          onClose={() => setWalkoutOrder(null)} 
-        />
+        <CancelOrderModal order={cancelOrder} onClose={() => setCancelOrder(null)} />
       )}
     </div>
   );
 }
 
-function OrderListItem({ 
-  order, 
-  isExpanded, 
-  onToggle, 
-  onPay, 
-  onCancel, 
-  onWalkout 
-}: { 
-  order: Order; 
-  isExpanded: boolean; 
+function OrderListItem({
+  order,
+  isExpanded,
+  onToggle,
+  onCancel,
+}: {
+  order: Order;
+  isExpanded: boolean;
   onToggle: () => void;
-  onPay: () => void;
   onCancel: () => void;
-  onWalkout: () => void;
 }) {
-  const queryClient = useQueryClient();
-  const mealSummary = summarizeOrderLines(order.lines);
   const [reprintSuccess, setReprintSuccess] = useState(false);
   const reprintMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.reprintBill(order.id, reason),
-    onSuccess: () => { setReprintSuccess(true); setTimeout(() => setReprintSuccess(false), 3000); },
+    onSuccess: () => {
+      setReprintSuccess(true);
+      setTimeout(() => setReprintSuccess(false), 3000);
+    },
   });
 
   return (
-    <div className={`bg-white rounded-md border transition-all duration-200 ${
-      isExpanded 
-        ? 'border-slate-800 shadow-md ring-1 ring-slate-800/5' 
-        : 'border-slate-200 hover:border-slate-300'
-    }`}>
+    <div
+      className={`bg-white rounded-md border transition-all duration-200 ${
+        isExpanded
+          ? 'border-slate-800 shadow-md ring-1 ring-slate-800/5'
+          : 'border-slate-200 hover:border-slate-300'
+      }`}
+    >
       {/* Grid Header */}
-      <div 
-        className={`grid grid-cols-12 items-center cursor-pointer select-none ${isExpanded ? 'bg-slate-50' : ''}`}
+      <div
+        className={`grid grid-cols-12 items-center cursor-pointer select-none ${
+          isExpanded ? 'bg-slate-50' : ''
+        }`}
         onClick={onToggle}
       >
-        {/* Col 1: ID */}
         <div className="col-span-1 py-3 pl-4 border-r border-slate-100">
-          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">ID</div>
-          <div className="text-sm font-black text-slate-900 leading-none">{order.orderNumber}</div>
+          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">
+            ID
+          </div>
+          <div className="text-sm font-black text-slate-900 leading-none">
+            {order.orderNumber}
+          </div>
         </div>
 
-        {/* Col 2: Info */}
         <div className="col-span-5 py-3 px-4 border-r border-slate-100 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Armchair size={14} className="text-slate-400" />
@@ -224,16 +218,20 @@ function OrderListItem({
           </div>
         </div>
 
-        {/* Col 3: Time & Type */}
         <div className="col-span-2 py-3 px-4 border-r border-slate-100">
-          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">VAQT</div>
-          <div className="text-[11px] font-bold text-slate-700">{formatDateTimeUZ(order.createdAt)}</div>
+          <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">
+            VAQT
+          </div>
+          <div className="text-[11px] font-bold text-slate-700">
+            {formatDateTimeUZ(order.createdAt)}
+          </div>
         </div>
 
-        {/* Col 4: Amount & Status */}
         <div className="col-span-3 py-3 px-4 flex items-center justify-between min-w-0">
           <div className="min-w-0">
-            <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">SUMMA</div>
+            <div className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">
+              SUMMA
+            </div>
             <div className="text-sm font-black text-slate-900 leading-none">
               {formatUZS(order.totalSnapshot || order.totalAmount || 0)}
             </div>
@@ -241,9 +239,10 @@ function OrderListItem({
           <StatusBadge status={order.status} />
         </div>
 
-        {/* Col 5: Arrow */}
         <div className="col-span-1 py-3 pr-4 flex justify-end">
-          <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+          <div
+            className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+          >
             <ChevronDown size={18} className="text-slate-400" />
           </div>
         </div>
@@ -252,65 +251,69 @@ function OrderListItem({
       {isExpanded && (
         <div className="border-t border-slate-200 animate-in slide-in-from-top-1 duration-200">
           <div className="grid grid-cols-12">
-            {/* Left: Content List */}
             <div className="col-span-8 p-4 border-r border-slate-100">
               <div className="flex items-center justify-between mb-4 border-b border-slate-50 pb-2">
                 <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
                   <ReceiptText size={14} className="text-slate-400" />
                   <span>Buyurtma tarkibi</span>
                 </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase">{order.itemCount} pozitsiya</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase">
+                  {order.itemCount} pozitsiya
+                </span>
               </div>
 
               <div className="space-y-1 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                {order.lines?.map(line => (
-                  <div key={line.id} className={`grid grid-cols-12 gap-2 py-1.5 px-2 rounded ${line.isCanceled ? 'bg-red-50/50' : 'hover:bg-slate-50'}`}>
-                    <div className="col-span-1 text-xs font-black text-slate-400">{line.quantity}×</div>
+                {order.lines?.map((line) => (
+                  <div
+                    key={line.id}
+                    className={`grid grid-cols-12 gap-2 py-1.5 px-2 rounded ${
+                      line.isCanceled ? 'bg-red-50/50' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="col-span-1 text-xs font-black text-slate-400">
+                      {line.quantity}×
+                    </div>
                     <div className="col-span-8">
-                      <div className={`text-xs font-bold ${line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                      <div
+                        className={`text-xs font-bold ${
+                          line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-800'
+                        }`}
+                      >
                         {line.nameSnapshot}
                       </div>
                       {line.notes && (
                         <div className="flex items-center gap-1 mt-0.5">
                           <AlertCircle size={10} className="text-blue-500" />
-                          <span className="text-[10px] text-blue-600 font-medium">{line.notes}</span>
+                          <span className="text-[10px] text-blue-600 font-medium">
+                            {line.notes}
+                          </span>
                         </div>
                       )}
                     </div>
-                    <div className={`col-span-3 text-right text-xs font-black ${line.isCanceled ? 'text-slate-300 line-through' : 'text-slate-700'}`}>
+                    <div
+                      className={`col-span-3 text-right text-xs font-black ${
+                        line.isCanceled ? 'text-slate-300 line-through' : 'text-slate-700'
+                      }`}
+                    >
                       {formatUZS((line.price || 0) * line.quantity)}
                     </div>
                   </div>
                 ))}
               </div>
-
-              {order.kitchenTickets && order.kitchenTickets.length > 0 && (
-                <div className="mt-6 pt-4 border-t border-slate-50">
-                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <History size={14} className="text-slate-400" />
-                    <span>Oshxona holati</span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {order.kitchenTickets.map((ticket, idx) => (
-                      <div key={ticket.id} className="flex items-center justify-between bg-white px-2 py-2 rounded border border-slate-100 shadow-sm">
-                        <span className="text-[10px] font-black text-slate-400">#{idx + 1}</span>
-                        <KitchenStatusBadge status={ticket.status} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Right: Actions & Summary */}
             <div className="col-span-4 bg-slate-50/30 p-4">
               <div className="space-y-6">
                 <div className="bg-slate-900 rounded-md p-4 text-white shadow-inner">
-                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Moliyaviy jami</div>
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">
+                    Moliyaviy jami
+                  </div>
                   <div className="space-y-2 text-xs font-bold">
                     <div className="flex justify-between text-slate-400">
                       <span>JAMI</span>
-                      <span>{formatUZS(order.subtotalSnapshot || order.totalAmount || 0)}</span>
+                      <span>
+                        {formatUZS(order.subtotalSnapshot || order.totalAmount || 0)}
+                      </span>
                     </div>
                     {(order.discountAmountSnapshot || 0) > 0 && (
                       <div className="flex justify-between text-red-400">
@@ -332,39 +335,16 @@ function OrderListItem({
                 </div>
 
                 <div className="space-y-2">
-                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Amallar</div>
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                    Amallar
+                  </div>
                   <div className="flex flex-col gap-2">
-                    {order.status === 'BILL_REQUESTED' && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); onPay(); }}
-                        className="bg-blue-600 text-white px-4 py-3 rounded text-xs font-black hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <CreditCard size={14} />
-                        <span>HISOBNI YAKUNLASH</span>
-                      </button>
-                    )}
-                    {order.status === 'PENDING_PAYMENT' && (
-                      <>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onPay(); }}
-                          className="bg-green-600 text-white px-4 py-3 rounded text-xs font-black hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-                        >
-                          <CheckCircle2 size={14} />
-                          <span>TO'LANDI</span>
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onWalkout(); }}
-                          className="bg-white text-orange-600 border border-orange-200 px-4 py-3 rounded text-xs font-black hover:bg-orange-50 transition-colors flex items-center justify-center gap-2"
-                        >
-                          <AlertCircle size={14} />
-                          <span>TO'LOVSIZ KETDI</span>
-                        </button>
-                      </>
-                    )}
-                    
-                    {(order.status === 'SENT' || order.status === 'BILL_REQUESTED') && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); onCancel(); }}
+                    {order.status === 'SENT' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCancel();
+                        }}
                         className="bg-white text-red-600 border border-red-200 px-4 py-2 rounded text-[10px] font-black hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
                       >
                         <Ban size={12} />
@@ -372,22 +352,24 @@ function OrderListItem({
                       </button>
                     )}
 
-                    {(order.status === 'CLOSED' || order.status === 'WALKOUT') && (
-                      reprintSuccess ? (
+                    {(order.status === 'CLOSED' || order.status === 'WALKOUT') &&
+                      (reprintSuccess ? (
                         <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded text-[10px] font-black flex items-center gap-2">
                           <Printer size={12} />
                           <span>YUBORILDI</span>
                         </span>
                       ) : (
                         <button
-                          onClick={(e) => { e.stopPropagation(); reprintMutation.mutate('Admin re-print'); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            reprintMutation.mutate('Admin re-print');
+                          }}
                           className="bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded text-[10px] font-black hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
                         >
                           <Printer size={12} />
                           <span>CHEKNI QAYTA CHOP ETISH</span>
                         </button>
-                      )
-                    )}
+                      ))}
                   </div>
                 </div>
 
@@ -419,7 +401,7 @@ function CancelOrderModal({ order, onClose }: { order: Order; onClose: () => voi
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       onClose();
-    }
+    },
   });
 
   return (
@@ -428,16 +410,20 @@ function CancelOrderModal({ order, onClose }: { order: Order; onClose: () => voi
         <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex items-start gap-3">
           <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={20} />
           <div>
-            <p className="text-sm font-bold text-red-800 mb-1">Diqqat! Qaytarib bo'lmaydi</p>
+            <p className="text-sm font-bold text-red-800 mb-1">
+              Diqqat! Qaytarib bo&apos;lmaydi
+            </p>
             <p className="text-xs text-red-600 font-medium leading-relaxed">
-              #{order.orderNumber} buyurtma butunlay bekor qilinadi. Oshxonadagi barcha cheklar ham bekor deb hisoblanadi.
+              #{order.orderNumber} buyurtma butunlay bekor qilinadi.
             </p>
           </div>
         </div>
-        
+
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">BEKOR QILISH SABABI</label>
-          <textarea 
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+            BEKOR QILISH SABABI
+          </label>
+          <textarea
             placeholder="Masalan: Mijoz fikridan qaytdi, adashib ochilgan..."
             className="w-full border border-slate-200 rounded-xl p-4 text-sm font-medium h-28 outline-none focus:ring-2 focus:ring-red-500 transition-shadow bg-slate-50/30 resize-none"
             value={reason}
@@ -447,73 +433,18 @@ function CancelOrderModal({ order, onClose }: { order: Order; onClose: () => voi
         </div>
 
         <div className="flex gap-3">
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
           >
             Yopish
           </button>
-          <button 
+          <button
             disabled={!reason.trim() || mutation.isPending}
             onClick={() => mutation.mutate()}
             className="flex-[2] bg-red-600 text-white py-3 rounded-xl text-sm font-black hover:bg-red-700 shadow-lg shadow-red-200 disabled:opacity-50 transition-all active:scale-95"
           >
-            {mutation.isPending ? 'BEKOR QILINMOQDA...' : 'BEKOR QILISHNI TASDIQLASH'}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function WalkoutOrderModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [reason, setReason] = useState('');
-  const mutation = useMutation({
-    mutationFn: () => ordersApi.markWalkout(order.id, reason),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
-      onClose();
-    }
-  });
-
-  return (
-    <Modal title="To'lovsiz ketish" onClose={onClose} maxWidth="max-w-md">
-      <div className="space-y-6">
-        <div className="bg-orange-50 p-4 border border-orange-100 rounded-xl flex items-start gap-3 shadow-inner">
-          <AlertCircle className="text-orange-500 shrink-0 mt-0.5" size={20} />
-          <div>
-            <p className="text-sm font-bold text-orange-800 mb-1">To'lanmagan buyurtma</p>
-            <p className="text-xs text-orange-700 font-medium leading-relaxed">
-              Bu amal buyurtmani "To'lovsiz ketdi" holatiga o'tkazadi. U daromad statistikalarida hisobga olinmaydi.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">IZOH / SABAB</label>
-          <textarea 
-            placeholder="Masalan: Mijoz to'lamay chiqib ketdi..."
-            className="w-full border border-slate-200 rounded-xl p-4 text-sm font-medium h-28 outline-none focus:ring-2 focus:ring-orange-500 transition-shadow bg-slate-50/30 resize-none"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            autoFocus
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <button 
-            onClick={onClose} 
-            className="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
-          >
-            Yopish
-          </button>
-          <button 
-            disabled={!reason.trim() || mutation.isPending}
-            onClick={() => mutation.mutate()}
-            className="flex-[2] bg-orange-600 text-white py-3 rounded-xl text-sm font-black hover:bg-orange-700 shadow-lg shadow-orange-100 disabled:opacity-50 transition-all active:scale-95"
-          >
-            {mutation.isPending ? 'SAQLANMOQDA...' : 'TASDIQLASH'}
+            {mutation.isPending ? 'BEKOR QILINMOQDA...' : "BEKOR QILISHNI TASDIQLASH"}
           </button>
         </div>
       </div>

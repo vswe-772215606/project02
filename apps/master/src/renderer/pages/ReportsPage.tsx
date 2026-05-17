@@ -136,15 +136,6 @@ function DailyView({ report }: { report: DailyReport }) {
     grossSales: sumMoney(report.mealSales.map((item) => item.grossSales)),
   }), [report.mealSales]);
 
-  const kitchenTotals = useMemo(() => ({
-    qtyOrdered: report.kitchenProduction.reduce((sum, item) => sum + item.qtyOrdered, 0),
-    qtySent: report.kitchenProduction.reduce((sum, item) => sum + item.qtySent, 0),
-    qtyStarted: report.kitchenProduction.reduce((sum, item) => sum + item.qtyStarted, 0),
-    qtyReady: report.kitchenProduction.reduce((sum, item) => sum + item.qtyReady, 0),
-    qtyCanceledBeforeCooking: report.kitchenProduction.reduce((sum, item) => sum + item.qtyCanceledBeforeCooking, 0),
-    qtyCanceledAfterStart: report.kitchenProduction.reduce((sum, item) => sum + item.qtyCanceledAfterStart, 0),
-  }), [report.kitchenProduction]);
-
   const debtTotals = useMemo(() => ({
     originalAmount: sumMoney(report.debtLedger.map((item) => item.originalAmount)),
     repaidToday: sumMoney(report.debtLedger.map((item) => item.repaidToday)),
@@ -568,55 +559,6 @@ function DailyView({ report }: { report: DailyReport }) {
                     <td className="px-6 py-4 text-right">{formatUZS(orderTotals.cash)}</td>
                     <td className="px-6 py-4 text-right">{formatUZS(orderTotals.card)}</td>
                     <td className="px-6 py-4 text-right">{formatUZS(orderTotals.debt)}</td>
-                  </tr>
-                </tfoot>
-              ) : null}
-            </table>
-          </TableViewport>
-        </details>
-
-        <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <summary className="cursor-pointer list-none border-b border-slate-100 px-6 py-4 text-sm font-black uppercase tracking-widest text-slate-900">
-            Oshxona va tayyor bo'lgan taomlar
-          </summary>
-          <TableViewport maxHeight="max-h-[460px]">
-            <table className="w-full text-left">
-              <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                <tr>
-                  <th className="px-6 py-4">Taom</th>
-                  <th className="px-6 py-4 text-right">Buyurtma</th>
-                  <th className="px-6 py-4 text-right">Yuborilgan</th>
-                  <th className="px-6 py-4 text-right">Boshlangan</th>
-                  <th className="px-6 py-4 text-right">Tayyor</th>
-                  <th className="px-6 py-4 text-right">Oldin bekor</th>
-                  <th className="px-6 py-4 text-right">Keyin bekor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {report.kitchenProduction.length === 0 ? (
-                  <EmptyRow colSpan={7} text="Tanlangan sana uchun oshxona harakati topilmadi" />
-                ) : report.kitchenProduction.map((item) => (
-                  <tr key={item.mealName} className="hover:bg-slate-50/70">
-                    <td className="px-6 py-4 text-sm font-black text-slate-900">{item.mealName}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{item.qtyOrdered}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{item.qtySent}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-slate-900">{item.qtyStarted}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-emerald-700">{item.qtyReady}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-amber-700">{item.qtyCanceledBeforeCooking}</td>
-                    <td className="px-6 py-4 text-right text-xs font-black text-rose-700">{item.qtyCanceledAfterStart}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {report.kitchenProduction.length > 0 ? (
-                <tfoot className="border-t-2 border-slate-200 bg-slate-50">
-                  <tr className="text-xs font-black text-slate-900">
-                    <td className="px-6 py-4 uppercase tracking-widest">Jami</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtyOrdered}</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtySent}</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtyStarted}</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtyReady}</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtyCanceledBeforeCooking}</td>
-                    <td className="px-6 py-4 text-right">{kitchenTotals.qtyCanceledAfterStart}</td>
                   </tr>
                 </tfoot>
               ) : null}

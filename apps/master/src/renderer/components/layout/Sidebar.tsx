@@ -15,6 +15,7 @@ import {
   Wallet,
   Coins,
   History,
+  ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth.store';
@@ -22,7 +23,7 @@ import { useUIStore } from '@/stores/ui.store';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-type Role = 'OWNER' | 'ADMIN' | 'WAITER' | 'KITCHEN';
+type Role = 'OWNER' | 'ADMIN' | 'WAITER';
 
 type NavItem = {
   to: string;
@@ -48,7 +49,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Boshqaruv',
     items: [
-      { to: '/', label: 'Boshqaruv paneli', icon: LayoutDashboard, roles: ['OWNER', 'ADMIN', 'WAITER', 'KITCHEN'] },
+      { to: '/', label: 'Boshqaruv paneli', icon: LayoutDashboard, roles: ['OWNER', 'ADMIN', 'WAITER'] },
+      { to: '/approval-queue', label: 'Tasdiqlash', icon: ClipboardCheck, roles: ['OWNER', 'ADMIN'] },
       { to: '/orders', label: 'Buyurtmalar', icon: ReceiptText, roles: ['OWNER', 'ADMIN', 'WAITER'] },
       { to: '/finance', label: 'Kunlik moliya', icon: Coins, roles: ['OWNER', 'ADMIN'] },
     ],

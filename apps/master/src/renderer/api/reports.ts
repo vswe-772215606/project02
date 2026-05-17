@@ -129,15 +129,6 @@ export interface DailyReport {
     grossSales: string;
     avgPerOrder: string;
   }>;
-  kitchenProduction: Array<{
-    mealName: string;
-    qtyOrdered: number;
-    qtySent: number;
-    qtyStarted: number;
-    qtyReady: number;
-    qtyCanceledBeforeCooking: number;
-    qtyCanceledAfterStart: number;
-  }>;
   debtLedger: Array<{
     debtId: string;
     openedAt: string;

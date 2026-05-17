@@ -1,16 +1,23 @@
 import { api } from './client';
 import { User } from './auth';
 
-export type KitchenTicketStatus = 'PENDING' | 'IN_PROGRESS' | 'READY' | 'CANCELED';
+export type PaymentMethod = 'CASH' | 'CARD' | 'DEBT';
 
-export interface KitchenTicket {
-  id: string;
-  orderId: string;
-  status: KitchenTicketStatus;
-  startedAt: string | null;
-  readyAt: string | null;
-  canceledAt: string | null;
-  createdAt: string;
+export interface ConfirmPayment {
+  method: PaymentMethod;
+  amount: number;
+  reference?: string;
+}
+
+export interface ConfirmBody {
+  discountId?: string | null;
+  waiveServiceCharge?: boolean;
+  payments: ConfirmPayment[];
+  debt?: {
+    debtorName: string;
+    debtorPhone?: string;
+    note?: string;
+  };
 }
 
 export interface OrderLine {
@@ -29,7 +36,6 @@ export interface OrderLine {
   status: string; // Internal line status if used
   isCanceled: boolean;
   createdAt: string;
-  kitchenTicketId: string | null;
 }
 
 export interface Order {
@@ -39,7 +45,7 @@ export interface Order {
   tableId: string | null;
   tableName: string | null;
   waiterId: string;
-  status: 'DRAFT' | 'SENT' | 'BILL_REQUESTED' | 'PENDING_PAYMENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+  status: 'DRAFT' | 'SENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
   itemCount: number;
   totalAmount: number;
   subtotalSnapshot: number | null;
@@ -62,7 +68,6 @@ export interface Order {
   } | null;
   lines?: OrderLine[];
   waiter?: User;
-  kitchenTickets?: KitchenTicket[];
 }
 
 export const ordersApi = {
@@ -75,31 +80,25 @@ export const ordersApi = {
     return api.get<Order[]>(`/api/orders${qs ? '?' + qs : ''}`);
   },
   getById: (id: string) => api.get<Order>(`/api/orders/${id}`),
-  create: (data: { orderType: string; tableId?: string }) => 
+  create: (data: { orderType: string; tableId?: string }) =>
     api.post<Order>('/api/orders', data),
-  addItem: (id: string, data: { menuItemId: string; quantity: number; notes?: string }) => 
+  addItem: (id: string, data: { menuItemId: string; quantity: number; notes?: string }) =>
     api.post<OrderLine>(`/api/orders/${id}/items`, data),
-  addCombo: (id: string, data: { comboId: string }) => 
+  addCombo: (id: string, data: { comboId: string }) =>
     api.post<OrderLine[]>(`/api/orders/${id}/combos`, data),
-  updateLineNotes: (id: string, lineId: string, notes: string) => 
+  updateLineNotes: (id: string, lineId: string, notes: string) =>
     api.patch<OrderLine>(`/api/orders/${id}/lines/${lineId}/notes`, { notes }),
-  cancelLine: (id: string, lineId: string, reason?: string) => 
+  cancelLine: (id: string, lineId: string, reason?: string) =>
     api.post<OrderLine>(`/api/orders/${id}/lines/${lineId}/cancel`, { reason }),
   send: (id: string) => api.post<Order>(`/api/orders/${id}/send`),
-  transfer: (id: string, tableId: string) => 
+  transfer: (id: string, tableId: string) =>
     api.post<Order>(`/api/orders/${id}/transfer`, { tableId }),
-  requestBill: (id: string) => api.post<Order>(`/api/orders/${id}/request-bill`),
-  cancelOrder: (id: string, reason: string) => 
+  cancelOrder: (id: string, reason: string) =>
     api.post<Order>(`/api/orders/${id}/cancel`, { reason }),
-  approve: (id: string, data: { discountId?: string; serviceChargeWaived?: boolean }) => 
-    api.post<Order>(`/api/orders/${id}/approve`, data),
-  markPaid: (id: string, data: {
-    payments: { method: string; amount: number; reference?: string }[];
-    debt?: { debtorName: string; debtorPhone?: string; note?: string };
-  }) => 
-    api.post<Order>(`/api/orders/${id}/mark-paid`, data),
-  markWalkout: (id: string, reason: string) => 
+  confirm: (id: string, body: ConfirmBody) =>
+    api.post<Order>(`/api/orders/${id}/confirm`, body),
+  markWalkout: (id: string, reason: string) =>
     api.post<Order>(`/api/orders/${id}/mark-walkout`, { reason }),
-  reprintBill: (id: string, reason?: string) => 
+  reprintBill: (id: string, reason?: string) =>
     api.post<{ id: string }>(`/api/orders/${id}/reprint-bill`, { reason }),
 };
