@@ -23,3 +23,4 @@ menuRouter.patch('/combos/:id', requireRole(['ADMIN', 'OWNER']), menuController.
 menuRouter.get('/items/:id/recipe', menuController.getItemRecipe);
 menuRouter.put('/items/:id/recipe', requireRole(['ADMIN', 'OWNER']), menuController.updateItemRecipe);
 menuRouter.post('/items/:id/recipe/complete', requireRole(['ADMIN', 'OWNER']), menuController.setRecipeComplete);
+menuRouter.delete('/items/:id/recipe', requireRole(['ADMIN', 'OWNER']), menuController.deleteItemRecipe);

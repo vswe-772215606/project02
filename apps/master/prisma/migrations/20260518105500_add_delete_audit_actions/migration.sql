@@ -1,0 +1,4 @@
+-- Schema-only change: adds `INGREDIENT_DELETED` and `RECIPE_DELETED` to the
+-- `AuditAction` enum in `schema.prisma`. SQLite stores Prisma enums as TEXT,
+-- so this migration carries no DDL — it exists so the migration history
+-- stays in sync with `schema.prisma`.

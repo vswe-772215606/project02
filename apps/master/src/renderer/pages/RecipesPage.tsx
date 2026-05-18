@@ -37,6 +37,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 type Row = {
   item: MenuItem;
@@ -71,6 +72,7 @@ export function RecipesPage() {
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<MenuItem | null>(null);
 
   const { data: items, isLoading: itemsLoading } = useQuery({
     queryKey: ['menu', 'items'],
@@ -133,6 +135,21 @@ export function RecipesPage() {
       setErrorMsg(null);
     },
     onError: (err: Error) => setErrorMsg(err.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (menuItemId: string) => recipesApi.deleteForMenuItem(menuItemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      toast.success("Retsept o'chirildi");
+      setPendingDelete(null);
+      setEditingItem(null);
+      setErrorMsg(null);
+    },
+    onError: (err: Error) => {
+      setErrorMsg(err.message);
+      setPendingDelete(null);
+    },
   });
 
   // When the editing item changes, prime the editor rows from the existing recipe (if any).
@@ -399,6 +416,21 @@ export function RecipesPage() {
                   )}
                 </Tooltip>
               )}
+              {editingRecipe && editingItem && (
+                <Button
+                  variant="outline"
+                  className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive w-full sm:w-auto"
+                  onClick={() => setPendingDelete(editingItem)}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  O'chirish
+                </Button>
+              )}
               <div className="flex-1" />
               <Button variant="outline" onClick={() => setEditingItem(null)}>
                 Yopish
@@ -410,6 +442,15 @@ export function RecipesPage() {
             </SheetFooter>
           </SheetContent>
         </Sheet>
+
+        {pendingDelete && (
+          <ConfirmDialog
+            message={`"${pendingDelete.name}" taomi uchun retsept butunlay o'chirilsinmi? Tahrirlash tarixi ham o'chiriladi.`}
+            variant="danger"
+            onConfirm={() => deleteMutation.mutate(pendingDelete.id)}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )}
       </PageContent>
     </TooltipProvider>
   );

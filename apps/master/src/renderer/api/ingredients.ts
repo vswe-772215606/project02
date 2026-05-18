@@ -53,4 +53,6 @@ export const ingredientsApi = {
 
   update: (id: string, body: IngredientUpdateInput) =>
     api.patch<Ingredient>(`/api/ingredients/${id}`, body),
+
+  delete: (id: string) => api.delete<{ id: string }>(`/api/ingredients/${id}`),
 };

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Package, Plus, Loader2, Search, X } from 'lucide-react';
+import { Package, Plus, Loader2, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ingredientsApi, type Ingredient } from '@/api/ingredients';
@@ -16,6 +16,7 @@ import { MoneyCell } from '@/components/data/MoneyCell';
 import { QuantityCell } from '@/components/data/QuantityCell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Sheet,
   SheetContent,
@@ -27,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Nom kerak"),
@@ -35,6 +37,7 @@ const createSchema = z.object({
   recipeUnit: z.string().trim().min(1, 'Retsept birligi kerak'),
   conversionFactor: z.coerce.number().positive('0 dan katta bo\'lsin'),
   varianceThreshold: z.coerce.number().nonnegative().default(5),
+  isActive: z.boolean().default(true),
 });
 type CreateValues = z.infer<typeof createSchema>;
 
@@ -48,6 +51,7 @@ export function IngredientsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<Ingredient | null>(null);
   const [search, setSearch] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<Ingredient | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['ingredients'],
@@ -72,12 +76,12 @@ export function IngredientsPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { name: '', parentMenuItemId: '', buyUnit: 'kg', recipeUnit: 'g', conversionFactor: 1000, varianceThreshold: 5 },
+    defaultValues: { name: '', parentMenuItemId: '', buyUnit: 'kg', recipeUnit: 'g', conversionFactor: 1000, varianceThreshold: 5, isActive: true },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ name: '', parentMenuItemId: '', buyUnit: 'kg', recipeUnit: 'g', conversionFactor: 1000, varianceThreshold: 5 });
+    form.reset({ name: '', parentMenuItemId: '', buyUnit: 'kg', recipeUnit: 'g', conversionFactor: 1000, varianceThreshold: 5, isActive: true });
     setSheetOpen(true);
   };
 
@@ -90,6 +94,7 @@ export function IngredientsPage() {
       recipeUnit: row.recipeUnit,
       conversionFactor: Number(row.conversionFactor),
       varianceThreshold: Number(row.varianceThreshold),
+      isActive: row.isActive,
     });
     setSheetOpen(true);
   };
@@ -113,6 +118,20 @@ export function IngredientsPage() {
       setSheetOpen(false);
     },
     onError: (err: Error) => toast.error(err.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => ingredientsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ingredients'] });
+      toast.success("Mahsulot o'chirildi");
+      setPendingDelete(null);
+      setSheetOpen(false);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+      setPendingDelete(null);
+    },
   });
 
   const onSubmit = form.handleSubmit((values) => {
@@ -300,6 +319,22 @@ export function IngredientsPage() {
               </p>
             </div>
 
+            {editing && (
+              <div className="flex items-start gap-3 rounded-md border border-input bg-muted/30 p-3">
+                <Checkbox
+                  id="ingredient-active"
+                  checked={form.watch('isActive')}
+                  onCheckedChange={(checked) => form.setValue('isActive', checked === true)}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="ingredient-active" className="cursor-pointer">Faol</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Faolsizlantirilgan mahsulot retseptlar uchun tanlanmaydi.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {(createMutation.isError || updateMutation.isError) && (
               <Alert variant="destructive">
                 <AlertDescription>
@@ -308,7 +343,19 @@ export function IngredientsPage() {
               </Alert>
             )}
 
-            <SheetFooter>
+            <SheetFooter className="flex-col sm:flex-row gap-2">
+              {editing && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:mr-auto"
+                  onClick={() => setPendingDelete(editing)}
+                  disabled={submitting || deleteMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  O'chirish
+                </Button>
+              )}
               <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} disabled={submitting}>
                 Bekor qilish
               </Button>
@@ -320,6 +367,15 @@ export function IngredientsPage() {
           </form>
         </SheetContent>
       </Sheet>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          message={`"${pendingDelete.name}" mahsulotini butunlay o'chirilsinmi? Agar tarixda foydalanilgan bo'lsa, o'chirilmaydi — faolsizlantiring.`}
+          variant="danger"
+          onConfirm={() => deleteMutation.mutate(pendingDelete.id)}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </PageContent>
   );
 }

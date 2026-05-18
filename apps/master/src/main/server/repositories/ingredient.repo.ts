@@ -112,4 +112,25 @@ export const ingredientRepo = {
       data: { weightedAvgCost: new Prisma.Decimal(cost) },
     });
   },
+
+  /**
+   * Counts every kind of record that references this ingredient. Used by the
+   * delete-flow to decide whether a hard-delete is safe or the caller should
+   * fall back to deactivation.
+   */
+  async countUsages(id: string, tx?: Tx) {
+    const client = tx ?? getPrisma();
+    const [movements, recipeRefs, purchases, wasteEvents, stocktakeEntries] = await Promise.all([
+      client.ingredientMovement.count({ where: { ingredientId: id } }),
+      client.recipeIngredient.count({ where: { ingredientId: id } }),
+      client.purchase.count({ where: { ingredientId: id } }),
+      client.wasteEvent.count({ where: { ingredientId: id } }),
+      client.stocktakeEntry.count({ where: { ingredientId: id } }),
+    ]);
+    return { movements, recipeRefs, purchases, wasteEvents, stocktakeEntries };
+  },
+
+  async deleteById(id: string, tx?: Tx) {
+    return (tx ?? getPrisma()).ingredient.delete({ where: { id } });
+  },
 };

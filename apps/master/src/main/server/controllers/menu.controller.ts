@@ -213,4 +213,16 @@ export const menuController = {
       next(error);
     }
   },
+
+  async deleteItemRecipe(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await recipeService.deleteForMenuItem({
+        menuItemId: req.params.id,
+        actorUserId: req.user!.id,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
 };

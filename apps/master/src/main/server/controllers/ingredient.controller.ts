@@ -85,4 +85,12 @@ export const ingredientController = {
       next(error);
     }
   },
+
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await ingredientService.delete(req.params.id, req.user!.id));
+    } catch (error) {
+      next(error);
+    }
+  },
 };

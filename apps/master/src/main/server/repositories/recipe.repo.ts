@@ -130,4 +130,11 @@ export const recipeRepo = {
       orderBy: { occurredAt: 'desc' },
     });
   },
+
+  async deleteById(id: string, tx?: Tx) {
+    const client = tx ?? getPrisma();
+    await client.recipeIngredient.deleteMany({ where: { recipeId: id } });
+    await client.recipeEdit.deleteMany({ where: { recipeId: id } });
+    return client.recipe.delete({ where: { id } });
+  },
 };

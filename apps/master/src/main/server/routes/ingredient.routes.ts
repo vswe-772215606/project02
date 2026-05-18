@@ -11,3 +11,4 @@ ingredientRouter.get('/', ingredientController.list);
 ingredientRouter.get('/:id', ingredientController.getById);
 ingredientRouter.post('/', ingredientController.create);
 ingredientRouter.patch('/:id', ingredientController.update);
+ingredientRouter.delete('/:id', ingredientController.delete);

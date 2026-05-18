@@ -37,6 +37,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   INGREDIENT_UPDATED: 'Mahsulot o‘zgartirildi',
   INGREDIENT_ACTIVATED: 'Mahsulot faollashtirildi',
   INGREDIENT_DEACTIVATED: 'Mahsulot to‘xtatildi',
+  INGREDIENT_DELETED: 'Mahsulot o‘chirildi',
   INGREDIENT_COST_ADJUSTED: 'Mahsulot tannarxi qo‘lda tuzatildi',
 
   // Xarid
@@ -47,6 +48,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   RECIPE_UPDATED: 'Retsept o‘zgartirildi',
   RECIPE_ACTIVATED: 'Retsept faollashtirildi',
   RECIPE_DEACTIVATED: 'Retsept to‘xtatildi',
+  RECIPE_DELETED: 'Retsept o‘chirildi',
 
   // Sanoq (stocktake)
   STOCKTAKE_OPENED: 'Sanoq boshlandi',
@@ -73,8 +75,8 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
     label: 'Mahsulot va retsept',
     values: [
       'INGREDIENT_CREATED', 'INGREDIENT_UPDATED', 'INGREDIENT_ACTIVATED', 'INGREDIENT_DEACTIVATED',
-      'INGREDIENT_COST_ADJUSTED', 'PURCHASE_RECORDED',
-      'RECIPE_CREATED', 'RECIPE_UPDATED', 'RECIPE_ACTIVATED', 'RECIPE_DEACTIVATED',
+      'INGREDIENT_DELETED', 'INGREDIENT_COST_ADJUSTED', 'PURCHASE_RECORDED',
+      'RECIPE_CREATED', 'RECIPE_UPDATED', 'RECIPE_ACTIVATED', 'RECIPE_DEACTIVATED', 'RECIPE_DELETED',
     ],
   },
   {
@@ -101,7 +103,8 @@ export function auditActionTone(action: string): 'neutral' | 'success' | 'warnin
   if (
     ['ORDER_CANCELED', 'WALKOUT_MARKED', 'EXPENSE_REVERSED', 'EXPENSE_WRITTEN_OFF',
      'DEBT_WRITTEN_OFF',
-     'USER_DEACTIVATED', 'INGREDIENT_DEACTIVATED', 'RECIPE_DEACTIVATED',
+     'USER_DEACTIVATED', 'INGREDIENT_DEACTIVATED', 'INGREDIENT_DELETED',
+     'RECIPE_DEACTIVATED', 'RECIPE_DELETED',
      'REPORT_SEND_FAILED'].includes(action)
   ) return 'danger';
 

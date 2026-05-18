@@ -207,4 +207,55 @@ export const ingredientService = {
       return mapIngredient(await ingredientRepo.findById(updated.id));
     });
   },
+
+  /**
+   * Hard-delete an ingredient. Refuses if any history exists (movements,
+   * purchases, recipe references, waste, stocktake) since SQLite has no
+   * cascade rules for these tables. Callers should fall back to
+   * `update({ isActive: false })` in that case.
+   */
+  async delete(id: string, actorUserId: string) {
+    return withEmitContext(async () => {
+      const existing = await ingredientRepo.findById(id);
+      if (!existing) {
+        throw Errors.NotFound('Mahsulot');
+      }
+
+      const usages = await ingredientRepo.countUsages(id);
+      const total =
+        usages.movements +
+        usages.recipeRefs +
+        usages.purchases +
+        usages.wasteEvents +
+        usages.stocktakeEntries;
+      if (total > 0) {
+        throw Errors.Conflict(
+          "Mahsulotni o'chirib bo'lmaydi — tarixda foydalanilgan. Faolsizlantiring.",
+        );
+      }
+
+      await getPrisma().$transaction(async (tx) => {
+        await ingredientRepo.deleteById(id, tx);
+
+        await auditService.log(
+          {
+            userId: actorUserId,
+            action: 'INGREDIENT_DELETED',
+            entityType: 'Ingredient',
+            entityId: id,
+            metadata: {
+              name: existing.name,
+              parentMenuItemId: existing.parentMenuItemId,
+            },
+          },
+          tx,
+        );
+
+        deferEmit('admin', 'ingredient:changed', { ingredientId: id });
+      });
+
+      await flushDeferredEmits();
+      return { id };
+    });
+  },
 };

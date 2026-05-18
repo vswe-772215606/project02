@@ -221,4 +221,46 @@ export const recipeService = {
   async listEdits(recipeId: string) {
     return recipeRepo.listEdits(recipeId);
   },
+
+  /**
+   * Hard-delete a recipe for a given menu item. RecipeIngredient and
+   * RecipeEdit rows are removed first by the repo (SQLite has no cascade
+   * rules in our schema). The MenuItem itself is left intact — it just
+   * loses its recipe.
+   */
+  async deleteForMenuItem(input: { menuItemId: string; actorUserId: string }) {
+    return withEmitContext(async () => {
+      const existing = await recipeRepo.findByMenuItemId(input.menuItemId);
+      if (!existing) {
+        throw Errors.NotFound('Retsept');
+      }
+
+      await getPrisma().$transaction(async (tx) => {
+        await recipeRepo.deleteById(existing.id, tx);
+
+        await auditService.log(
+          {
+            userId: input.actorUserId,
+            action: 'RECIPE_DELETED',
+            entityType: 'Recipe',
+            entityId: existing.id,
+            metadata: {
+              menuItemId: input.menuItemId,
+              ingredientCount: existing.ingredients.length,
+              wasComplete: existing.isComplete,
+            },
+          },
+          tx,
+        );
+
+        deferEmit('admin', 'recipe:changed', {
+          recipeId: existing.id,
+          menuItemId: input.menuItemId,
+        });
+      });
+
+      await flushDeferredEmits();
+      return { id: existing.id, menuItemId: input.menuItemId };
+    });
+  },
 };

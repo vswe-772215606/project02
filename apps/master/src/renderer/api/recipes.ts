@@ -35,4 +35,7 @@ export const recipesApi = {
 
   setComplete: (menuItemId: string, isComplete: boolean) =>
     api.post<Recipe>(`/api/menu/items/${menuItemId}/recipe/complete`, { isComplete }),
+
+  deleteForMenuItem: (menuItemId: string) =>
+    api.delete<{ id: string; menuItemId: string }>(`/api/menu/items/${menuItemId}/recipe`),
 };
