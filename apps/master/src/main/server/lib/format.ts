@@ -1,6 +1,8 @@
 export function formatUZS(amount: number | string): string {
   const n = typeof amount === 'string' ? parseInt(amount, 10) : amount;
-  return n.toLocaleString('uz-UZ').replace(/,/g, '\u00A0');
+  // Plain ASCII space as the thousands separator: NBSP (U+00A0, UTF-8 0xC2 0xA0)
+  // renders as a Chinese glyph on printers whose default code page is GB18030.
+  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
 }
 
 export function formatDateTimeUZ(value: Date): string {

@@ -7,7 +7,35 @@ type OrderForReceipt = Order & {
   appliedDiscount: Discount | null;
 };
 
-const safe = (value: string) => value.replace(/[|;\r\n]/g, ' ').trim();
+// Map non-ASCII characters commonly introduced by copy-paste (smart quotes,
+// curly apostrophes used in Uzbek transliteration like o' / g', em/en dashes,
+// NBSP, ellipsis) to plain ASCII equivalents. Anything still non-ASCII after
+// this is dropped — thermal printers in CJK code-page mode would otherwise
+// render multi-byte UTF-8 sequences as Chinese glyphs.
+const ASCII_FALLBACKS: Record<string, string> = {
+  '‘': "'", '’': "'", 'ʼ': "'", 'ʻ': "'", 'ʹ': "'",
+  '´': "'", '`': "'", '‛': "'",
+  '“': '"', '”': '"', '«': '"', '»': '"',
+  '–': '-', '—': '-', '−': '-',
+  '…': '...',
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ',
+};
+
+function toAscii(value: string): string {
+  let out = '';
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (code < 0x80) {
+      out += ch;
+      continue;
+    }
+    const replacement = ASCII_FALLBACKS[ch];
+    out += replacement ?? '?';
+  }
+  return out;
+}
+
+const safe = (value: string) => toAscii(value).replace(/[|;\r\n]/g, ' ').trim();
 
 export function buildBillArgs(
   order: OrderForReceipt,

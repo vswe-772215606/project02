@@ -43,6 +43,11 @@ std::string byte(unsigned char value) {
 }
 
 std::string escInit()        { return byte(ESC) + "@"; }
+// Select PC437 code page (n=0). Forces a Latin code table so multi-byte
+// stragglers don't get reinterpreted as CJK on printers shipped with
+// GB18030/GBK as the default. Pair with ESC R 0 (USA character set).
+std::string selectCodePageLatin() { return byte(ESC) + "t" + byte(0); }
+std::string selectCharsetUSA()    { return byte(ESC) + "R" + byte(0); }
 std::string alignLeft()      { return byte(ESC) + "a" + byte(0); }
 std::string alignCenter()    { return byte(ESC) + "a" + byte(1); }
 std::string alignRight()     { return byte(ESC) + "a" + byte(2); }
@@ -255,6 +260,8 @@ int main() {
     payload.reserve(1024);
 
     payload += escInit();
+    payload += selectCodePageLatin();
+    payload += selectCharsetUSA();
 
     payload += alignCenter();
     payload += boldOn();
