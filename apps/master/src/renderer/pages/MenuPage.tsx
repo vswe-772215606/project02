@@ -351,7 +351,7 @@ export function MenuPage() {
                             <Package size={12} className="mr-1" />{y.possiblePortions}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-100" title={y.bottleneckIngredientName ? `Bottleneck: ${y.bottleneckIngredientName}` : ''}>
+                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-100" title={y.bottleneckIngredientName ? `Cheklov: ${y.bottleneckIngredientName}` : ''}>
                             <Package size={12} className="mr-1" />{y.possiblePortions}
                           </span>
                         )}

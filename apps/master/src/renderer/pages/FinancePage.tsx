@@ -265,7 +265,7 @@ export function FinancePage() {
             <Row label="Xizmat haqi (ofitsiantlarga)" value={Number(data?.sales.serviceCharge ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')} tone="muted" />
             <Row label="Jami chek summasi" value={Number(data?.sales.billedTotal ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')} bold />
             {data && data.sales.walkoutOrders > 0 && (
-              <Row label={`Walkout (${data.sales.walkoutOrders} ta)`} value={`-${Number(data.sales.walkoutLoss).toLocaleString('uz-UZ').replace(/,/g, ' ')}`} tone="danger" />
+              <Row label={`To'lamay ketgan (${data.sales.walkoutOrders} ta)`} value={`-${Number(data.sales.walkoutLoss).toLocaleString('uz-UZ').replace(/,/g, ' ')}`} tone="danger" />
             )}
           </div>
         </Section>
