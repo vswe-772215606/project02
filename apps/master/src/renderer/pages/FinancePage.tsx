@@ -3,15 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Banknote,
-  CreditCard,
-  HandCoins,
-  Package,
   Receipt,
-  ShoppingCart,
   TrendingDown,
   TrendingUp,
-  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import { financeApi } from '@/api/finance';
@@ -31,20 +25,6 @@ import { formatDate } from '@/lib/format';
 function localDateString() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function currentMonthKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Uzbek weekday short letters indexed by Date.getDay() (0=Sun..6=Sat)
-const UZ_WEEKDAY_SHORT = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'] as const;
-
-function fmtMoney(value: string | number): string {
-  const n = typeof value === 'string' ? Number(value) : value;
-  if (!Number.isFinite(n) || n === 0) return '—';
-  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
 }
 
 function StatTile({
@@ -131,18 +111,11 @@ function Row({
 export function FinancePage() {
   usePageTitle('Kunlik moliya');
   const [date, setDate] = useState(localDateString);
-  const [serviceMonth, setServiceMonth] = useState(currentMonthKey);
 
   const { data, isLoading } = useQuery({
     queryKey: ['finance', 'daily', date],
     queryFn: () => financeApi.daily(date),
     refetchInterval: 30_000,
-  });
-
-  const { data: serviceMatrix, isLoading: isMatrixLoading } = useQuery({
-    queryKey: ['finance', 'service-charge', serviceMonth],
-    queryFn: () => financeApi.serviceChargeMatrix(serviceMonth),
-    refetchInterval: 60_000,
   });
 
   const drawerMovement = data ? Number(data.drawer.movement) : 0;
@@ -305,42 +278,6 @@ export function FinancePage() {
         </Section>
       </div>
 
-      {/* Drawer bottom line */}
-      <Card>
-        <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
-              <Wallet className="h-3.5 w-3.5" />
-              Kassa harakati
-            </div>
-            <div className={cn('text-xl font-semibold tabular-nums', drawerTone === 'good' && 'text-success', drawerTone === 'danger' && 'text-destructive')}>
-              {drawerMovement >= 0 ? '+' : ''}{Number(data?.drawer.movement ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')} UZS
-            </div>
-            <p className="text-xs text-muted-foreground">Bugungi jami kirim − jami chiqim</p>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
-              <HandCoins className="h-3.5 w-3.5" />
-              Hozirgi qarz qoldig'i
-            </div>
-            <div className="text-xl font-semibold tabular-nums">
-              {Number(data?.drawer.outstandingDebts ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')} UZS
-            </div>
-            <p className="text-xs text-muted-foreground">Mijozlarda kutilayotgan jami qarz</p>
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
-              <Banknote className="h-3.5 w-3.5" />
-              Bugungi naqd
-            </div>
-            <div className="text-xl font-semibold tabular-nums">
-              {Number(data?.cashflow.cashIn ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')} UZS
-            </div>
-            <p className="text-xs text-muted-foreground">Buyurtmalardan kelgan naqd</p>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Drill-down tables */}
       {data && data.purchases.length > 0 && (
         <Section title="Bugungi xaridlar" description="Mahsulot xaridlari batafsil">
@@ -363,163 +300,6 @@ export function FinancePage() {
           />
         </Section>
       )}
-
-      <ServiceChargeMatrixSection
-        month={serviceMonth}
-        onMonthChange={setServiceMonth}
-        matrix={serviceMatrix}
-        isLoading={isMatrixLoading}
-      />
     </PageContent>
-  );
-}
-
-function ServiceChargeMatrixSection({
-  month,
-  onMonthChange,
-  matrix,
-  isLoading,
-}: {
-  month: string;
-  onMonthChange: (next: string) => void;
-  matrix: import('@/api/finance').ServiceChargeMatrix | undefined;
-  isLoading: boolean;
-}) {
-  const [yearStr, monthStr] = month.split('-');
-  const year = Number(yearStr);
-  const monthIdx = Number(monthStr); // 1..12
-  const days = matrix?.days ?? new Date(year, monthIdx, 0).getDate();
-
-  const today = new Date();
-  const isCurrentMonth =
-    today.getFullYear() === year && today.getMonth() + 1 === monthIdx;
-  const todayDay = isCurrentMonth ? today.getDate() : -1;
-
-  const dayHeaders = Array.from({ length: days }, (_, i) => {
-    const day = i + 1;
-    const weekday = new Date(year, monthIdx - 1, day).getDay();
-    return {
-      day,
-      weekdayLabel: UZ_WEEKDAY_SHORT[weekday] ?? '',
-      isWeekend: weekday === 0 || weekday === 6,
-      isToday: day === todayDay,
-    };
-  });
-
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-3">
-        <div>
-          <CardTitle className="text-sm font-semibold">Ofitsiantlar xizmat haqi (oylik)</CardTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Yopilgan buyurtmalardan har bir ofitsiant uchun kunlik xizmat haqi
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Label htmlFor="service-month" className="text-xs text-muted-foreground">Oy:</Label>
-          <Input
-            id="service-month"
-            type="month"
-            value={month}
-            onChange={(e) => onMonthChange(e.target.value || currentMonthKey())}
-            className="w-40 h-9"
-          />
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading && !matrix ? (
-          <div className="text-sm text-muted-foreground py-6 text-center">Yuklanmoqda...</div>
-        ) : !matrix || matrix.waiters.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-6 text-center">
-            Bu oyda yopilgan buyurtmalar topilmadi
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-md border border-border/60">
-            <table className="text-xs tabular-nums border-collapse">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="sticky left-0 z-10 bg-muted/40 text-left font-semibold px-3 py-2 border-b border-border/60 min-w-[160px]">
-                    Ofitsiant
-                  </th>
-                  {dayHeaders.map((h) => (
-                    <th
-                      key={h.day}
-                      className={cn(
-                        'text-center font-semibold px-1.5 py-1 border-b border-l border-border/60 min-w-[42px]',
-                        h.isWeekend && 'bg-muted/60 text-muted-foreground',
-                        h.isToday && 'bg-amber-100 text-amber-900',
-                      )}
-                    >
-                      <div className="text-[9px] uppercase tracking-wider opacity-70 leading-tight">
-                        {h.weekdayLabel}
-                      </div>
-                      <div className="text-[11px] leading-tight">{h.day}</div>
-                    </th>
-                  ))}
-                  <th className="sticky right-0 z-10 bg-muted/60 text-right font-semibold px-3 py-2 border-b border-l border-border/60 min-w-[110px]">
-                    Jami
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {matrix.waiters.map((row) => (
-                  <tr key={row.waiterId} className="hover:bg-muted/30">
-                    <td className="sticky left-0 z-10 bg-background hover:bg-muted/30 font-medium px-3 py-1.5 border-b border-border/40 whitespace-nowrap">
-                      {row.waiterName}
-                    </td>
-                    {row.daily.map((value, idx) => {
-                      const header = dayHeaders[idx];
-                      const num = Number(value);
-                      return (
-                        <td
-                          key={idx}
-                          className={cn(
-                            'text-right px-1.5 py-1.5 border-b border-l border-border/40 leading-tight',
-                            header?.isWeekend && 'bg-muted/20',
-                            header?.isToday && 'bg-amber-50',
-                            num === 0 && 'text-muted-foreground/50',
-                          )}
-                          title={num > 0 ? `${header?.day}-kun: ${fmtMoney(value)} UZS` : undefined}
-                        >
-                          {fmtMoney(value)}
-                        </td>
-                      );
-                    })}
-                    <td className="sticky right-0 z-10 bg-background hover:bg-muted/30 text-right font-semibold px-3 py-1.5 border-b border-l border-border/40 whitespace-nowrap">
-                      {fmtMoney(row.total)}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-muted/50 font-semibold">
-                  <td className="sticky left-0 z-10 bg-muted/50 px-3 py-2 border-t border-border/60">
-                    Jami
-                  </td>
-                  {matrix.dayTotals.map((value, idx) => {
-                    const header = dayHeaders[idx];
-                    const num = Number(value);
-                    return (
-                      <td
-                        key={idx}
-                        className={cn(
-                          'text-right px-1.5 py-2 border-t border-l border-border/60 leading-tight',
-                          header?.isWeekend && 'bg-muted/60',
-                          header?.isToday && 'bg-amber-100',
-                          num === 0 && 'text-muted-foreground/60',
-                        )}
-                      >
-                        {fmtMoney(value)}
-                      </td>
-                    );
-                  })}
-                  <td className="sticky right-0 z-10 bg-muted/60 text-right px-3 py-2 border-t border-l border-border/60 whitespace-nowrap">
-                    {fmtMoney(matrix.grandTotal)} UZS
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }

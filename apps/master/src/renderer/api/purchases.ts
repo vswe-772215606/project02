@@ -1,5 +1,7 @@
 import { api } from './client';
 
+export type PurchaseStatus = 'ACTIVE' | 'REVERSED';
+
 export type Purchase = {
   id: string;
   ingredientId: string;
@@ -20,6 +22,11 @@ export type Purchase = {
   expenseId: string | null;
   occurredAt: string;
   createdAt: string;
+  status: PurchaseStatus;
+  reversedAt: string | null;
+  reversedById: string | null;
+  reversedByName: string | null;
+  reversalNote: string | null;
 };
 
 export type PurchaseRecordInput = {
@@ -28,6 +35,11 @@ export type PurchaseRecordInput = {
   totalCostUzs: number | string;
   occurredAt?: string;
   supplierNote?: string;
+};
+
+export type PurchaseUpdateInput = {
+  supplierNote?: string | null;
+  occurredAt?: string;
 };
 
 export const purchasesApi = {
@@ -41,4 +53,10 @@ export const purchasesApi = {
   },
 
   record: (body: PurchaseRecordInput) => api.post<Purchase>('/api/purchases', body),
+
+  update: (id: string, body: PurchaseUpdateInput) =>
+    api.patch<Purchase>(`/api/purchases/${id}`, body),
+
+  reverse: (id: string, note: string) =>
+    api.post<Purchase>(`/api/purchases/${id}/reverse`, { note }),
 };

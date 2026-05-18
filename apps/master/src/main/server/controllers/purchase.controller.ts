@@ -16,6 +16,15 @@ const recordSchema = z.object({
   supplierNote: z.string().optional(),
 });
 
+const updateSchema = z.object({
+  supplierNote: z.string().nullable().optional(),
+  occurredAt: z.string().datetime().optional(),
+});
+
+const reverseSchema = z.object({
+  note: z.string().trim().min(1, 'Sabab kerak'),
+});
+
 export const purchaseController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -42,6 +51,33 @@ export const purchaseController = {
         actorUserId: req.user!.id,
       });
       res.status(201).json(created);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = updateSchema.parse(req.body);
+      res.json(await purchaseService.update({
+        id: req.params.id,
+        supplierNote: body.supplierNote,
+        occurredAt: body.occurredAt ? new Date(body.occurredAt) : undefined,
+        actorUserId: req.user!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async reverse(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = reverseSchema.parse(req.body);
+      res.json(await purchaseService.reverse({
+        id: req.params.id,
+        note: body.note,
+        actorUserId: req.user!.id,
+      }));
     } catch (error) {
       next(error);
     }

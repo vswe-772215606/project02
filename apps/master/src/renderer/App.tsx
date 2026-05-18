@@ -20,6 +20,7 @@ import { IngredientsPage } from './pages/IngredientsPage';
 import { PurchasesPage } from './pages/PurchasesPage';
 import { RecipesPage } from './pages/RecipesPage';
 import { FinancePage } from './pages/FinancePage';
+import { SalariesPage } from './pages/SalariesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -41,6 +42,7 @@ function AuthedRoutes() {
         <Route path="/purchases" element={<PurchasesPage />} />
         <Route path="/recipes" element={<RecipesPage />} />
         <Route path="/finance" element={<FinancePage />} />
+        <Route path="/salaries" element={<SalariesPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/debts" element={<DebtsPage />} />
         <Route path="/reports" element={<ReportsPage />} />

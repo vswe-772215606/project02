@@ -114,6 +114,8 @@ enum AuditAction {
   INGREDIENT_DELETED
   INGREDIENT_COST_ADJUSTED
   PURCHASE_RECORDED
+  PURCHASE_UPDATED
+  PURCHASE_REVERSED
   RECIPE_CREATED
   RECIPE_UPDATED
   RECIPE_ACTIVATED
@@ -170,6 +172,7 @@ model User {
   debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
   ingredientMovements   IngredientMovement[] @relation("IngredientMovementActor")
   purchasesRecorded     Purchase[]           @relation("PurchaseRecorder")
+  purchasesReversed     Purchase[]           @relation("PurchaseReverser")
   recipesEdited         RecipeEdit[]         @relation("RecipeEditor")
   stocktakesPerformed   Stocktake[]          @relation("StocktakePerformer")
   wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
@@ -592,7 +595,7 @@ model RecipeEdit {
 }
 
 model Purchase {
-  id                    String   @id @default(cuid())
+  id                    String         @id @default(cuid())
   ingredientId          String
   quantityBuyUnit       Decimal
   quantityRecipeUnit    Decimal
@@ -601,15 +604,26 @@ model Purchase {
   supplierNote          String?
   recordedById          String
   occurredAt            DateTime
-  createdAt             DateTime @default(now())
+  createdAt             DateTime       @default(now())
+  status                PurchaseStatus @default(ACTIVE)
+  reversedAt            DateTime?
+  reversedById          String?
+  reversalNote          String?
 
   ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
   recordedBy    User                  @relation("PurchaseRecorder", fields: [recordedById], references: [id])
+  reversedBy    User?                 @relation("PurchaseReverser", fields: [reversedById], references: [id])
   expense       Expense?
   movements     IngredientMovement[]
 
   @@index([ingredientId, occurredAt])
   @@index([occurredAt])
+  @@index([status])
+}
+
+enum PurchaseStatus {
+  ACTIVE
+  REVERSED
 }
 
 model WasteEvent {

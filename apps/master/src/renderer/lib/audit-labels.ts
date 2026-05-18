@@ -42,6 +42,8 @@ export const AUDIT_LABELS: Record<string, string> = {
 
   // Xarid
   PURCHASE_RECORDED: 'Xarid kiritildi',
+  PURCHASE_UPDATED: 'Xarid o‘zgartirildi',
+  PURCHASE_REVERSED: 'Xarid bekor qilindi',
 
   // Retsept
   RECIPE_CREATED: 'Retsept yaratildi',
@@ -75,7 +77,8 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
     label: 'Mahsulot va retsept',
     values: [
       'INGREDIENT_CREATED', 'INGREDIENT_UPDATED', 'INGREDIENT_ACTIVATED', 'INGREDIENT_DEACTIVATED',
-      'INGREDIENT_DELETED', 'INGREDIENT_COST_ADJUSTED', 'PURCHASE_RECORDED',
+      'INGREDIENT_DELETED', 'INGREDIENT_COST_ADJUSTED',
+      'PURCHASE_RECORDED', 'PURCHASE_UPDATED', 'PURCHASE_REVERSED',
       'RECIPE_CREATED', 'RECIPE_UPDATED', 'RECIPE_ACTIVATED', 'RECIPE_DEACTIVATED', 'RECIPE_DELETED',
     ],
   },
@@ -102,7 +105,7 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
 export function auditActionTone(action: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (
     ['ORDER_CANCELED', 'WALKOUT_MARKED', 'EXPENSE_REVERSED', 'EXPENSE_WRITTEN_OFF',
-     'DEBT_WRITTEN_OFF',
+     'DEBT_WRITTEN_OFF', 'PURCHASE_REVERSED',
      'USER_DEACTIVATED', 'INGREDIENT_DEACTIVATED', 'INGREDIENT_DELETED',
      'RECIPE_DEACTIVATED', 'RECIPE_DELETED',
      'REPORT_SEND_FAILED'].includes(action)

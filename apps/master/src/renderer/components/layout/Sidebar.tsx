@@ -17,6 +17,7 @@ import {
   History,
   ClipboardCheck,
   FileBarChart2,
+  BadgeDollarSign,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth.store';
@@ -71,6 +72,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tables', label: 'Stollar', icon: Armchair, roles: ['OWNER', 'ADMIN'] },
       { to: '/users', label: 'Foydalanuvchilar', icon: Users, roles: ['OWNER', 'ADMIN'] },
+      { to: '/salaries', label: 'Xodimlar maoshi', icon: BadgeDollarSign, roles: ['OWNER', 'ADMIN'] },
       { to: '/expenses', label: 'Chiqimlar', icon: Wallet, roles: ['OWNER', 'ADMIN'] },
       { to: '/debts', label: 'Qarzlar', icon: HandCoins, roles: ['OWNER', 'ADMIN'] },
       { to: '/discounts', label: 'Chegirmalar', icon: Percent, roles: ['OWNER', 'ADMIN'] },
