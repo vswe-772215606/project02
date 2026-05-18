@@ -1,22 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Minus, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { menuApi, type MenuItem, type Combo } from '@/api/menu';
-import { ordersApi } from '@/api/orders';
+import { ordersApi, type Order, type OrderLine } from '@/api/orders';
 import { useToastStore } from '@/stores/toast.store';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 
 type Props = {
   orderId: string;
@@ -29,9 +20,6 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
 
   const [activeCatId, setActiveCatId] = useState<string | null>(null);
   const [showCombos, setShowCombos] = useState(false);
-  const [itemModal, setItemModal] = useState<MenuItem | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [itemNote, setItemNote] = useState('');
 
   const {
     data: menuData,
@@ -54,33 +42,47 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
   const currentCatId = activeCatId ?? categories[0]?.id ?? null;
   const currentCat = categories.find((c) => c.id === currentCatId);
 
-  const dismissModal = () => {
-    setItemModal(null);
-    setQuantity(1);
-    setItemNote('');
-  };
-
+  // Optimistic add: patch the cached order immediately so the cart on the
+  // right updates with zero perceived latency. The socket order:updated
+  // event triggered by the server's response reconciles afterwards.
   const addItemMutation = useMutation({
-    mutationFn: ({
-      menuItemId,
-      qty,
-      notes,
-    }: {
-      menuItemId: string;
-      qty: number;
-      notes: string;
-    }) =>
-      ordersApi.addItem(orderId, {
-        menuItemId,
-        quantity: qty,
-        notes: notes || undefined,
-      }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['orders', orderId] });
-      void qc.invalidateQueries({ queryKey: ['orders'] });
-      dismissModal();
+    mutationFn: (item: MenuItem) =>
+      ordersApi.addItem(orderId, { menuItemId: item.id, quantity: 1 }),
+
+    onMutate: async (item: MenuItem) => {
+      await qc.cancelQueries({ queryKey: ['orders', orderId] });
+      const prev = qc.getQueryData<Order>(['orders', orderId]);
+      if (prev) {
+        const existing = prev.lines.find(
+          (l) => !l.isCanceled && l.menuItemId === item.id,
+        );
+        const newLines = existing
+          ? prev.lines.map((l) =>
+              l.id === existing.id ? { ...l, quantity: l.quantity + 1 } : l,
+            )
+          : [
+              ...prev.lines,
+              {
+                id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                orderId,
+                menuItemId: item.id,
+                comboGroupId: null,
+                comboNameSnapshot: null,
+                nameSnapshot: item.name,
+                price: item.price,
+                quantity: 1,
+                notes: null,
+                isCanceled: false,
+                createdAt: new Date().toISOString(),
+              } satisfies OrderLine,
+            ];
+        qc.setQueryData<Order>(['orders', orderId], { ...prev, lines: newLines });
+      }
+      return { prev };
     },
-    onError: (err: Error & { code?: string }) => {
+
+    onError: (err: Error & { code?: string }, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['orders', orderId], ctx.prev);
       const code = err.code ?? err.message;
       if (code === 'OUT_OF_STOCK') {
         showToast('Bu mahsulot tugagan', 'error');
@@ -91,25 +93,20 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
       } else {
         showToast(err.message || "Qo'shib bo'lmadi", 'error');
       }
-      dismissModal();
     },
+    // No onSettled invalidate — server emits order:updated over socket,
+    // which our useSocket hook listens to and refetches accordingly.
+    // Doing it here too would cause a redundant double-fetch.
   });
 
   const addComboMutation = useMutation({
     mutationFn: (comboId: string) => ordersApi.addCombo(orderId, { comboId }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['orders', orderId] });
-      void qc.invalidateQueries({ queryKey: ['orders'] });
-      showToast("Set qo'shildi", 'success');
-    },
     onError: (err: Error) => showToast(err.message || "Set qo'shib bo'lmadi", 'error'),
   });
 
-  const openItem = (item: MenuItem) => {
+  const handleItemClick = (item: MenuItem) => {
     if (disabled || !item.effectivelyAvailable) return;
-    setItemModal(item);
-    setQuantity(1);
-    setItemNote('');
+    addItemMutation.mutate(item);
   };
 
   if (isLoading) {
@@ -195,7 +192,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
                 key={item.id}
                 item={item}
                 disabled={disabled}
-                onPress={() => openItem(item)}
+                onPress={() => handleItemClick(item)}
               />
             ))}
             {(currentCat?.items ?? []).length === 0 && (
@@ -206,70 +203,6 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
           </div>
         )}
       </div>
-
-      <Dialog
-        open={!!itemModal}
-        onOpenChange={(open) => {
-          if (!open) dismissModal();
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{itemModal?.name ?? ''}</DialogTitle>
-          </DialogHeader>
-
-          <div className="flex flex-col items-center gap-4 py-2">
-            <div className="text-2xl font-semibold tabular-nums">
-              {formatMoney((itemModal?.price ?? 0) * quantity)} so&apos;m
-            </div>
-
-            <div className="flex items-center gap-4">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              >
-                <Minus className="h-4 w-4" />
-              </Button>
-              <span className="text-2xl font-bold tabular-nums w-12 text-center">{quantity}</span>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setQuantity((q) => q + 1)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <Input
-              value={itemNote}
-              onChange={(e) => setItemNote(e.target.value)}
-              placeholder="Eslatma (masalan: piyozsiz)"
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={dismissModal}>
-              Bekor
-            </Button>
-            <Button
-              onClick={() =>
-                itemModal &&
-                addItemMutation.mutate({
-                  menuItemId: itemModal.id,
-                  qty: quantity,
-                  notes: itemNote,
-                })
-              }
-              disabled={addItemMutation.isPending}
-            >
-              {addItemMutation.isPending ? "Qo'shilmoqda..." : "Qo'shish"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

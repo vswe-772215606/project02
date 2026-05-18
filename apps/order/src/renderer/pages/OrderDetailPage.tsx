@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Minus, Plus, StickyNote, Trash2, ArrowLeft, Send, XCircle } from 'lucide-react';
-import { ordersApi, STATUS_LABELS, type OrderLine } from '@/api/orders';
+import { ordersApi, STATUS_LABELS, type Order, type OrderLine } from '@/api/orders';
 import { useToastStore } from '@/stores/toast.store';
 import { useConnectionStore } from '@/stores/connection.store';
 import { formatMoney } from '@/lib/format';
@@ -52,15 +52,24 @@ export function OrderDetailPage() {
     refetchInterval: 10_000,
   });
 
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: ['orders'] });
-    void qc.invalidateQueries({ queryKey: ['orders', id] });
+  // Mutation helpers — these patch the cached order optimistically so the
+  // cart re-renders instantly. The server-side `order:updated` socket event
+  // triggers the canonical refetch afterwards (see useSocket hook), so we
+  // intentionally skip invalidate() in the success path. On error we roll
+  // back to the snapshot captured in onMutate.
+  const patchOrder = async (mutator: (prev: Order) => Order) => {
+    await qc.cancelQueries({ queryKey: ['orders', id] });
+    const prev = qc.getQueryData<Order>(['orders', id]);
+    if (prev) qc.setQueryData<Order>(['orders', id], mutator(prev));
+    return { prev };
+  };
+  const rollback = (ctx: { prev?: Order }) => {
+    if (ctx?.prev) qc.setQueryData(['orders', id], ctx.prev);
   };
 
   const sendMutation = useMutation({
     mutationFn: () => ordersApi.send(id),
     onSuccess: () => {
-      invalidate();
       showToast('Buyurtma yuborildi', 'success');
     },
     onError: (err: Error) => showToast(err.message || "Yuborib bo'lmadi", 'error'),
@@ -69,7 +78,6 @@ export function OrderDetailPage() {
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(id, reason),
     onSuccess: () => {
-      invalidate();
       setCancelOrderModal(false);
       setCancelReason('');
       showToast('Buyurtma bekor qilindi', 'success');
@@ -80,26 +88,47 @@ export function OrderDetailPage() {
 
   const cancelLineMutation = useMutation({
     mutationFn: (lineId: string) => ordersApi.cancelLine(id, lineId),
-    onSuccess: invalidate,
-    onError: (err: Error) => showToast(err.message || "Bekor qilib bo'lmadi", 'error'),
+    onMutate: (lineId) =>
+      patchOrder((prev) => ({
+        ...prev,
+        lines: prev.lines.map((l) =>
+          l.id === lineId ? { ...l, isCanceled: true } : l,
+        ),
+      })),
+    onError: (err: Error, _vars, ctx) => {
+      rollback(ctx ?? {});
+      showToast(err.message || "Bekor qilib bo'lmadi", 'error');
+    },
   });
 
   const editNoteMutation = useMutation({
     mutationFn: ({ lineId, notes }: { lineId: string; notes: string }) =>
       ordersApi.editLineNote(id, lineId, notes),
+    onMutate: ({ lineId, notes }) =>
+      patchOrder((prev) => ({
+        ...prev,
+        lines: prev.lines.map((l) => (l.id === lineId ? { ...l, notes } : l)),
+      })),
     onSuccess: () => {
-      invalidate();
       setNoteModal(null);
       setNoteText('');
     },
-    onError: (err: Error) => showToast(err.message || "Saqlab bo'lmadi", 'error'),
+    onError: (err: Error, _vars, ctx) => {
+      rollback(ctx ?? {});
+      showToast(err.message || "Saqlab bo'lmadi", 'error');
+    },
   });
 
   const updateQtyMutation = useMutation({
     mutationFn: ({ lineId, quantity }: { lineId: string; quantity: number }) =>
       ordersApi.updateLineQuantity(id, lineId, quantity),
-    onSuccess: invalidate,
-    onError: (err: Error & { code?: string }) => {
+    onMutate: ({ lineId, quantity }) =>
+      patchOrder((prev) => ({
+        ...prev,
+        lines: prev.lines.map((l) => (l.id === lineId ? { ...l, quantity } : l)),
+      })),
+    onError: (err: Error & { code?: string }, _vars, ctx) => {
+      rollback(ctx ?? {});
       if (err.code === 'OUT_OF_STOCK') {
         showToast('Bu mahsulot tugagan', 'error');
       } else {
@@ -384,6 +413,7 @@ function LineRow({
             size="icon"
             className="h-8 w-8"
             onClick={onDecrement}
+            title="Kamaytirish"
           >
             <Minus className="h-3 w-3" />
           </Button>
@@ -394,6 +424,7 @@ function LineRow({
             size="icon"
             className="h-8 w-8"
             onClick={onIncrement}
+            title="Ko'paytirish"
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -411,12 +442,12 @@ function LineRow({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-destructive"
+            size="sm"
+            className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={onCancel}
-            title="Qatorni bekor qilish"
           >
             <Trash2 className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Olib tashlash</span>
           </Button>
         </div>
       )}
