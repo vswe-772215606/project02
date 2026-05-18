@@ -1,6 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'path';
 import { clearServerConfig, readServerConfig, writeServerConfig } from './server-config';
+import { getDiscoveredMasterUrl, startDiscovery, stopDiscovery, waitForDiscoveredMasterUrl } from './mdns-discover';
+
+const logger = {
+  info: (m: string) => console.log(m),
+  error: (m: string) => console.error(m),
+};
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -30,6 +36,15 @@ ipcMain.handle('config:clear-master-url', () => {
   return true;
 });
 
+// mDNS discovery — returns the last seen master URL (if any).
+ipcMain.handle('discovery:get-master-url', () => getDiscoveredMasterUrl());
+
+// Wait up to `timeoutMs` for a master to be discovered. Resolves with the URL
+// or null on timeout. Used by MasterUrlProvider on initial app load.
+ipcMain.handle('discovery:wait-for-master-url', (_event, timeoutMs: number) =>
+  waitForDiscoveredMasterUrl(typeof timeoutMs === 'number' ? timeoutMs : 5000),
+);
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1366,
@@ -52,6 +67,7 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  void startDiscovery(logger);
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -60,4 +76,8 @@ void app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  stopDiscovery();
 });

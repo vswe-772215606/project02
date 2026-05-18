@@ -24,8 +24,34 @@ export async function getMasterUrl(): Promise<string | null> {
     return cachedUrl;
   }
 
+  // Try mDNS discovery on a short budget so first launch has a chance to
+  // auto-pick the master without the user opening the setup screen.
+  // Falls back to the dev env var if no service is found.
+  try {
+    const discovered = await window.discovery?.waitForMasterUrl?.(3000);
+    if (discovered) {
+      cachedUrl = discovered;
+      return cachedUrl;
+    }
+  } catch {
+    // discovery may not exist on older builds — fall through
+  }
+
   cachedUrl = getDevFallbackUrl();
   return cachedUrl;
+}
+
+/**
+ * Returns the most-recently-seen mDNS-discovered master URL, or null if
+ * nothing has been found yet. Synchronous helper for the setup screen so
+ * we can render a "Avtomatik topildi: …" suggestion without blocking UI.
+ */
+export async function peekDiscoveredMasterUrl(): Promise<string | null> {
+  try {
+    return (await window.discovery?.getMasterUrl?.()) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function getCachedMasterUrl(): string | null {
