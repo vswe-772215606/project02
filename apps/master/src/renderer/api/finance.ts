@@ -64,7 +64,22 @@ export type FinanceDaily = {
   }>;
 };
 
+export type ServiceChargeMatrix = {
+  month: string;
+  days: number;
+  waiters: Array<{
+    waiterId: string;
+    waiterName: string;
+    daily: string[];
+    total: string;
+  }>;
+  dayTotals: string[];
+  grandTotal: string;
+};
+
 export const financeApi = {
   daily: (date?: string) =>
     api.get<FinanceDaily>(`/api/finance/daily${date ? `?date=${date}` : ''}`),
+  serviceChargeMatrix: (month?: string) =>
+    api.get<ServiceChargeMatrix>(`/api/finance/service-charge${month ? `?month=${month}` : ''}`),
 };

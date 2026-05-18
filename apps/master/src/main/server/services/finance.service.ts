@@ -182,4 +182,83 @@ export const financeService = {
       })),
     };
   },
+
+  /**
+   * Monthly service-charge breakdown per waiter, calendar-style.
+   * Rows = waiters, columns = days 1..N of the month. Sourced from
+   * CLOSED orders' serviceChargeSnapshot. Used by the Finance page.
+   */
+  async serviceChargeMatrix(monthStr: string) {
+    const [yearStr, monthIdxStr] = monthStr.split('-');
+    const year = Number(yearStr);
+    const monthIdx = Number(monthIdxStr); // 1..12
+    const monthStart = new Date(year, monthIdx - 1, 1, 0, 0, 0, 0);
+    const monthEnd = new Date(year, monthIdx, 0, 23, 59, 59, 999);
+    const days = monthEnd.getDate();
+
+    const closedOrders = await getPrisma().order.findMany({
+      where: {
+        status: OrderStatus.CLOSED,
+        closedAt: { gte: monthStart, lte: monthEnd },
+      },
+      select: {
+        waiterId: true,
+        closedAt: true,
+        serviceChargeSnapshot: true,
+        waiter: { select: { id: true, fullName: true } },
+      },
+    });
+
+    type Row = {
+      waiterId: string;
+      waiterName: string;
+      daily: Prisma.Decimal[];
+      total: Prisma.Decimal;
+    };
+    const waiterMap = new Map<string, Row>();
+    const dayTotals: Prisma.Decimal[] = Array.from(
+      { length: days },
+      () => new Prisma.Decimal(0),
+    );
+    let grand = new Prisma.Decimal(0);
+
+    for (const order of closedOrders) {
+      if (!order.closedAt) continue;
+      const dayIdx = order.closedAt.getDate() - 1;
+      const amount = order.serviceChargeSnapshot ?? new Prisma.Decimal(0);
+      let row = waiterMap.get(order.waiterId);
+      if (!row) {
+        row = {
+          waiterId: order.waiterId,
+          waiterName: order.waiter.fullName,
+          daily: Array.from({ length: days }, () => new Prisma.Decimal(0)),
+          total: new Prisma.Decimal(0),
+        };
+        waiterMap.set(order.waiterId, row);
+      }
+      const slot = row.daily[dayIdx] ?? new Prisma.Decimal(0);
+      row.daily[dayIdx] = slot.plus(amount);
+      row.total = row.total.plus(amount);
+      const totalSlot = dayTotals[dayIdx] ?? new Prisma.Decimal(0);
+      dayTotals[dayIdx] = totalSlot.plus(amount);
+      grand = grand.plus(amount);
+    }
+
+    const waiters = Array.from(waiterMap.values())
+      .sort((a, b) => Number(b.total) - Number(a.total))
+      .map((row) => ({
+        waiterId: row.waiterId,
+        waiterName: row.waiterName,
+        daily: row.daily.map((d) => d.toFixed(0)),
+        total: row.total.toFixed(0),
+      }));
+
+    return {
+      month: monthStr,
+      days,
+      waiters,
+      dayTotals: dayTotals.map((d) => d.toFixed(0)),
+      grandTotal: grand.toFixed(0),
+    };
+  },
 };
