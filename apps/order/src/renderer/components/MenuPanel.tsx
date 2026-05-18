@@ -128,7 +128,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
 
   return (
     <div className="h-full flex flex-col bg-card">
-      {/* Category tabs */}
+      {/* Category tabs — big touch targets for rush moments */}
       <div className="border-b shrink-0">
         <div className="flex overflow-x-auto">
           {activeCombos.length > 0 && (
@@ -136,7 +136,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
               type="button"
               onClick={() => setShowCombos(true)}
               className={cn(
-                'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                'px-5 py-4 text-base font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[52px]',
                 showCombos
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -156,7 +156,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
                   setShowCombos(false);
                 }}
                 className={cn(
-                  'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  'px-5 py-4 text-base font-semibold whitespace-nowrap border-b-2 transition-colors min-h-[52px]',
                   active
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -172,7 +172,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
       {/* Grid */}
       <div className="flex-1 overflow-auto p-3">
         {showCombos ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {activeCombos.map((combo) => (
               <ComboCard
                 key={combo.id}
@@ -182,11 +182,11 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
               />
             ))}
             {activeCombos.length === 0 && (
-              <div className="text-center text-sm text-muted-foreground py-8">Set menyu yo&apos;q</div>
+              <div className="text-center text-base text-muted-foreground py-12">Set menyu yo&apos;q</div>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
             {(currentCat?.items ?? []).map((item) => (
               <ItemCard
                 key={item.id}
@@ -196,7 +196,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
               />
             ))}
             {(currentCat?.items ?? []).length === 0 && (
-              <div className="col-span-full text-center text-sm text-muted-foreground py-8">
+              <div className="col-span-full text-center text-base text-muted-foreground py-12">
                 Bu kategoriyada mahsulot yo&apos;q
               </div>
             )}
@@ -222,16 +222,19 @@ function ItemCard({
   return (
     <Card
       className={cn(
-        'p-3 flex flex-col justify-between gap-2 cursor-pointer min-h-[100px] transition-colors',
-        isDisabled ? 'opacity-50 cursor-not-allowed bg-muted/50' : 'hover:border-primary',
+        'p-4 flex flex-col justify-between gap-2 cursor-pointer min-h-[120px] transition-all',
+        'active:scale-[0.98] active:bg-primary/5 select-none',
+        isDisabled
+          ? 'opacity-50 cursor-not-allowed bg-muted/50'
+          : 'hover:border-primary hover:shadow-sm',
       )}
       onClick={isDisabled ? undefined : onPress}
     >
-      <div className="text-sm font-semibold text-foreground line-clamp-2">{item.name}</div>
+      <div className="text-base font-semibold text-foreground line-clamp-2 leading-tight">{item.name}</div>
       <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-primary tabular-nums">{formatMoney(item.price)}</div>
+        <div className="text-base font-bold text-primary tabular-nums">{formatMoney(item.price)}</div>
         {!available && (
-          <Badge variant="secondary" className="text-[10px]">Yo&apos;q</Badge>
+          <Badge variant="secondary" className="text-xs">Yo&apos;q</Badge>
         )}
       </div>
     </Card>
@@ -255,19 +258,19 @@ function ComboCard({
   return (
     <Card
       className={cn(
-        'p-4 cursor-pointer transition-colors hover:border-primary',
-        disabled && 'opacity-50 cursor-not-allowed',
+        'p-5 cursor-pointer transition-all min-h-[110px] active:scale-[0.99] active:bg-primary/5 select-none',
+        disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary hover:shadow-sm',
       )}
       onClick={disabled ? undefined : onPress}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="font-semibold text-foreground">{combo.name}</div>
+        <div className="text-base font-semibold text-foreground">{combo.name}</div>
         <Badge variant="default">SET</Badge>
       </div>
-      <div className="text-xs text-muted-foreground line-clamp-2">
+      <div className="text-sm text-muted-foreground line-clamp-2">
         {combo.components.map((c) => `${c.menuItem.name} × ${c.quantity}`).join('  ·  ')}
       </div>
-      <div className="mt-2 text-right text-sm font-bold tabular-nums">{formatMoney(total)} so&apos;m</div>
+      <div className="mt-2 text-right text-base font-bold tabular-nums">{formatMoney(total)} so&apos;m</div>
     </Card>
   );
 }

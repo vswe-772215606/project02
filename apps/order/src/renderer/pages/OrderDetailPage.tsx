@@ -67,23 +67,36 @@ export function OrderDetailPage() {
     if (ctx?.prev) qc.setQueryData(['orders', id], ctx.prev);
   };
 
+  // Send (DRAFT → SENT): optimistic flip so the badge changes instantly
+  // and the Yuborish button vanishes. The server's order:updated event
+  // reconciles via the socket; if it errors, rollback restores DRAFT.
   const sendMutation = useMutation({
     mutationFn: () => ordersApi.send(id),
+    onMutate: () =>
+      patchOrder((prev) => ({ ...prev, status: 'SENT' })),
     onSuccess: () => {
       showToast('Buyurtma yuborildi', 'success');
     },
-    onError: (err: Error) => showToast(err.message || "Yuborib bo'lmadi", 'error'),
+    onError: (err: Error, _vars, ctx) => {
+      rollback(ctx ?? {});
+      showToast(err.message || "Yuborib bo'lmadi", 'error');
+    },
   });
 
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(id, reason),
+    onMutate: () =>
+      patchOrder((prev) => ({ ...prev, status: 'CANCELED' })),
     onSuccess: () => {
       setCancelOrderModal(false);
       setCancelReason('');
       showToast('Buyurtma bekor qilindi', 'success');
       nav('/', { replace: true });
     },
-    onError: (err: Error) => showToast(err.message || "Bekor qilib bo'lmadi", 'error'),
+    onError: (err: Error, _vars, ctx) => {
+      rollback(ctx ?? {});
+      showToast(err.message || "Bekor qilib bo'lmadi", 'error');
+    },
   });
 
   const cancelLineMutation = useMutation({
@@ -171,43 +184,42 @@ export function OrderDetailPage() {
 
   return (
     <div className="flex flex-col gap-3 h-full max-h-[calc(100vh-8rem)]">
-      {/* Header */}
+      {/* Header — bigger tap targets for rush moments */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="icon" onClick={() => nav('/')}>
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => nav('/')}>
+            <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-lg font-semibold truncate">{tableLabel}</span>
-              <Badge variant={STATUS_VARIANTS[order.status] ?? 'secondary'}>
+              <span className="text-xl font-bold truncate">{tableLabel}</span>
+              <Badge variant={STATUS_VARIANTS[order.status] ?? 'secondary'} className="text-sm px-2.5 py-0.5">
                 {STATUS_LABELS[order.status]}
               </Badge>
             </div>
-            <div className="text-xs text-muted-foreground">#{order.orderNumber}</div>
+            <div className="text-sm text-muted-foreground">#{order.orderNumber}</div>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {canWaiterCancel && (
             <Button
               variant="outline"
-              size="sm"
-              className="text-destructive"
+              className="h-12 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive text-base font-semibold"
               onClick={() => setCancelOrderModal(true)}
               disabled={offline}
             >
-              <XCircle className="h-4 w-4 mr-1" />
+              <XCircle className="h-5 w-5 mr-1" />
               Bekor qilish
             </Button>
           )}
           {canSend && (
             <Button
-              size="sm"
+              className="h-12 px-6 text-base font-bold"
               onClick={() => sendMutation.mutate()}
               disabled={activeLines.length === 0 || offline || sendMutation.isPending}
             >
-              <Send className="h-4 w-4 mr-1" />
-              {sendMutation.isPending ? 'Yuborilmoqda...' : 'Yuborish'}
+              <Send className="h-5 w-5 mr-1" />
+              Yuborish
             </Button>
           )}
         </div>
@@ -217,13 +229,13 @@ export function OrderDetailPage() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 min-h-0">
         {/* Lines pane */}
         <Card className="flex flex-col min-h-0">
-          <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
-            <div className="font-semibold">Buyurtma qatorlari</div>
-            <div className="text-xs text-muted-foreground">{activeLines.length} ta</div>
+          <div className="px-5 py-4 border-b shrink-0 flex items-center justify-between">
+            <div className="text-base font-bold">Buyurtma qatorlari</div>
+            <div className="text-sm text-muted-foreground tabular-nums">{activeLines.length} ta</div>
           </div>
-          <div className="flex-1 overflow-auto p-3 flex flex-col gap-2">
+          <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
             {order.lines.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
+              <div className="text-base text-muted-foreground text-center py-12">
                 Menyudan mahsulot tanlang
               </div>
             ) : (
@@ -251,9 +263,9 @@ export function OrderDetailPage() {
               ))
             )}
           </div>
-          <div className="px-4 py-3 border-t shrink-0 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Jami</span>
-            <span className="text-lg font-bold tabular-nums">{formatMoney(subtotal)} so&apos;m</span>
+          <div className="px-5 py-4 border-t shrink-0 flex items-center justify-between bg-muted/30">
+            <span className="text-base font-semibold text-muted-foreground">Jami</span>
+            <span className="text-2xl font-bold tabular-nums">{formatMoney(subtotal)} <span className="text-base text-muted-foreground">so&apos;m</span></span>
           </div>
         </Card>
 
@@ -375,80 +387,79 @@ function LineRow({
 }) {
   if (line.isCanceled) {
     return (
-      <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground line-through">
+      <div className="rounded-md border bg-muted/40 px-4 py-3 text-base text-muted-foreground line-through">
         {line.nameSnapshot} × {line.quantity} — Bekor qilindi
       </div>
     );
   }
 
   return (
-    <div className={cn('rounded-md border bg-card p-3 flex flex-col gap-2')}>
-      <div className="flex items-start justify-between gap-2">
+    <div className={cn('rounded-md border bg-card p-4 flex flex-col gap-3')}>
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-semibold truncate">{line.nameSnapshot}</div>
+          <div className="text-base font-bold text-foreground truncate">{line.nameSnapshot}</div>
           {line.comboNameSnapshot && (
-            <div className="text-xs text-muted-foreground">Set: {line.comboNameSnapshot}</div>
+            <div className="text-sm text-muted-foreground">Set: {line.comboNameSnapshot}</div>
           )}
         </div>
         <div className="text-right shrink-0">
-          <div className="text-sm font-bold tabular-nums">
+          <div className="text-lg font-bold tabular-nums">
             {formatMoney(line.price * line.quantity)}
           </div>
-          <div className="text-[11px] text-muted-foreground tabular-nums">
+          <div className="text-xs text-muted-foreground tabular-nums">
             {formatMoney(line.price)} × {line.quantity}
           </div>
         </div>
       </div>
 
       {line.notes && (
-        <div className="text-xs italic text-primary bg-primary/5 rounded px-2 py-1">
+        <div className="text-sm italic text-primary bg-primary/5 rounded px-3 py-2">
           {line.notes}
         </div>
       )}
 
       {canEdit && (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="h-11 w-11 active:scale-95 transition-transform"
             onClick={onDecrement}
             title="Kamaytirish"
           >
-            <Minus className="h-3 w-3" />
+            <Minus className="h-5 w-5" />
           </Button>
-          <span className="w-8 text-center font-semibold tabular-nums">{line.quantity}</span>
+          <span className="w-10 text-center text-lg font-bold tabular-nums">{line.quantity}</span>
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="h-11 w-11 active:scale-95 transition-transform"
             onClick={onIncrement}
             title="Ko'paytirish"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-5 w-5" />
           </Button>
           <div className="flex-1" />
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-11 w-11"
             onClick={onEditNote}
             title="Eslatma"
           >
-            <StickyNote className="h-3.5 w-3.5" />
+            <StickyNote className="h-5 w-5" />
           </Button>
           <Button
             type="button"
             variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-11 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={onCancel}
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Olib tashlash</span>
+            <Trash2 className="h-5 w-5" />
+            <span className="text-sm font-semibold">Olib tashlash</span>
           </Button>
         </div>
       )}
