@@ -89,15 +89,34 @@
     display: none !important;
   }
 
-  /* The viewport scrollers in AppShell stop being scrollers — let content flow. */
+  /* The viewport scrollers in AppShell stop being scrollers — let content
+     flow into multiple pages. The AppShell has nested wrappers
+     (`#root > div.h-screen > div.flex-1 > main.overflow-auto`); any of them
+     keeping a fixed height or overflow:hidden clips the print output to a
+     single page. Force every layout ancestor of the main content fluid. */
   html,
   body,
   #root,
+  #root > div,
+  #root > div > div,
   main {
     height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
     overflow: visible !important;
     background: white !important;
     color: black !important;
+  }
+
+  /* Belt-and-suspenders: anything with a scroll viewport inside the report
+     content (tables wrapped in overflow-auto wrappers, etc.) becomes a
+     normal flowed element when printed. */
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-hidden {
+    overflow: visible !important;
+    max-height: none !important;
   }
 
   body {
