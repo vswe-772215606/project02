@@ -58,9 +58,9 @@ export function WalkoutOrderDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Buyurtmani to&apos;lovsiz ketgan deb belgilash?</DialogTitle>
+          <DialogTitle>Buyurtmani to&apos;lamay ketgan deb belgilash?</DialogTitle>
           <DialogDescription>
-            #{order?.orderNumber ?? ''} buyurtma &quot;To&apos;lovsiz ketdi&quot; holatiga o&apos;tkaziladi.
+            #{order?.orderNumber ?? ''} buyurtma &quot;To&apos;lamay ketdi&quot; holatiga o&apos;tkaziladi.
             U daromad statistikalarida hisobga olinmaydi.
           </DialogDescription>
         </DialogHeader>

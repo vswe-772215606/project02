@@ -119,7 +119,7 @@ export function useSocket(): void {
     });
     nextSocket.on('order:walkout', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-      showToastRef.current("Buyurtma to'lovsiz yopildi", 'warning');
+      showToastRef.current("Buyurtma to'lamay yopildi", 'warning');
     });
     nextSocket.on('order:transferred', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });

@@ -91,7 +91,7 @@ export function ApprovalCard({
           className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
         >
           <XCircle />
-          Walkout
+          To&apos;lamay ketdi
         </Button>
         <Button onClick={onConfirm} className="flex-[2]">
           <CheckCircle2 />
