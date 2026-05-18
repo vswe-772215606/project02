@@ -315,16 +315,20 @@ export function ReportsPage() {
   const onSavePdf = async () => {
     if (tab === 'daily') {
       // Server-side composed PDF — multi-page, paginated, all sections.
-      // Does not depend on what's currently visible on screen.
-      await saveDailyReportPdf({
+      const res = await saveDailyReportPdf({
         date,
         defaultName: `chayxana-moliyaviy-${date}.pdf`,
         title: 'Kunlik hisobotni saqlash',
       });
+      if (!res.saved && !res.canceled && res.error) {
+        // Show the actual failure so the user can report it rather than just
+        // seeing the OS "failed to load" dialog on a corrupt/empty file.
+        // eslint-disable-next-line no-alert
+        window.alert(`PDF saqlashda xatolik:\n\n${res.error}`);
+      }
       return;
     }
-    // Monthly report still uses DOM-capture for now; switch to a server-side
-    // generator later if needed.
+    // Monthly report still uses DOM-capture for now.
     await saveFinancePdf({
       defaultName: `chayxana-moliyaviy-${month}.pdf`,
       title: 'Oylik hisobotni saqlash',

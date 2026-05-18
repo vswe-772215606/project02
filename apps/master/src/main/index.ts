@@ -294,10 +294,18 @@ if (singleInstanceLockAcquired) {
       // what the renderer/reports service expect for daily aggregations.
       const [y, m, d] = payload.date.split('-').map(Number);
       const date = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+      runtimeLogger.info(`[pdf-report] start date=${payload.date} out=${result.filePath}`);
       await generateDailyReportPdf({ date, outputPath: result.filePath });
+      const { statSync } = await import('fs');
+      const size = statSync(result.filePath).size;
+      runtimeLogger.info(`[pdf-report] wrote ${size} bytes`);
+      if (size < 200) {
+        return { saved: false, error: `PDF empty (${size} bytes) — see runtime.log for details` } as const;
+      }
       return { saved: true, filePath: result.filePath } as const;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+      runtimeLogger.error(`[pdf-report] FAILED: ${message}`);
       return { saved: false, error: message } as const;
     }
   });
