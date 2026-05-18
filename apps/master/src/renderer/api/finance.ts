@@ -65,13 +65,22 @@ export type FinanceDaily = {
 };
 
 export type ServiceChargeMatrix = {
-  month: string;
+  from: string;
+  to: string;
   days: number;
+  dayLabels: Array<{
+    key: string;        // YYYY-MM-DD
+    day: number;        // 1..31
+    month: number;      // 1..12
+    weekday: number;    // 0=Sun..6=Sat
+    isMonthStart: boolean;
+  }>;
   waiters: Array<{
     waiterId: string;
     waiterName: string;
     daily: string[];
     total: string;
+    orderCount: number;
   }>;
   dayTotals: string[];
   grandTotal: string;
@@ -80,6 +89,12 @@ export type ServiceChargeMatrix = {
 export const financeApi = {
   daily: (date?: string) =>
     api.get<FinanceDaily>(`/api/finance/daily${date ? `?date=${date}` : ''}`),
-  serviceChargeMatrix: (month?: string) =>
-    api.get<ServiceChargeMatrix>(`/api/finance/service-charge${month ? `?month=${month}` : ''}`),
+  serviceChargeMatrix: (params?: { from?: string; to?: string; month?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
+    if (params?.month && !params.from && !params.to) q.set('month', params.month);
+    const qs = q.toString();
+    return api.get<ServiceChargeMatrix>(`/api/finance/service-charge${qs ? '?' + qs : ''}`);
+  },
 };

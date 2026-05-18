@@ -184,22 +184,58 @@ export const financeService = {
   },
 
   /**
-   * Monthly service-charge breakdown per waiter, calendar-style.
-   * Rows = waiters, columns = days 1..N of the month. Sourced from
-   * CLOSED orders' serviceChargeSnapshot. Used by the Finance page.
+   * Per-waiter service-charge breakdown over an arbitrary date range,
+   * calendar-style. Rows = waiters, columns = each day in [from, to].
+   * Sourced from each CLOSED order's `serviceChargeSnapshot`, which is
+   * the sum of all SERVICE-kind menu-item lines on that order at
+   * close-time (see billing.service.ts:65). Used by the Salaries page.
+   *
+   * Day cells are keyed by local YYYY-MM-DD of `closedAt`, so the
+   * grouping respects the staff's local day boundary rather than UTC.
    */
-  async serviceChargeMatrix(monthStr: string) {
-    const [yearStr, monthIdxStr] = monthStr.split('-');
-    const year = Number(yearStr);
-    const monthIdx = Number(monthIdxStr); // 1..12
-    const monthStart = new Date(year, monthIdx - 1, 1, 0, 0, 0, 0);
-    const monthEnd = new Date(year, monthIdx, 0, 23, 59, 59, 999);
-    const days = monthEnd.getDate();
+  async serviceChargeMatrix(input: { from: Date; to: Date }) {
+    const from = new Date(input.from);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(input.to);
+    to.setHours(23, 59, 59, 999);
+
+    // Build the column list — one slot per local day in the range.
+    const dayKeys: string[] = [];
+    const dayLabels: Array<{
+      key: string;
+      day: number;
+      month: number;
+      weekday: number;
+      isMonthStart: boolean;
+    }> = [];
+    {
+      const cursor = new Date(from);
+      cursor.setHours(0, 0, 0, 0);
+      const stop = new Date(to);
+      stop.setHours(0, 0, 0, 0);
+      while (cursor <= stop) {
+        const yyyy = cursor.getFullYear();
+        const mm = String(cursor.getMonth() + 1).padStart(2, '0');
+        const dd = String(cursor.getDate()).padStart(2, '0');
+        const key = `${yyyy}-${mm}-${dd}`;
+        dayKeys.push(key);
+        dayLabels.push({
+          key,
+          day: cursor.getDate(),
+          month: cursor.getMonth() + 1,
+          weekday: cursor.getDay(),
+          isMonthStart: cursor.getDate() === 1,
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    const days = dayKeys.length;
+    const dayIndexByKey = new Map(dayKeys.map((k, i) => [k, i] as const));
 
     const closedOrders = await getPrisma().order.findMany({
       where: {
         status: OrderStatus.CLOSED,
-        closedAt: { gte: monthStart, lte: monthEnd },
+        closedAt: { gte: from, lte: to },
       },
       select: {
         waiterId: true,
@@ -214,6 +250,7 @@ export const financeService = {
       waiterName: string;
       daily: Prisma.Decimal[];
       total: Prisma.Decimal;
+      orderCount: number;
     };
     const waiterMap = new Map<string, Row>();
     const dayTotals: Prisma.Decimal[] = Array.from(
@@ -224,7 +261,12 @@ export const financeService = {
 
     for (const order of closedOrders) {
       if (!order.closedAt) continue;
-      const dayIdx = order.closedAt.getDate() - 1;
+      const yyyy = order.closedAt.getFullYear();
+      const mm = String(order.closedAt.getMonth() + 1).padStart(2, '0');
+      const dd = String(order.closedAt.getDate()).padStart(2, '0');
+      const dayIdx = dayIndexByKey.get(`${yyyy}-${mm}-${dd}`);
+      if (dayIdx === undefined) continue;
+
       const amount = order.serviceChargeSnapshot ?? new Prisma.Decimal(0);
       let row = waiterMap.get(order.waiterId);
       if (!row) {
@@ -233,12 +275,14 @@ export const financeService = {
           waiterName: order.waiter.fullName,
           daily: Array.from({ length: days }, () => new Prisma.Decimal(0)),
           total: new Prisma.Decimal(0),
+          orderCount: 0,
         };
         waiterMap.set(order.waiterId, row);
       }
       const slot = row.daily[dayIdx] ?? new Prisma.Decimal(0);
       row.daily[dayIdx] = slot.plus(amount);
       row.total = row.total.plus(amount);
+      row.orderCount += 1;
       const totalSlot = dayTotals[dayIdx] ?? new Prisma.Decimal(0);
       dayTotals[dayIdx] = totalSlot.plus(amount);
       grand = grand.plus(amount);
@@ -251,11 +295,14 @@ export const financeService = {
         waiterName: row.waiterName,
         daily: row.daily.map((d) => d.toFixed(0)),
         total: row.total.toFixed(0),
+        orderCount: row.orderCount,
       }));
 
     return {
-      month: monthStr,
+      from: dayKeys[0] ?? '',
+      to: dayKeys[dayKeys.length - 1] ?? '',
       days,
+      dayLabels,
       waiters,
       dayTotals: dayTotals.map((d) => d.toFixed(0)),
       grandTotal: grand.toFixed(0),

@@ -1,7 +1,38 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
+
+// Load apps/master/.env in dev so the Prisma client (which validates
+// DATABASE_URL eagerly) sees the connection string. In packaged builds
+// sqlite-bootstrap.ts sets DATABASE_URL programmatically, so this is a
+// no-op there. Tiny inline parser — no dotenv dep needed.
+(function loadDotEnvForDev() {
+  if (app.isPackaged) return;
+  const candidates = [
+    resolve(process.cwd(), '.env'),
+    resolve(__dirname, '..', '..', '.env'),
+    resolve(__dirname, '..', '..', '..', '.env'),
+  ];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    const lines = readFileSync(path, 'utf8').split(/\r?\n/);
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      let value = line.slice(eq + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (!(key in process.env)) process.env[key] = value;
+    }
+    break;
+  }
+})();
 import { bootstrapPackagedWindowsSqlite } from './sqlite-bootstrap';
 import { saveFinancePdf } from './print-pdf';
 import {
