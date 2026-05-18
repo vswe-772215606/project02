@@ -421,15 +421,16 @@ export const orderService = {
       }
 
       // Role rules:
-      //   WAITER  → DRAFT only (and must own the order)
-      //   ADMIN/OWNER → DRAFT or SENT
+      //   WAITER  → DRAFT or SENT (must own the order). SENT line cancels
+      //             don't restore stock (per existing maybeRestoreLineStock
+      //             behavior) and are audited like any cancel.
+      //   ADMIN/OWNER → DRAFT or SENT.
       const isWaiter = input.requestingUser.role === UserRole.WAITER;
       const isAdminish = input.requestingUser.role === UserRole.ADMIN
         || input.requestingUser.role === UserRole.OWNER;
 
       const waiterAllowed = isWaiter
-        && order.waiterId === input.requestingUser.id
-        && order.status === OrderStatus.DRAFT;
+        && order.waiterId === input.requestingUser.id;
 
       const adminAllowed = isAdminish;
 
@@ -561,9 +562,12 @@ export const orderService = {
       const isAdminish = input.requestingUser.role === UserRole.ADMIN
         || input.requestingUser.role === UserRole.OWNER;
 
+      // Waiters can now cancel their own SENT orders too, not only DRAFT.
+      // Stock is restored only on DRAFT cancels (existing maybeRestoreLineStock
+      // behavior) so cancelling a SENT order doesn't fabricate inventory.
       const waiterAllowed = isWaiter
         && order.waiterId === input.requestingUser.id
-        && order.status === OrderStatus.DRAFT;
+        && (order.status === OrderStatus.DRAFT || order.status === OrderStatus.SENT);
 
       const adminAllowed = isAdminish
         && (order.status === OrderStatus.DRAFT || order.status === OrderStatus.SENT);

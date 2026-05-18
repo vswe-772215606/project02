@@ -165,7 +165,8 @@ export function OrderDetailPage() {
     : order.table?.name ?? order.tableName ?? 'Stol';
   const isEditable = order.status === 'DRAFT' || order.status === 'SENT';
   const canSend = order.status === 'DRAFT';
-  const canWaiterCancel = order.status === 'DRAFT';
+  // Waiters can now cancel both DRAFT and SENT (per backend role rules).
+  const canWaiterCancel = order.status === 'DRAFT' || order.status === 'SENT';
   const canEditLines = isEditable && !offline;
 
   return (
