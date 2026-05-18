@@ -11,6 +11,8 @@ import { useSocket } from './src/hooks/useSocket';
 import { setupNotifications } from './src/lib/notifications';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { ToastContainer } from './src/components/Toast';
+import { discoverMasterUrl } from './src/lib/env';
+import { useSettingsStore } from './src/stores/settings.store';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -52,6 +54,14 @@ export default function App() {
       await setupNotifications();
       await hydrate();
       await SplashScreen.hideAsync();
+
+      // If the user hasn't pinned a server URL in Settings, scan the LAN
+      // for an mDNS-advertised master. Pure HTTP subnet probe, ~5s upper
+      // bound. The result is cached for subsequent api calls.
+      const stored = useSettingsStore.getState().serverUrl;
+      if (!stored) {
+        void discoverMasterUrl();
+      }
     })();
   }, [hydrate]);
 

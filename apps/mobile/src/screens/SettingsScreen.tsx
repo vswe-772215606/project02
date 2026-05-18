@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { getMasterUrl } from '../lib/env';
+import { discoverMasterUrl, getMasterUrl } from '../lib/env';
 import { checkServerHealth, getErrorMessage, normalizeUrl } from '../lib/network';
 import { useSettingsStore, VibrateMode } from '../stores/settings.store';
 import { useAuthStore } from '../stores/auth.store';
@@ -70,6 +70,8 @@ export function SettingsScreen() {
   const [editingUrl, setEditingUrl] = useState(false);
   const [urlInput, setUrlInput] = useState(serverUrl || getMasterUrl() || '');
   const [serverResult, setServerResult] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverProgress, setDiscoverProgress] = useState(0);
 
   const currentUrl = useMemo(() => serverUrl || getMasterUrl() || 'Server tanlanmagan', [serverUrl]);
 
@@ -119,6 +121,28 @@ export function SettingsScreen() {
       setServerResult({ tone: 'error', message: `Serverni tekshirib bo'lmadi. ${getErrorMessage(error)}` });
     } finally {
       setTestingServer(false);
+    }
+  };
+
+  const handleAutoDiscover = async () => {
+    setDiscovering(true);
+    setDiscoverProgress(0);
+    setServerResult(null);
+    try {
+      const url = await discoverMasterUrl({
+        onProgress: (probed, total) => setDiscoverProgress(Math.round((probed / total) * 100)),
+      });
+      if (!url) {
+        setServerResult({ tone: 'error', message: "LAN'da master topilmadi. URL ni qo'lda kiriting." });
+        return;
+      }
+      setUrlInput(url);
+      setEditingUrl(true);
+      setServerResult({ tone: 'success', message: `Topildi: ${url}` });
+    } catch (error) {
+      setServerResult({ tone: 'error', message: `Qidirish xatosi: ${getErrorMessage(error)}` });
+    } finally {
+      setDiscovering(false);
     }
   };
 
@@ -214,6 +238,13 @@ export function SettingsScreen() {
                 size="sm"
                 loading={testingServer}
                 onPress={() => void handleServerTest()}
+              />
+              <Button
+                title={discovering ? `Qidirilmoqda... ${discoverProgress}%` : "Avtomatik topish"}
+                variant="outline"
+                size="sm"
+                loading={discovering}
+                onPress={() => void handleAutoDiscover()}
               />
               <View style={styles.row}>
                 <Button
