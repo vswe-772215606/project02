@@ -45,7 +45,7 @@ const TAB_LABELS: Record<OrderStatus, string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lovsiz ketdi",
+  WALKOUT: "To'lamay ketdi",
   CANCELED: 'Bekor qilingan',
 };
 

@@ -87,7 +87,7 @@ export function NewOrderPage() {
           >
             <UtensilsCrossed className="h-12 w-12 text-primary" />
             <div className="text-base font-bold">Zalda</div>
-            <div className="text-xs text-muted-foreground">Dine-in</div>
+            <div className="text-xs text-muted-foreground">Stolda</div>
           </Card>
 
           <Card
@@ -99,7 +99,7 @@ export function NewOrderPage() {
           >
             <ShoppingBag className="h-12 w-12 text-primary" />
             <div className="text-base font-bold">Olib ketish</div>
-            <div className="text-xs text-muted-foreground">Takeaway</div>
+            <div className="text-xs text-muted-foreground">Tashqariga</div>
           </Card>
         </div>
       ) : loadingTables ? (

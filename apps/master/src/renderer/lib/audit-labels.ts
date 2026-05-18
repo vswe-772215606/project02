@@ -13,7 +13,7 @@ export const AUDIT_LABELS: Record<string, string> = {
 
   ORDER_CONFIRMED: "Buyurtma tasdiqlandi va to'landi",
   ORDER_CANCELED: 'Buyurtma bekor qilindi',
-  WALKOUT_MARKED: 'To‘lovsiz ketdi (walkout)',
+  WALKOUT_MARKED: 'To‘lamay ketdi',
   TABLE_TRANSFERRED: 'Stol o‘zgartirildi',
   RECEIPT_REPRINTED: 'Chek qaytadan chop etildi',
 
@@ -24,13 +24,13 @@ export const AUDIT_LABELS: Record<string, string> = {
   EXPENSE_CREATED: 'Chiqim qo‘shildi',
   EXPENSE_REVERSED: 'Chiqim bekor qilindi',
   EXPENSE_RETURN_RECEIVED: 'Chiqim qaytarildi (qisman/to‘liq)',
-  EXPENSE_WRITTEN_OFF: 'Chiqim yo‘qotildi (write-off)',
+  EXPENSE_WRITTEN_OFF: 'Chiqim hisobdan chiqarildi',
 
   // Qarz
   DEBT_CREATED: 'Qarz ochildi',
   DEBT_PAYMENT_RECORDED: 'Qarz qaytimi qabul qilindi',
   DEBT_CLOSED: 'Qarz yopildi',
-  DEBT_WRITTEN_OFF: 'Qarz yo‘qotildi (write-off)',
+  DEBT_WRITTEN_OFF: 'Qarz hisobdan chiqarildi',
 
   // Mahsulot (ingredient)
   INGREDIENT_CREATED: 'Mahsulot yaratildi',

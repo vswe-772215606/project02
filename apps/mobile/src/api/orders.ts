@@ -77,8 +77,8 @@ export const ACTIVE_STATUSES: OrderStatus[] = ['DRAFT', 'SENT'];
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   DRAFT: 'Qoralama',
-  SENT: 'Yuborildi',
-  CLOSED: 'Yopildi',
-  WALKOUT: "To'lovsiz ketdi",
-  CANCELED: 'Bekor qilindi',
+  SENT: 'Yuborilgan',
+  CLOSED: 'Yopilgan',
+  WALKOUT: "To'lamay ketdi",
+  CANCELED: 'Bekor qilingan',
 };

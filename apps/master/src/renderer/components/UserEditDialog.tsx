@@ -87,7 +87,7 @@ export function UserEditDialog({ user, currentUserRole, onClose, onSave, isSavin
   const onSubmit = (data: UserFormValues) => {
     setFormError(null);
     if (data.role === 'WAITER' && data.pin && TRIVIAL_PINS.includes(data.pin)) {
-      setFormError("PIN juda oddiy, iltimos boshqasini tanlang");
+      setFormError("PIN juda oddiy, boshqasini tanlang");
       return;
     }
 

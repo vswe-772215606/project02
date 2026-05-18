@@ -80,7 +80,7 @@ export function NewOrderScreen() {
           >
             <MaterialCommunityIcons name="silverware-fork-knife" size={48} color={theme.colors.primary} style={styles.typeIcon} />
             <Text style={styles.typeBtnText}>Zalda</Text>
-            <Text style={styles.typeBtnSub}>Dine-in</Text>
+            <Text style={styles.typeBtnSub}>Stolda</Text>
           </Card>
 
           <Card
@@ -89,7 +89,7 @@ export function NewOrderScreen() {
           >
             <MaterialCommunityIcons name="shopping-outline" size={48} color={theme.colors.primary} style={styles.typeIcon} />
             <Text style={styles.typeBtnText}>Olib ketish</Text>
-            <Text style={styles.typeBtnSub}>Takeaway</Text>
+            <Text style={styles.typeBtnSub}>Tashqariga</Text>
           </Card>
         </View>
       ) : (

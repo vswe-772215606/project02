@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<Order['status'], string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lovsiz ketdi",
+  WALKOUT: "To'lamay ketdi",
   CANCELED: 'Bekor qilingan',
 };
 

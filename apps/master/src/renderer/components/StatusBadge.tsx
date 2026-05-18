@@ -20,7 +20,7 @@ const statusConfig: Record<OrderStatus, StatusConfig> = {
   DRAFT: { label: 'Qoralama', icon: FileText, color: 'bg-slate-100 text-slate-600 border-slate-200' },
   SENT: { label: 'Yuborilgan', icon: Send, color: 'bg-blue-100 text-blue-600 border-blue-200' },
   CLOSED: { label: 'Yopilgan', icon: CheckCircle2, color: 'bg-green-100 text-green-600 border-green-200' },
-  WALKOUT: { label: "To'lovsiz ketdi", icon: XCircle, color: 'bg-red-100 text-red-600 border-red-200' },
+  WALKOUT: { label: "To'lamay ketdi", icon: XCircle, color: 'bg-red-100 text-red-600 border-red-200' },
   CANCELED: { label: 'Bekor qilingan', icon: Ban, color: 'bg-slate-200 text-slate-500 border-slate-300' },
 };
 

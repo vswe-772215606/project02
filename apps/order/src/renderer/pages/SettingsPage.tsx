@@ -175,7 +175,7 @@ export function SettingsPage() {
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">
-              Oxirgi muvaffaqiyatli aloqa
+              Oxirgi ulanish
             </div>
             <div className="font-medium">{formatDateTime(lastSuccessfulContact)}</div>
           </div>
