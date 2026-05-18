@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { hostname } from 'os';
-import type { Bonjour, Service } from 'bonjour-service';
+import { Bonjour, type Service } from 'bonjour-service';
 
 let bonjour: Bonjour | null = null;
 let publishedService: Service | null = null;
@@ -28,9 +28,7 @@ export async function advertiseMasterMdns(opts: {
       await stopAdvertising();
     }
 
-    const mod = await import('bonjour-service');
-    const BonjourCtor = mod.default ?? (mod as unknown as { Bonjour: typeof Bonjour }).Bonjour;
-    bonjour = new BonjourCtor();
+    bonjour = new Bonjour();
 
     const name = `Chayxana Master @ ${hostname()}`;
     publishedService = bonjour.publish({

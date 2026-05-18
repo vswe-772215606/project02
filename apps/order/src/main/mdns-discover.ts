@@ -1,4 +1,4 @@
-import type { Bonjour, Service } from 'bonjour-service';
+import { Bonjour, type Service } from 'bonjour-service';
 
 let bonjour: Bonjour | null = null;
 let activeBrowser: ReturnType<Bonjour['find']> | null = null;
@@ -24,9 +24,7 @@ export async function startDiscovery(logger: {
     return;
   }
   try {
-    const mod = await import('bonjour-service');
-    const BonjourCtor = mod.default ?? (mod as unknown as { Bonjour: typeof Bonjour }).Bonjour;
-    bonjour = new BonjourCtor();
+    bonjour = new Bonjour();
 
     discoveryStartedAt = Date.now();
     activeBrowser = bonjour.find({ type: 'chayxana' }, (service: Service) => {

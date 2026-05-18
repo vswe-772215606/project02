@@ -294,7 +294,7 @@ function ItemCard({
       )}
       onClick={isDisabled ? undefined : onPress}
     >
-      <div className="text-sm font-semibold line-clamp-2">{item.name}</div>
+      <div className="text-sm font-semibold text-foreground line-clamp-2">{item.name}</div>
       <div className="flex items-center justify-between">
         <div className="text-sm font-bold text-primary tabular-nums">{formatMoney(item.price)}</div>
         {!available && (
@@ -328,7 +328,7 @@ function ComboCard({
       onClick={disabled ? undefined : onPress}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="font-semibold">{combo.name}</div>
+        <div className="font-semibold text-foreground">{combo.name}</div>
         <Badge variant="default">SET</Badge>
       </div>
       <div className="text-xs text-muted-foreground line-clamp-2">

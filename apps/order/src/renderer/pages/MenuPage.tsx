@@ -97,7 +97,7 @@ export function MenuPage() {
             return (
               <Card key={combo.id} className="p-4 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <div className="font-semibold">{combo.name}</div>
+                  <div className="font-semibold text-foreground">{combo.name}</div>
                   <Badge variant="default">SET</Badge>
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -119,7 +119,7 @@ export function MenuPage() {
                 key={item.id}
                 className={cn('p-3 flex flex-col gap-2', !available && 'opacity-50 bg-muted/40')}
               >
-                <div className="text-sm font-semibold line-clamp-2">{item.name}</div>
+                <div className="text-sm font-semibold text-foreground line-clamp-2">{item.name}</div>
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-bold text-primary tabular-nums">
                     {formatMoney(item.price)}
