@@ -135,11 +135,51 @@
   /* Tables: smaller cells + page-break-friendly */
   table {
     page-break-inside: auto;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead {
+    /* Repeat the header on every page that a long table spills onto. */
+    display: table-header-group;
+  }
+  tbody {
+    display: table-row-group;
   }
   tr,
   td,
   th {
     page-break-inside: avoid;
+  }
+  /* Stronger borders in print so cells are readable on paper */
+  th, td {
+    border-bottom: 0.5pt solid #cbd5e1 !important;
+    padding: 4pt 6pt !important;
+    font-size: 9.5pt !important;
+  }
+  th {
+    background: #f1f5f9 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Each top-level <details data-print-expand> gets its own page so giant
+     order/meal/waiter tables don't sandwich the summary mid-section. */
+  details[data-print-expand] {
+    page-break-before: always;
+  }
+  /* …except the very first one — no blank page before the first section. */
+  details[data-print-expand]:first-of-type {
+    page-break-before: auto;
+  }
+
+  /* Grand summary always starts on a fresh page and stays together. */
+  [data-print-keep] {
+    page-break-before: always;
+    page-break-inside: avoid;
+  }
+
+  /* Section titles shouldn't orphan from their first row */
+  h1, h2, h3, h4 {
+    page-break-after: avoid;
   }
 
   /* Hide focus rings + buttons */

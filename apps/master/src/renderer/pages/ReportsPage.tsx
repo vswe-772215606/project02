@@ -32,6 +32,10 @@ import { ResultsSection } from '@/components/reports/ResultsSection';
 import { ExpensesSection } from '@/components/reports/ExpensesSection';
 import { DebtSection } from '@/components/reports/DebtSection';
 import { OrdersSection } from '@/components/reports/OrdersSection';
+import { PerWaiterSection } from '@/components/reports/PerWaiterSection';
+import { MealSalesSection } from '@/components/reports/MealSalesSection';
+import { IncidentsSection } from '@/components/reports/IncidentsSection';
+import { GrandSummarySection } from '@/components/reports/GrandSummarySection';
 import { MonthlyTable } from '@/components/reports/MonthlyTable';
 import { StatTile } from '@/components/reports/report-helpers';
 import { formatMoney } from '@/lib/format';
@@ -105,23 +109,55 @@ function DailyReportSections({ report }: { report: DailyReport }) {
       <ExpensesSection report={report} />
       <DebtSection report={report} />
 
-      {/* Collapsible orders register — closed on screen, force-open in print via @media print rule */}
-      <details data-print-expand className="group rounded-lg border bg-card">
-        <summary className="no-print cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-2 hover:bg-muted/40 transition-colors">
-          <span className="text-sm font-semibold">Buyurtmalar reestri</span>
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{report.ordersTable.length} ta yozuv</span>
-            <ChevronDown
-              className="h-4 w-4 transition-transform group-open:rotate-180"
-              strokeWidth={2}
-            />
-          </span>
-        </summary>
-        <div className="px-4 pb-4 pt-2 border-t">
-          <OrdersSection report={report} />
-        </div>
-      </details>
+      {/* Collapsible detail tables — closed on screen, force-open in print via @media print rule */}
+      <Collapsible title="Buyurtmalar reestri" count={`${report.ordersTable.length} ta yozuv`}>
+        <OrdersSection report={report} />
+      </Collapsible>
+
+      <Collapsible title="Ofitsiantlar bo'yicha" count={`${report.perWaiter.length} ta ofitsiant`}>
+        <PerWaiterSection report={report} />
+      </Collapsible>
+
+      <Collapsible title="Taomlar bo'yicha sotuv" count={`${report.mealSales.length} ta taom`}>
+        <MealSalesSection report={report} />
+      </Collapsible>
+
+      <Collapsible
+        title="Bekor / To'lamay ketgan"
+        count={`${report.cancellations.length + report.walkouts.length} ta hodisa`}
+      >
+        <IncidentsSection report={report} />
+      </Collapsible>
+
+      {/* Always visible — this is the page everyone looks at. Print-keep so
+          it doesn't get split across page boundaries when rendering as PDF. */}
+      <div data-print-keep>
+        <GrandSummarySection report={report} />
+      </div>
     </div>
+  );
+}
+
+function Collapsible({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details data-print-expand className="group rounded-lg border bg-card">
+      <summary className="no-print cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-2 hover:bg-muted/40 transition-colors">
+        <span className="text-sm font-semibold">{title}</span>
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{count}</span>
+          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" strokeWidth={2} />
+        </span>
+      </summary>
+      <div className="px-4 pb-4 pt-2 border-t">{children}</div>
+    </details>
   );
 }
 
