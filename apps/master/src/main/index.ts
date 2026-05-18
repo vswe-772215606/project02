@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
+import { advertiseMasterMdns, stopAdvertising } from './mdns-advertise';
 
 // Load apps/master/.env in dev so the Prisma client (which validates
 // DATABASE_URL eagerly) sees the connection string. In packaged builds
@@ -120,6 +121,11 @@ async function startServer(): Promise<void> {
         resolve();
       });
     });
+
+    // Best-effort LAN discovery: advertise via mDNS so order desktops and
+    // mobile clients find us without hardcoded IPs. Non-blocking; failures
+    // are logged but don't affect the server.
+    void advertiseMasterMdns({ port: PORT, logger });
 
     logger.info('startServer success');
   })().catch((error) => {
@@ -293,5 +299,9 @@ if (singleInstanceLockAcquired) {
     if (process.platform !== 'darwin') {
       app.quit();
     }
+  });
+
+  app.on('will-quit', () => {
+    void stopAdvertising();
   });
 }
