@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   ReceiptText,
@@ -87,10 +87,19 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+function useIsActiveRoute() {
+  const location = useLocation();
+  return (to: string) => {
+    if (to === '/') return location.pathname === '/';
+    return location.pathname === to || location.pathname.startsWith(to + '/');
+  };
+}
+
 export function Sidebar() {
   const user = useAuthStore((s) => s.user);
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const isActiveRoute = useIsActiveRoute();
 
   const role = (user?.role ?? '') as Role;
 
@@ -150,42 +159,37 @@ export function Sidebar() {
                 <div className="space-y-1">
                   {visibleItems.map((item) => {
                     const Icon = item.icon;
+                    const isActive = isActiveRoute(item.to);
                     const link = (
                       <NavLink
                         key={item.to}
                         to={item.to}
                         end={item.to === '/'}
-                        className={({ isActive }) =>
-                          cn(
-                            'group relative flex items-center rounded-md font-medium transition-all',
-                            collapsed
-                              ? 'justify-center h-11 w-11 mx-auto'
-                              : 'px-2.5 py-2 gap-3 text-sm',
-                            isActive
-                              ? 'bg-primary text-primary-foreground shadow-sm'
-                              : 'text-foreground hover:bg-muted',
-                          )
-                        }
-                      >
-                        {({ isActive }) => (
-                          <>
-                            {/* Active indicator strip on the left when collapsed */}
-                            {collapsed && isActive && (
-                              <span
-                                aria-hidden
-                                className="absolute -left-2 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-primary"
-                              />
-                            )}
-                            <Icon
-                              className={cn(
-                                'shrink-0 text-current',
-                                collapsed ? 'h-[22px] w-[22px]' : 'h-[18px] w-[18px]',
-                              )}
-                              strokeWidth={isActive ? 2.25 : 2}
-                            />
-                            {!collapsed && <span className="truncate">{item.label}</span>}
-                          </>
+                        className={cn(
+                          'group relative flex items-center rounded-md font-medium transition-all',
+                          collapsed
+                            ? 'justify-center h-11 w-11 mx-auto'
+                            : 'px-2.5 py-2 gap-3 text-sm',
+                          isActive
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-foreground hover:bg-muted',
                         )}
+                      >
+                        {/* Active indicator strip on the left when collapsed */}
+                        {collapsed && isActive && (
+                          <span
+                            aria-hidden
+                            className="absolute -left-2 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-primary"
+                          />
+                        )}
+                        <Icon
+                          className={cn(
+                            'shrink-0 text-current',
+                            collapsed ? 'h-[22px] w-[22px]' : 'h-[18px] w-[18px]',
+                          )}
+                          strokeWidth={isActive ? 2.25 : 2}
+                        />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
                       </NavLink>
                     );
                     if (collapsed) {
