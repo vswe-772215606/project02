@@ -115,10 +115,10 @@ export function Sidebar() {
             <TooltipTrigger asChild>
               <button
                 onClick={toggleSidebar}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-muted text-foreground/70 hover:text-foreground transition-colors"
                 aria-label={collapsed ? 'Yoyish' : "Yig'ish"}
               >
-                <PanelLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+                <PanelLeft className="h-[18px] w-[18px] text-current" strokeWidth={2} />
               </button>
             </TooltipTrigger>
             {collapsed && <TooltipContent side="right">Yoyish</TooltipContent>}
@@ -163,7 +163,7 @@ export function Sidebar() {
                               : 'px-2.5 py-2 gap-3 text-sm',
                             isActive
                               ? 'bg-primary text-primary-foreground shadow-sm'
-                              : 'text-foreground/80 hover:bg-muted hover:text-foreground',
+                              : 'text-foreground hover:bg-muted',
                           )
                         }
                       >
@@ -178,7 +178,7 @@ export function Sidebar() {
                             )}
                             <Icon
                               className={cn(
-                                'shrink-0',
+                                'shrink-0 text-current',
                                 collapsed ? 'h-[22px] w-[22px]' : 'h-[18px] w-[18px]',
                               )}
                               strokeWidth={isActive ? 2.25 : 2}
