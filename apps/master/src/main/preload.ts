@@ -15,4 +15,6 @@ export type SavePdfResult = {
 contextBridge.exposeInMainWorld('chayxana', {
   saveFinancePdf: (payload: { defaultName: string; title?: string }): Promise<SavePdfResult> =>
     ipcRenderer.invoke('finance:save-pdf', payload),
+  saveDailyReportPdf: (payload: { date: string; defaultName?: string; title?: string }): Promise<SavePdfResult> =>
+    ipcRenderer.invoke('reports:save-daily-pdf', payload),
 });

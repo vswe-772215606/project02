@@ -36,6 +36,7 @@ import { advertiseMasterMdns, stopAdvertising } from './mdns-advertise';
 })();
 import { bootstrapPackagedWindowsSqlite } from './sqlite-bootstrap';
 import { saveFinancePdf } from './print-pdf';
+import { generateDailyReportPdf } from './pdf-report';
 import {
   createFileLogger,
   createStartupLogger,
@@ -260,6 +261,45 @@ if (singleInstanceLockAcquired) {
       defaultName: payload?.defaultName ?? 'chayxana-moliyaviy.pdf',
       title: payload?.title,
     });
+  });
+
+  /**
+   * Generate a structured daily PDF report (pdfkit, server-side data) instead
+   * of capturing the rendered DOM. This is the canonical export — it's
+   * paginated, precise, includes every section, and stays consistent even if
+   * the on-screen layout changes.
+   */
+  ipcMain.handle('reports:save-daily-pdf', async (event, payload: { date: string; defaultName?: string; title?: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) {
+      return { saved: false, error: 'no-window' as const };
+    }
+    if (!payload?.date || !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)) {
+      return { saved: false, error: 'invalid-date' as const };
+    }
+    const { dialog } = await import('electron');
+    const { homedir } = await import('os');
+    const { join } = await import('path');
+    const initialPath = join(homedir(), 'Documents', payload.defaultName ?? `chayxana-moliyaviy-${payload.date}.pdf`);
+    const result = await dialog.showSaveDialog(win, {
+      title: payload.title ?? 'Kunlik hisobotni PDF saqlash',
+      defaultPath: initialPath,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { saved: false, canceled: true as const };
+    }
+    try {
+      // Parse YYYY-MM-DD as local-time midnight so the day boundaries match
+      // what the renderer/reports service expect for daily aggregations.
+      const [y, m, d] = payload.date.split('-').map(Number);
+      const date = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+      await generateDailyReportPdf({ date, outputPath: result.filePath });
+      return { saved: true, filePath: result.filePath } as const;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { saved: false, error: message } as const;
+    }
   });
 
   app.on('second-instance', () => {

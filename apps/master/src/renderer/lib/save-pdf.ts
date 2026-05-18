@@ -7,6 +7,7 @@ type SavePdfResult = {
 
 type ChayxanaBridge = {
   saveFinancePdf: (payload: { defaultName: string; title?: string }) => Promise<SavePdfResult>;
+  saveDailyReportPdf?: (payload: { date: string; defaultName?: string; title?: string }) => Promise<SavePdfResult>;
 };
 
 function getBridge(): ChayxanaBridge | null {
@@ -77,4 +78,26 @@ export function printCurrentView() {
   } finally {
     restore();
   }
+}
+
+/**
+ * Server-side PDF: the main process queries Prisma directly and composes a
+ * pdfkit document with paginated tables and a precise grand summary. This
+ * does NOT depend on the rendered DOM — it's the canonical export and
+ * always produces a real multi-page document.
+ */
+export async function saveDailyReportPdf(opts: {
+  date: string;
+  defaultName?: string;
+  title?: string;
+}): Promise<SavePdfResult> {
+  const bridge = getBridge();
+  if (!bridge?.saveDailyReportPdf) {
+    // Fall back to DOM-capture so older shells still work.
+    return saveFinancePdf({
+      defaultName: opts.defaultName ?? `chayxana-moliyaviy-${opts.date}.pdf`,
+      title: opts.title,
+    });
+  }
+  return bridge.saveDailyReportPdf(opts);
 }

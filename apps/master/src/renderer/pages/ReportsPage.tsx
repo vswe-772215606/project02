@@ -39,7 +39,7 @@ import { GrandSummarySection } from '@/components/reports/GrandSummarySection';
 import { MonthlyTable } from '@/components/reports/MonthlyTable';
 import { StatTile } from '@/components/reports/report-helpers';
 import { formatMoney } from '@/lib/format';
-import { printCurrentView, saveFinancePdf } from '@/lib/save-pdf';
+import { printCurrentView, saveDailyReportPdf, saveFinancePdf } from '@/lib/save-pdf';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -313,12 +313,21 @@ export function ReportsPage() {
   };
 
   const onSavePdf = async () => {
-    const defaultName = tab === 'daily'
-      ? `chayxana-moliyaviy-${date}.pdf`
-      : `chayxana-moliyaviy-${month}.pdf`;
+    if (tab === 'daily') {
+      // Server-side composed PDF — multi-page, paginated, all sections.
+      // Does not depend on what's currently visible on screen.
+      await saveDailyReportPdf({
+        date,
+        defaultName: `chayxana-moliyaviy-${date}.pdf`,
+        title: 'Kunlik hisobotni saqlash',
+      });
+      return;
+    }
+    // Monthly report still uses DOM-capture for now; switch to a server-side
+    // generator later if needed.
     await saveFinancePdf({
-      defaultName,
-      title: tab === 'daily' ? 'Kunlik hisobotni saqlash' : 'Oylik hisobotni saqlash',
+      defaultName: `chayxana-moliyaviy-${month}.pdf`,
+      title: 'Oylik hisobotni saqlash',
     });
   };
 
