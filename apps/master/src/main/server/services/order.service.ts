@@ -230,18 +230,13 @@ export const orderService = {
       const isService = item.kind === MenuItemKind.SERVICE;
 
       return getPrisma().$transaction(async (tx) => {
-        // In DRAFT, merge same-item lines; for SERVICE always merge so duplicate
-        // service-charge rows don't proliferate. In SENT, append a new line so
-        // the add-on is visible/auditable on the bill.
-        const existingMergeable = order.status === OrderStatus.DRAFT || isService
-          ? await tx.orderLine.findFirst({
-              where: {
-                orderId: input.orderId,
-                menuItemId: input.menuItemId,
-                isCanceled: false,
-              },
-            })
-          : null;
+        const existingMergeable = await tx.orderLine.findFirst({
+          where: {
+            orderId: input.orderId,
+            menuItemId: input.menuItemId,
+            isCanceled: false,
+          },
+        });
 
         const line = existingMergeable
           ? await orderLineRepo.updateQuantity(
@@ -338,8 +333,8 @@ export const orderService = {
       if (!line || line.orderId !== order.id || line.isCanceled) {
         throw Errors.NotFound('OrderLine');
       }
-      if (order.status !== OrderStatus.DRAFT) {
-        throw Errors.Business('LINE_ALREADY_SENT', 'Cannot change quantity once the order is sent');
+      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
+        throw Errors.IllegalStateTransition(order.status, 'UPDATE_QUANTITY');
       }
       if (input.quantity < 1) {
         throw Errors.Business('INVALID_QUANTITY', 'Quantity must be at least 1');
@@ -354,7 +349,10 @@ export const orderService = {
             delta,
             tx,
           );
-        } else if (delta < 0 && line.menuItemId) {
+        } else if (delta < 0 && line.menuItemId && order.status === OrderStatus.DRAFT) {
+          // Stock is only restored on decrement while still DRAFT. Once SENT,
+          // dishes are considered prepared (matches maybeRestoreLineStock policy
+          // on cancel) so we don't fabricate inventory.
           await consumptionService.restore(
             { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
             Math.abs(delta),
