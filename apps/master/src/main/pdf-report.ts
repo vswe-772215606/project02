@@ -116,12 +116,27 @@ function pageHeader(doc: Doc, title: string, dateLabel: string): void {
 }
 
 function footerOnPage(doc: Doc, pageNum: number, generatedAt: string): void {
+  // CRITICAL #1: bottomY must be INSIDE the printable area. Drawing in the
+  // margin makes pdfkit's text() auto-paginate, which re-fires 'pageAdded'.
+  //
+  // CRITICAL #2: we MUST restore doc.y after drawing. doc.text() advances the
+  // cursor — leaving it parked at the bottom of the page causes the very next
+  // text/ensureSpace call in user code to trigger another addPage(), which
+  // fires pageAdded → re-enters footerOnPage → cursor at bottom again →
+  // infinite page cascade (the symptom: PDF balloons to hundreds of pages).
+  const savedY = doc.y;
   doc.save();
   doc.fillColor(COLOR_MUTED).font('Helvetica').fontSize(8);
-  const bottomY = doc.page.height - PAGE_MARGIN + 8;
-  doc.text(`Yaratildi: ${generatedAt}`, PAGE_MARGIN, bottomY, { lineBreak: false });
-  doc.text(`${pageNum}`, doc.page.width - PAGE_MARGIN - 30, bottomY, { lineBreak: false, width: 30, align: 'right' });
+  const bottomY = doc.page.height - doc.page.margins.bottom - 14;
+  doc.text(`Yaratildi: ${generatedAt}`, doc.page.margins.left, bottomY, { lineBreak: false });
+  doc.text(
+    `${pageNum}`,
+    doc.page.width - doc.page.margins.right - 30,
+    bottomY,
+    { lineBreak: false, width: 30, align: 'right' },
+  );
   doc.restore();
+  doc.y = savedY;
 }
 
 // ─── Two-column key/value list (for sales/cashflow/expenses summaries) ─
@@ -336,9 +351,22 @@ export async function generateDailyReportPdf(opts: {
   const stream = createWriteStream(opts.outputPath);
   doc.pipe(stream);
 
-  // Page numbering: pdfkit needs a per-page hook
+  // Page numbering: pdfkit needs a per-page hook.
+  // Re-entrance guard: if footerOnPage ever causes pdfkit to auto-paginate,
+  // 'pageAdded' would re-fire while we're still inside the previous footer
+  // render, recursing into doc.text() forever. Belt-and-suspenders alongside
+  // keeping bottomY inside the printable area.
   let pageNum = 1;
-  const tagPage = () => footerOnPage(doc, pageNum, generatedAt);
+  let inFooter = false;
+  const tagPage = () => {
+    if (inFooter) return;
+    inFooter = true;
+    try {
+      footerOnPage(doc, pageNum, generatedAt);
+    } finally {
+      inFooter = false;
+    }
+  };
   doc.on('pageAdded', () => {
     tagPage();
     pageNum += 1;

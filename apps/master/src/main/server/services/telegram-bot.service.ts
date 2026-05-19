@@ -75,6 +75,10 @@ export const telegramBotService = {
           Markup.button.callback('📅 Kecha', 'report_yesterday'),
         ],
         [
+          Markup.button.callback('📄 Bugungi PDF', 'pdf_today'),
+          Markup.button.callback('📄 Kechagi PDF', 'pdf_yesterday'),
+        ],
+        [
           Markup.button.callback('📋 Hafta yakuni', 'report_week'),
           Markup.button.callback('📈 Oylik hisobot', 'report_month'),
         ],
@@ -97,6 +101,51 @@ export const telegramBotService = {
         } catch (error) {
           console.error('[TelegramBot] Hisobot yaratishda xatolik:', error);
           await ctx.reply('❌ Hisobotni yaratishda xatolik yuz berdi.');
+        }
+      };
+
+      const sendDailyPdf = async (ctx: any, date: Date) => {
+        let tmpPath: string | null = null;
+        try {
+          await ctx.answerCbQuery().catch(() => {});
+          await ctx.reply('📄 PDF tayyorlanmoqda, biroz kuting…');
+
+          const { generateDailyReportPdf } = await import('../../pdf-report');
+          const os = await import('os');
+          const path = await import('path');
+          const fs = await import('fs/promises');
+
+          const dd = String(date.getDate()).padStart(2, '0');
+          const mm = String(date.getMonth() + 1).padStart(2, '0');
+          const yyyy = date.getFullYear();
+          const filename = `chayxana-moliyaviy-${yyyy}-${mm}-${dd}.pdf`;
+          tmpPath = path.join(os.tmpdir(), `chayxana-bot-${Date.now()}-${filename}`);
+
+          await generateDailyReportPdf({ date, outputPath: tmpPath });
+
+          // Telegram doc upload requires a buffer or path; pass the file path.
+          await ctx.replyWithDocument(
+            { source: tmpPath, filename },
+            {
+              caption: `📊 ${formatDateLabel(date)} — kunlik moliyaviy PDF hisobot`,
+              ...mainMenu,
+            },
+          );
+
+          // Best-effort cleanup (don't await inside the success path's main await
+          // chain — but we already sent the doc, so do it now).
+          try { await fs.unlink(tmpPath); } catch {}
+          tmpPath = null;
+        } catch (error: any) {
+          console.error('[TelegramBot] PDF yuborishda xatolik:', error);
+          const msg = error?.message ?? String(error);
+          await ctx.reply(`❌ PDF yaratishda xatolik: ${msg}`).catch(() => {});
+          if (tmpPath) {
+            try {
+              const fs = await import('fs/promises');
+              await fs.unlink(tmpPath);
+            } catch {}
+          }
         }
       };
 
@@ -204,6 +253,9 @@ export const telegramBotService = {
           '/qarzlar — Hozirgi ochiq qarzlar ro\'yxati\n' +
           '/xarajatlar — Bugungi xarajatlar va turkumlari\n' +
           '/omborxona — Mahsulotlar qoldig\'i (eng kam yetadiganlari)\n\n' +
+          '<b>PDF hisobot:</b>\n' +
+          '/pdf — Bugungi kun PDF hisoboti\n' +
+          '/pdf <i>YIL-OY-KUN</i> — Tanlangan kun PDF\'i (masalan <code>/pdf 2026-05-12</code>)\n\n' +
           '/yordam — Shu yordam matni',
           { parse_mode: 'HTML', ...mainMenu },
         );
@@ -285,6 +337,14 @@ export const telegramBotService = {
       bot.command(['xarajatlar', 'expenses'], sendExpensesToday);
       bot.command(['omborxona', 'stock'], sendLowStock);
 
+      // /pdf — today's daily report as a PDF
+      // /pdf 2026-05-12 — specific date
+      bot.command(['pdf'], async (ctx) => {
+        const text = (ctx.message as any)?.text ?? '';
+        const date = parseDateArg(text) ?? new Date();
+        await sendDailyPdf(ctx, date);
+      });
+
       // ─── Action buttons ───
       bot.action('report_today', (ctx) => sendDailyReport(ctx, new Date()));
       bot.action('report_yesterday', (ctx) => {
@@ -299,6 +359,11 @@ export const telegramBotService = {
       bot.action('debts_now', sendDebtsSnapshot);
       bot.action('expenses_today', sendExpensesToday);
       bot.action('stock_low', sendLowStock);
+      bot.action('pdf_today', (ctx) => sendDailyPdf(ctx, new Date()));
+      bot.action('pdf_yesterday', (ctx) => {
+        const d = new Date(); d.setDate(d.getDate() - 1);
+        return sendDailyPdf(ctx, d);
+      });
       bot.action('date_help', sendDateHelp);
       bot.action('help_action', sendHelp);
 
@@ -314,6 +379,7 @@ export const telegramBotService = {
           { command: 'qarzlar', description: 'Ochiq qarzlar ro\'yxati' },
           { command: 'xarajatlar', description: 'Bugungi xarajatlar' },
           { command: 'omborxona', description: 'Eng kam yetadigan mahsulotlar' },
+          { command: 'pdf', description: 'Kunlik PDF hisobot (yoki /pdf YIL-OY-KUN)' },
           { command: 'yordam', description: 'Buyruqlar ro\'yxati' },
           { command: 'start', description: 'Botni qayta ishga tushirish' },
         ]);
