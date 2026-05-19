@@ -7,9 +7,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ordersApi, Order, OrderLine, STATUS_LABELS } from '../api/orders';
+import { ordersApi, OrderLine, STATUS_LABELS } from '../api/orders';
 import { tablesApi } from '../api/tables';
 import { useConnectionStore } from '../stores/connection.store';
+import { useToastStore } from '../stores/toast.store';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { formatUZS } from '../lib/format';
 import { MenuPanel } from '../components/MenuPanel';
@@ -38,6 +39,7 @@ export function OrderEditScreen() {
   const { orderId } = route.params;
   const qc = useQueryClient();
   const offline = useConnectionStore((s) => s.status) !== 'online';
+  const showToast = useToastStore((s) => s.show);
 
   const [tab, setTab] = useState<'order' | 'menu'>('order');
   const [noteModal, setNoteModal] = useState<{ lineId: string; current: string } | null>(null);
@@ -64,6 +66,22 @@ export function OrderEditScreen() {
     }
   }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-cancel empty DRAFT on back navigation — prevents orphan drafts
+  // when the waiter opens an order and leaves without adding anything.
+  useEffect(() => {
+    if (!order) return;
+    const unsub = nav.addListener('beforeRemove', () => {
+      const hasActiveLines = order.lines.some((l) => !l.isCanceled);
+      if (order.status === 'DRAFT' && !hasActiveLines) {
+        // Fire-and-forget; navigation proceeds either way.
+        ordersApi.cancel(orderId, "Bo'sh qoralama").catch(() => {});
+        void qc.invalidateQueries({ queryKey: ['orders'] });
+        void qc.invalidateQueries({ queryKey: ['tables'] });
+      }
+    });
+    return unsub;
+  }, [order, nav, orderId, qc]);
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['orders'] });
     void qc.invalidateQueries({ queryKey: ['orders', orderId] });
@@ -76,7 +94,13 @@ export function OrderEditScreen() {
   });
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(orderId, reason),
-    onSuccess: () => { haptics.warning(); invalidate(); nav.goBack(); },
+    onSuccess: () => {
+      haptics.warning();
+      setCancelOrderModal(false);
+      setCancelReason('');
+      invalidate();
+      nav.goBack();
+    },
     onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message || "Bekor qilib bo'lmadi"); },
   });
   const editNoteMutation = useMutation({
@@ -87,8 +111,20 @@ export function OrderEditScreen() {
   });
   const cancelLineMutation = useMutation({
     mutationFn: (lineId: string) => ordersApi.cancelLine(orderId, lineId),
+    onSuccess: () => { haptics.warning(); invalidate(); },
+    onError: (err: any) => {
+      haptics.error();
+      showToast(err.message || "Bekor qilib bo'lmadi", 'error');
+    },
+  });
+  const updateQtyMutation = useMutation({
+    mutationFn: ({ lineId, quantity }: { lineId: string; quantity: number }) =>
+      ordersApi.updateLineQuantity(orderId, lineId, quantity),
     onSuccess: () => { haptics.tapLight(); invalidate(); },
-    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message); },
+    onError: (err: any) => {
+      haptics.error();
+      showToast(err.message || "O'zgartirib bo'lmadi", 'error');
+    },
   });
   const transferMutation = useMutation({
     mutationFn: (tableId: string) => ordersApi.transfer(orderId, tableId),
@@ -110,8 +146,8 @@ export function OrderEditScreen() {
   const foodSubtotal = foodLines.reduce((s, l) => s + l.price * l.quantity, 0);
   const serviceTotal = serviceLines.reduce((s, l) => s + l.price * l.quantity, 0);
   const subtotal = foodSubtotal + serviceTotal;
-  const canCancel = order.status === 'DRAFT';
-  const isEditable = ['DRAFT', 'SENT'].includes(order.status);
+  // SENT lines and orders are now editable from the waiter app — backend allows it.
+  const isEditable = order.status === 'DRAFT' || order.status === 'SENT';
   const tableLabel = order.orderType === 'TAKEAWAY' ? 'Olib ketish' : (order.table?.name ?? 'Stol');
   const badgeVariant = STATUS_VARIANTS[order.status] || 'slate';
 
@@ -119,19 +155,47 @@ export function OrderEditScreen() {
     setNoteText(line.notes ?? '');
     setNoteModal({ lineId: line.id, current: line.notes ?? '' });
   };
-  const openCancelLine = (line: OrderLine) => {
+  const confirmCancelLine = (line: OrderLine) => {
     Alert.alert('Qatorni bekor qilish', `"${line.name}" ni bekor qilasizmi?`, [
       { text: "Yo'q", style: 'cancel' },
-      { text: 'Ha', style: 'destructive', onPress: () => cancelLineMutation.mutate(line.id) },
+      { text: 'Ha, bekor qil', style: 'destructive', onPress: () => cancelLineMutation.mutate(line.id) },
     ]);
+  };
+  const handleMinus = (line: OrderLine) => {
+    if (offline) {
+      showToast("Aloqa yo'q", 'error');
+      return;
+    }
+    if (line.quantity <= 1) {
+      confirmCancelLine(line);
+    } else {
+      updateQtyMutation.mutate({ lineId: line.id, quantity: line.quantity - 1 });
+    }
+  };
+  const handlePlus = (line: OrderLine) => {
+    if (offline) {
+      showToast("Aloqa yo'q", 'error');
+      return;
+    }
+    updateQtyMutation.mutate({ lineId: line.id, quantity: line.quantity + 1 });
+  };
+  const requestCancelOrder = () => {
+    if (order.status === 'DRAFT') {
+      Alert.alert('Qoralamani bekor qilish', "Bu qoralamani bekor qilasizmi?", [
+        { text: "Yo'q", style: 'cancel' },
+        { text: 'Ha, bekor qil', style: 'destructive', onPress: () => cancelOrderMutation.mutate('Qoralama bekor qilindi') },
+      ]);
+    } else {
+      setCancelOrderModal(true);
+    }
   };
   const showOrderMenu = () => {
     Alert.alert('Amallar', undefined, [
       order.orderType === 'DINE_IN' && isEditable
         ? { text: "Stolni o'zgartirish", onPress: () => setTransferModal(true) }
         : null,
-      canCancel
-        ? { text: 'Buyurtmani bekor qilish', style: 'destructive', onPress: () => setCancelOrderModal(true) }
+      isEditable
+        ? { text: 'Buyurtmani bekor qilish', style: 'destructive', onPress: requestCancelOrder }
         : null,
       { text: 'Yopish', style: 'cancel' },
     ].filter(Boolean) as any);
@@ -157,7 +221,7 @@ export function OrderEditScreen() {
         )}
       </View>
 
-      {/* Modern Tabs */}
+      {/* Tabs */}
       {isEditable && (
         <View style={styles.tabBarContainer}>
           <View style={styles.tabBar}>
@@ -165,6 +229,11 @@ export function OrderEditScreen() {
               style={[styles.tabItem, tab === 'order' && styles.tabItemActive]}
               onPress={() => setTab('order')}
             >
+              <MaterialCommunityIcons
+                name="receipt"
+                size={16}
+                color={tab === 'order' ? theme.colors.primary : theme.colors.slate[500]}
+              />
               <Text style={[styles.tabText, tab === 'order' && styles.tabTextActive]}>Buyurtma</Text>
               {activeLines.length > 0 && (
                 <View style={[styles.tabBadge, tab === 'order' ? styles.tabBadgeActive : styles.tabBadgeInactive]}>
@@ -178,6 +247,11 @@ export function OrderEditScreen() {
               style={[styles.tabItem, tab === 'menu' && styles.tabItemActive]}
               onPress={() => setTab('menu')}
             >
+              <MaterialCommunityIcons
+                name="silverware-fork-knife"
+                size={16}
+                color={tab === 'menu' ? theme.colors.primary : theme.colors.slate[500]}
+              />
               <Text style={[styles.tabText, tab === 'menu' && styles.tabTextActive]}>Menyu</Text>
             </TouchableOpacity>
           </View>
@@ -187,43 +261,55 @@ export function OrderEditScreen() {
       {/* Content */}
       <View style={styles.content}>
         {tab === 'menu' && isEditable ? (
-          <MenuPanel orderId={orderId} offline={offline} />
+          <MenuPanel orderId={orderId} offline={offline} currentLines={order.lines} />
         ) : (
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
             {order.lines.length === 0 ? (
               <View style={styles.emptyOrder}>
+                <MaterialCommunityIcons name="cart-outline" size={48} color={theme.colors.slate[300]} />
                 <Text style={styles.emptyOrderText}>Mahsulot qo'shilmagan</Text>
                 {isEditable && (
-                  <Button
-                    title="Menyudan tanlash →"
-                    variant="outline"
-                    onPress={() => setTab('menu')}
-                  />
+                  <View style={styles.emptyActions}>
+                    <Button
+                      title="Menyudan tanlash"
+                      variant="primary"
+                      onPress={() => setTab('menu')}
+                    />
+                    {order.status === 'DRAFT' && (
+                      <Button
+                        title="Qoralamani bekor qilish"
+                        variant="ghost"
+                        onPress={requestCancelOrder}
+                      />
+                    )}
+                  </View>
                 )}
               </View>
             ) : (
               order.lines.map((line) => {
-                const canEditNote = !line.isCanceled && order.status === 'DRAFT';
+                const busy =
+                  (updateQtyMutation.isPending && updateQtyMutation.variables?.lineId === line.id) ||
+                  (cancelLineMutation.isPending && cancelLineMutation.variables === line.id);
                 return (
                   <LineRow
                     key={line.id}
                     line={line}
-                    canEditNote={canEditNote && !offline}
-                    canCancelLine={!line.isCanceled && order.status === 'DRAFT' && !offline}
+                    canEdit={isEditable && !line.isCanceled && !offline}
+                    busy={busy}
+                    onPlus={() => handlePlus(line)}
+                    onMinus={() => handleMinus(line)}
                     onNote={() => openNoteModal(line)}
-                    onCancel={() => openCancelLine(line)}
+                    onCancel={() => confirmCancelLine(line)}
                   />
                 );
               })
             )}
-            
-            {/* Per-line bottom spacer; the persistent BillSummary lives below. */}
             <View style={{ height: 8 }} />
           </ScrollView>
         )}
       </View>
 
-      {/* Persistent bill summary above the footer — visible even while scrolling lines */}
+      {/* Bill summary */}
       {tab === 'order' && activeLines.length > 0 && (
         <View style={styles.billSummary}>
           <View style={styles.billRow}>
@@ -244,18 +330,37 @@ export function OrderEditScreen() {
         </View>
       )}
 
-      {/* Modern Footer Actions */}
+      {/* Footer actions */}
       <View style={styles.footer}>
         {isEditable && tab === 'menu' && (
-          <Button
-            title={`Savat${activeLines.length > 0 ? ` (${activeLines.length})` : ''}`}
-            variant="secondary"
+          <TouchableOpacity
             onPress={() => setTab('order')}
-            style={styles.footerSecondaryBtn}
-          />
+            activeOpacity={0.85}
+            style={[styles.cartPill, activeLines.length === 0 && styles.cartPillEmpty]}
+          >
+            <View style={styles.cartPillLeft}>
+              <View style={styles.cartCountBadge}>
+                <MaterialCommunityIcons name="receipt" size={18} color={theme.colors.white} />
+                {activeLines.length > 0 && (
+                  <View style={styles.cartCountDot}>
+                    <Text style={styles.cartCountDotText}>{activeLines.length}</Text>
+                  </View>
+                )}
+              </View>
+              <View>
+                <Text style={styles.cartPillTitle}>
+                  {activeLines.length === 0 ? 'Buyurtmani ko\'rish' : 'Buyurtmaga o\'tish'}
+                </Text>
+                <Text style={styles.cartPillSub}>
+                  {activeLines.length === 0 ? 'Hech narsa qo\'shilmagan' : `${activeLines.length} ta · ${formatUZS(subtotal)} so'm`}
+                </Text>
+              </View>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={28} color={theme.colors.white} />
+          </TouchableOpacity>
         )}
 
-        {order.status === 'DRAFT' && (
+        {order.status === 'DRAFT' && tab === 'order' && (
           <Button
             title="Oshxonaga yuborish"
             variant="primary"
@@ -269,13 +374,22 @@ export function OrderEditScreen() {
           />
         )}
 
-        {order.status === 'SENT' && (
-          <View style={styles.waitingContainer}>
-            <Text style={styles.waitingText}>Kassir tasdiqlashi kutilmoqda</Text>
+        {order.status === 'SENT' && tab === 'order' && (
+          <View style={styles.sentFooter}>
+            <View style={styles.sentInfo}>
+              <MaterialCommunityIcons name="clock-outline" size={18} color={theme.colors.primary} />
+              <Text style={styles.sentInfoText}>Kassir tasdiqlashi kutilmoqda</Text>
+            </View>
+            <Button
+              title="Yana qo'shish"
+              variant="outline"
+              onPress={() => setTab('menu')}
+              style={styles.sentAddBtn}
+            />
           </View>
         )}
 
-        {!isEditable && (
+        {!isEditable && tab === 'order' && (
           <View style={styles.waitingContainer}>
             <Badge label={STATUS_LABELS[order.status]} variant={badgeVariant} outline />
           </View>
@@ -318,10 +432,15 @@ export function OrderEditScreen() {
         <View style={styles.modalOverlay}>
           <Card style={styles.modalBox}>
             <Text style={styles.modalTitle}>Buyurtmani bekor qilish</Text>
+            <Text style={styles.modalSubtitle}>
+              {order.status === 'SENT'
+                ? 'Buyurtma allaqachon yuborilgan. Bekor qilish sababi muhim.'
+                : 'Bekor qilish sababini kiriting.'}
+            </Text>
             <Input
               value={cancelReason}
               onChangeText={setCancelReason}
-              placeholder="Bekor qilish sababini kiriting..."
+              placeholder="Bekor qilish sababi..."
               autoFocus
             />
             <View style={styles.modalBtns}>
@@ -335,7 +454,7 @@ export function OrderEditScreen() {
                 title="Bekor qilish"
                 variant="danger"
                 loading={cancelOrderMutation.isPending}
-                onPress={() => cancelOrderMutation.mutate(cancelReason || 'Sabab ko\'rsatilmadi')}
+                onPress={() => cancelOrderMutation.mutate(cancelReason || "Sabab ko'rsatilmadi")}
                 style={styles.flex1}
               />
             </View>
@@ -392,7 +511,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.white, borderBottomWidth: 1, borderBottomColor: theme.colors.slate[100],
   },
   headerIconBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  headerIconText: { fontSize: 24, color: theme.colors.primary },
   headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerTable: { ...theme.typography.h3, color: theme.colors.slate[900] },
 
@@ -414,7 +532,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
     gap: 6,
   },
@@ -443,32 +561,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: theme.spacing.lg, paddingBottom: 32 },
 
-  emptyOrder: { alignItems: 'center', paddingTop: 80, gap: 24 },
+  emptyOrder: { alignItems: 'center', paddingTop: 80, gap: 16 },
   emptyOrderText: { ...theme.typography.body, color: theme.colors.slate[400] },
-
-  lineRow: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.slate[200],
-  },
-  lineRowCanceled: { backgroundColor: theme.colors.dangerLight, borderColor: theme.colors.danger + '20' },
-  lineMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.xs },
-  lineLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  lineName: { fontSize: 16, fontWeight: '700', color: theme.colors.slate[900], flexShrink: 1 },
-  lineQty: { fontSize: 16, fontWeight: '600', color: theme.colors.primary },
-  lineCanceledText: { color: theme.colors.slate[400], fontSize: 14, fontStyle: 'italic' },
-  
-  linePriceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  linePriceDetails: { fontSize: 14, color: theme.colors.slate[500] },
-  lineTotal: { fontSize: 15, fontWeight: '700', color: theme.colors.slate[800] },
-  
-  lineNoteContainer: { marginTop: 8, padding: 8, backgroundColor: theme.colors.primaryLight, borderRadius: 6, flexDirection: 'row', alignItems: 'center' },
-  lineNote: { fontSize: 13, color: theme.colors.primary, fontStyle: 'italic', flex: 1 },
-  lineComboContainer: { marginTop: 4 },
-  lineCombo: { fontSize: 12, color: theme.colors.slate[400] },
+  emptyActions: { gap: 8, width: '100%', maxWidth: 280 },
 
   billSummary: {
     backgroundColor: theme.colors.white,
@@ -514,14 +609,72 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.white, borderTopWidth: 1, borderTopColor: theme.colors.slate[100],
     paddingBottom: Platform.OS === 'ios' ? 34 : theme.spacing.lg,
   },
-  footerSecondaryBtn: { flex: 0.4 },
+  footerSecondaryBtn: { flex: 1 },
   footerMainBtn: { flex: 1 },
+
+  cartPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
+    ...theme.shadows.md,
+  },
+  cartPillEmpty: { backgroundColor: theme.colors.slate[400] },
+  cartPillLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  cartCountBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cartCountDot: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: theme.colors.warning,
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  cartCountDotText: { fontSize: 11, fontWeight: '900', color: theme.colors.white },
+  cartPillTitle: { fontSize: 15, fontWeight: '800', color: theme.colors.white },
+  cartPillSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 2, fontVariant: ['tabular-nums'] },
+
+  sentFooter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sentInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: theme.colors.primaryLight,
+  },
+  sentInfoText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
+  sentAddBtn: { flex: 0.7 },
+
   waitingContainer: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.slate[50],
     borderWidth: 1, borderColor: theme.colors.slate[100],
   },
-  waitingText: { color: theme.colors.slate[500], fontSize: 14, fontWeight: '600' },
 
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -529,8 +682,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center', padding: 24,
   },
   modalBox: { padding: 24 },
-  modalTitle: { ...theme.typography.h3, color: theme.colors.slate[900], marginBottom: 20 },
-  modalBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  modalTitle: { ...theme.typography.h3, color: theme.colors.slate[900], marginBottom: 12 },
+  modalSubtitle: { fontSize: 13, color: theme.colors.slate[500], marginBottom: 12 },
+  modalBtns: { flexDirection: 'row', gap: 12, marginTop: 16 },
   flex1: { flex: 1 },
 
   transferOverlay: {
@@ -546,7 +700,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginBottom: 24,
   },
   closeBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 22, backgroundColor: theme.colors.slate[50] },
-  closeBtnText: { fontSize: 18, color: theme.colors.slate[400] },
   tableCell: {
     flex: 1, margin: 6, aspectRatio: 1,
     backgroundColor: theme.colors.primaryLight, borderRadius: 16,

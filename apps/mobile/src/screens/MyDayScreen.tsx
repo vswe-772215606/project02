@@ -211,19 +211,39 @@ export function MyDayScreen() {
           hint="Ovqat + xizmat haqi"
         />
 
-        {monthTotalsLabel && (
-          <View style={styles.monthSummary}>
+        {/* Kunlik jami — mirrors the Oylik jami block for visual pairing. */}
+        {dayStats && (
+          <View style={styles.summaryCard}>
             <View>
-              <Text style={styles.monthSummaryLabel}>
+              <Text style={styles.summaryLabel}>
+                {selectedDate === todayKey ? 'Bugun' : prettyDate(selectedDate, todayKey).split(' · ')[0]}
+              </Text>
+              <Text style={styles.summaryHint}>Kunlik jami</Text>
+            </View>
+            <View style={styles.summaryRight}>
+              <Text style={styles.summaryService}>
+                {formatUZS(serviceEarned)} so'm
+              </Text>
+              <Text style={styles.summarySub}>
+                {ordersClosed} buyurtma · {formatUZS(Number(dayStats?.foodRevenue ?? 0))} so'm ovqat
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {monthTotalsLabel && (
+          <View style={styles.summaryCard}>
+            <View>
+              <Text style={styles.summaryLabel}>
                 {UZ_MONTHS_FULL[parseKey(monthCursor).getMonth()]} {parseKey(monthCursor).getFullYear()}
               </Text>
-              <Text style={styles.monthSummaryHint}>Oylik jami</Text>
+              <Text style={styles.summaryHint}>Oylik jami</Text>
             </View>
-            <View style={styles.monthSummaryRight}>
-              <Text style={styles.monthSummaryService}>
+            <View style={styles.summaryRight}>
+              <Text style={styles.summaryService}>
                 {formatUZS(monthTotalsLabel.service)} so'm
               </Text>
-              <Text style={styles.monthSummaryOrders}>
+              <Text style={styles.summarySub}>
                 {monthTotalsLabel.orders} buyurtma
               </Text>
             </View>
@@ -356,7 +376,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  monthSummary: {
+  summaryCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -365,34 +385,37 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.lg,
     borderWidth: 1,
     borderColor: theme.colors.slate[200],
+    gap: theme.spacing.md,
   },
-  monthSummaryLabel: {
+  summaryLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: theme.colors.slate[700],
     textTransform: 'capitalize',
   },
-  monthSummaryHint: {
+  summaryHint: {
     fontSize: 11,
     color: theme.colors.slate[500],
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginTop: 2,
   },
-  monthSummaryRight: {
+  summaryRight: {
     alignItems: 'flex-end',
+    flexShrink: 1,
   },
-  monthSummaryService: {
+  summaryService: {
     fontSize: 18,
     fontWeight: '800',
     color: theme.colors.success,
     fontVariant: ['tabular-nums'],
   },
-  monthSummaryOrders: {
+  summarySub: {
     fontSize: 12,
     color: theme.colors.slate[500],
     marginTop: 2,
     fontVariant: ['tabular-nums'],
+    textAlign: 'right',
   },
 
   infoCard: {
