@@ -52,11 +52,11 @@ export function OrderDetailPage() {
     refetchInterval: 10_000,
   });
 
-  // Mutation helpers — these patch the cached order optimistically so the
-  // cart re-renders instantly. The server-side `order:updated` socket event
-  // triggers the canonical refetch afterwards (see useSocket hook), so we
-  // intentionally skip invalidate() in the success path. On error we roll
-  // back to the snapshot captured in onMutate.
+  // Optimistic cache patcher: edits the cached order in-place so the UI
+  // re-renders instantly. The server's `order:updated` socket event will
+  // trigger a canonical refetch via useSocket. On error, rollback to the
+  // snapshot captured in onMutate. Do not invalidate in onSuccess — that
+  // would cause a redundant double-fetch.
   const patchOrder = async (mutator: (prev: Order) => Order) => {
     await qc.cancelQueries({ queryKey: ['orders', id] });
     const prev = qc.getQueryData<Order>(['orders', id]);
@@ -67,16 +67,10 @@ export function OrderDetailPage() {
     if (ctx?.prev) qc.setQueryData(['orders', id], ctx.prev);
   };
 
-  // Send (DRAFT → SENT): optimistic flip so the badge changes instantly
-  // and the Yuborish button vanishes. The server's order:updated event
-  // reconciles via the socket; if it errors, rollback restores DRAFT.
   const sendMutation = useMutation({
     mutationFn: () => ordersApi.send(id),
-    onMutate: () =>
-      patchOrder((prev) => ({ ...prev, status: 'SENT' })),
-    onSuccess: () => {
-      showToast('Buyurtma yuborildi', 'success');
-    },
+    onMutate: () => patchOrder((prev) => ({ ...prev, status: 'SENT' })),
+    onSuccess: () => showToast('Buyurtma yuborildi', 'success'),
     onError: (err: Error, _vars, ctx) => {
       rollback(ctx ?? {});
       showToast(err.message || "Yuborib bo'lmadi", 'error');
@@ -85,8 +79,7 @@ export function OrderDetailPage() {
 
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(id, reason),
-    onMutate: () =>
-      patchOrder((prev) => ({ ...prev, status: 'CANCELED' })),
+    onMutate: () => patchOrder((prev) => ({ ...prev, status: 'CANCELED' })),
     onSuccess: () => {
       setCancelOrderModal(false);
       setCancelReason('');
@@ -104,9 +97,7 @@ export function OrderDetailPage() {
     onMutate: (lineId) =>
       patchOrder((prev) => ({
         ...prev,
-        lines: prev.lines.map((l) =>
-          l.id === lineId ? { ...l, isCanceled: true } : l,
-        ),
+        lines: prev.lines.map((l) => (l.id === lineId ? { ...l, isCanceled: true } : l)),
       })),
     onError: (err: Error, _vars, ctx) => {
       rollback(ctx ?? {});
@@ -158,6 +149,24 @@ export function OrderDetailPage() {
     () => activeLines.reduce((s, l) => s + l.price * l.quantity, 0),
     [activeLines],
   );
+  const totalQty = useMemo(
+    () => activeLines.reduce((s, l) => s + l.quantity, 0),
+    [activeLines],
+  );
+
+  // Back behavior: if we're leaving a DRAFT with no active lines, auto-cancel
+  // it server-side so the table is freed and we don't accumulate empty
+  // qoralama rows. Fire-and-forget — navigation happens immediately.
+  const goHome = () => {
+    if (order && order.status === 'DRAFT' && activeLines.length === 0) {
+      void ordersApi
+        .cancel(id, "Bo'sh qoralama avtomatik bekor qilindi")
+        .catch(() => {
+          // Silent — the floor map will reconcile via socket / polling.
+        });
+    }
+    nav('/', { replace: true });
+  };
 
   if (isLoading) {
     return (
@@ -178,62 +187,69 @@ export function OrderDetailPage() {
     : order.table?.name ?? order.tableName ?? 'Stol';
   const isEditable = order.status === 'DRAFT' || order.status === 'SENT';
   const canSend = order.status === 'DRAFT';
-  // Waiters can now cancel both DRAFT and SENT (per backend role rules).
   const canWaiterCancel = order.status === 'DRAFT' || order.status === 'SENT';
   const canEditLines = isEditable && !offline;
 
+  // Rush-moment policy: DRAFT cancel needs no confirmation modal (mistaken
+  // taps are recoverable — a new draft is one tap away). SENT requires a
+  // reason since the kitchen/cashier may have already started acting on it.
+  const handleCancelTap = () => {
+    if (offline) return;
+    if (order.status === 'DRAFT') {
+      cancelOrderMutation.mutate("Qoralama bekor qilindi");
+    } else {
+      setCancelOrderModal(true);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-3 h-full max-h-[calc(100vh-8rem)]">
-      {/* Header — bigger tap targets for rush moments */}
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col h-full max-h-[calc(100vh-8rem)]">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2 pb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => nav('/')}>
+          <Button variant="ghost" size="icon" className="h-12 w-12" onClick={goHome}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-xl font-bold truncate">{tableLabel}</span>
-              <Badge variant={STATUS_VARIANTS[order.status] ?? 'secondary'} className="text-sm px-2.5 py-0.5">
+              <Badge
+                variant={STATUS_VARIANTS[order.status] ?? 'secondary'}
+                className="text-sm px-2.5 py-0.5"
+              >
                 {STATUS_LABELS[order.status]}
               </Badge>
             </div>
             <div className="text-sm text-muted-foreground">#{order.orderNumber}</div>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {canWaiterCancel && (
-            <Button
-              variant="outline"
-              className="h-12 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive text-base font-semibold"
-              onClick={() => setCancelOrderModal(true)}
-              disabled={offline}
-            >
-              <XCircle className="h-5 w-5 mr-1" />
-              Bekor qilish
-            </Button>
-          )}
-          {canSend && (
-            <Button
-              className="h-12 px-6 text-base font-bold"
-              onClick={() => sendMutation.mutate()}
-              disabled={activeLines.length === 0 || offline || sendMutation.isPending}
-            >
-              <Send className="h-5 w-5 mr-1" />
-              Yuborish
-            </Button>
-          )}
-        </div>
+
+        {canWaiterCancel && (
+          <Button
+            variant="outline"
+            className="h-12 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive text-base font-semibold"
+            onClick={handleCancelTap}
+            disabled={offline || cancelOrderMutation.isPending}
+          >
+            <XCircle className="h-5 w-5 mr-1" />
+            Bekor qilish
+          </Button>
+        )}
       </div>
 
-      {/* Two-pane content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 min-h-0">
+      {/* Two-pane content: lines on the left (40%), menu on the right (60%).
+          Menu wins more space because in a rush it's used more often than
+          the cart pane. Below xl the panes stack so smaller monitors still work. */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 min-h-0">
         {/* Lines pane */}
         <Card className="flex flex-col min-h-0">
-          <div className="px-5 py-4 border-b shrink-0 flex items-center justify-between">
+          <div className="px-4 py-3 border-b shrink-0 flex items-center justify-between">
             <div className="text-base font-bold">Buyurtma qatorlari</div>
-            <div className="text-sm text-muted-foreground tabular-nums">{activeLines.length} ta</div>
+            <div className="text-sm text-muted-foreground tabular-nums">
+              {activeLines.length} ta
+            </div>
           </div>
-          <div className="flex-1 overflow-auto p-3 flex flex-col gap-2.5">
+          <div className="flex-1 overflow-auto p-2.5 flex flex-col gap-2">
             {order.lines.length === 0 ? (
               <div className="text-base text-muted-foreground text-center py-12">
                 Menyudan mahsulot tanlang
@@ -263,10 +279,6 @@ export function OrderDetailPage() {
               ))
             )}
           </div>
-          <div className="px-5 py-4 border-t shrink-0 flex items-center justify-between bg-muted/30">
-            <span className="text-base font-semibold text-muted-foreground">Jami</span>
-            <span className="text-2xl font-bold tabular-nums">{formatMoney(subtotal)} <span className="text-base text-muted-foreground">so&apos;m</span></span>
-          </div>
         </Card>
 
         {/* Menu panel */}
@@ -279,6 +291,43 @@ export function OrderDetailPage() {
             </div>
           )}
         </Card>
+      </div>
+
+      {/* Persistent action bar — running totals + primary action always
+          in the same spot so the waiter's thumb knows where to land. */}
+      <div className="mt-3 px-4 py-3 rounded-lg border bg-card shadow-sm flex items-center justify-between gap-3 shrink-0">
+        <div className="flex items-baseline gap-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Qatorlar
+            </div>
+            <div className="text-lg font-bold tabular-nums">{totalQty}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Jami
+            </div>
+            <div className="text-2xl font-bold tabular-nums">
+              {formatMoney(subtotal)}{' '}
+              <span className="text-sm text-muted-foreground font-normal">so&apos;m</span>
+            </div>
+          </div>
+        </div>
+
+        {canSend ? (
+          <Button
+            className="h-14 px-8 text-lg font-bold"
+            onClick={() => sendMutation.mutate()}
+            disabled={activeLines.length === 0 || offline || sendMutation.isPending}
+          >
+            <Send className="h-5 w-5 mr-2" />
+            Yuborish
+          </Button>
+        ) : order.status === 'SENT' ? (
+          <div className="text-sm text-muted-foreground text-right max-w-[220px]">
+            Kassir tasdig&apos;ini kutmoqda
+          </div>
+        ) : null}
       </div>
 
       {/* Note dialog */}
@@ -324,7 +373,7 @@ export function OrderDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel order dialog */}
+      {/* Cancel SENT dialog — DRAFTs are one-tap cancel (no reason needed). */}
       <Dialog
         open={cancelOrderModal}
         onOpenChange={(open) => {
@@ -336,8 +385,11 @@ export function OrderDetailPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Buyurtmani bekor qilish</DialogTitle>
+            <DialogTitle>Yuborilgan buyurtmani bekor qilish</DialogTitle>
           </DialogHeader>
+          <p className="text-sm text-muted-foreground -mt-1">
+            Sababni kiriting — kassir ko&apos;radi.
+          </p>
           <Input
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
@@ -387,39 +439,39 @@ function LineRow({
 }) {
   if (line.isCanceled) {
     return (
-      <div className="rounded-md border bg-muted/40 px-4 py-3 text-base text-muted-foreground line-through">
+      <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground line-through">
         {line.nameSnapshot} × {line.quantity} — Bekor qilindi
       </div>
     );
   }
 
   return (
-    <div className={cn('rounded-md border bg-card p-4 flex flex-col gap-3')}>
+    <div className={cn('rounded-md border bg-card p-3 flex flex-col gap-2.5')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-base font-bold text-foreground truncate">{line.nameSnapshot}</div>
           {line.comboNameSnapshot && (
-            <div className="text-sm text-muted-foreground">Set: {line.comboNameSnapshot}</div>
+            <div className="text-xs text-muted-foreground">Set: {line.comboNameSnapshot}</div>
           )}
+          <div className="text-xs text-muted-foreground tabular-nums">
+            {formatMoney(line.price)} × {line.quantity}
+          </div>
         </div>
         <div className="text-right shrink-0">
           <div className="text-lg font-bold tabular-nums">
             {formatMoney(line.price * line.quantity)}
           </div>
-          <div className="text-xs text-muted-foreground tabular-nums">
-            {formatMoney(line.price)} × {line.quantity}
-          </div>
         </div>
       </div>
 
       {line.notes && (
-        <div className="text-sm italic text-primary bg-primary/5 rounded px-3 py-2">
+        <div className="text-sm italic text-primary bg-primary/5 rounded px-2.5 py-1.5">
           {line.notes}
         </div>
       )}
 
       {canEdit && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Button
             type="button"
             variant="outline"
@@ -455,11 +507,12 @@ function LineRow({
           <Button
             type="button"
             variant="ghost"
-            className="h-11 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            size="icon"
+            className="h-11 w-11 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={onCancel}
+            title="Olib tashlash"
           >
             <Trash2 className="h-5 w-5" />
-            <span className="text-sm font-semibold">Olib tashlash</span>
           </Button>
         </div>
       )}

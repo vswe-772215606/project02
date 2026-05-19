@@ -14,7 +14,6 @@ import { ServerSetupPage } from './pages/ServerSetupPage';
 import { HomePage } from './pages/HomePage';
 import { NewOrderPage } from './pages/NewOrderPage';
 import { OrderDetailPage } from './pages/OrderDetailPage';
-import { TablesPage } from './pages/TablesPage';
 import { MenuPage } from './pages/MenuPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -40,7 +39,7 @@ function AuthedApp() {
         <Route path="/" element={<HomePage />} />
         <Route path="/orders/new" element={<NewOrderPage />} />
         <Route path="/orders/:id" element={<OrderDetailPage />} />
-        <Route path="/tables" element={<TablesPage />} />
+        <Route path="/tables" element={<Navigate to="/" replace />} />
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

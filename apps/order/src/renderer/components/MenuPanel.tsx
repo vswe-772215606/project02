@@ -42,6 +42,24 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
   const currentCatId = activeCatId ?? categories[0]?.id ?? null;
   const currentCat = categories.find((c) => c.id === currentCatId);
 
+  // Subscribe to the order so the cart-qty pill on each ItemCard re-renders
+  // when the cache is patched by add/cancel/qty mutations. No queryFn here —
+  // we piggy-back on the OrderDetailPage's query.
+  const { data: order } = useQuery({
+    queryKey: ['orders', orderId],
+    queryFn: () => ordersApi.getById(orderId),
+    enabled: !!orderId,
+  });
+  const cartQtyById = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!order) return m;
+    for (const l of order.lines) {
+      if (l.isCanceled || !l.menuItemId) continue;
+      m.set(l.menuItemId, (m.get(l.menuItemId) ?? 0) + l.quantity);
+    }
+    return m;
+  }, [order]);
+
   // Optimistic add: patch the cached order immediately so the cart on the
   // right updates with zero perceived latency. The socket order:updated
   // event triggered by the server's response reconciles afterwards.
@@ -192,6 +210,7 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
                 key={item.id}
                 item={item}
                 disabled={disabled}
+                inCartQty={cartQtyById.get(item.id) ?? 0}
                 onPress={() => handleItemClick(item)}
               />
             ))}
@@ -210,26 +229,36 @@ export function MenuPanel({ orderId, disabled = false }: Props) {
 function ItemCard({
   item,
   disabled,
+  inCartQty,
   onPress,
 }: {
   item: MenuItem;
   disabled: boolean;
+  inCartQty: number;
   onPress: () => void;
 }) {
   const available = item.effectivelyAvailable;
   const isDisabled = disabled || !available;
+  const inCart = inCartQty > 0;
 
   return (
     <Card
       className={cn(
-        'p-4 flex flex-col justify-between gap-2 cursor-pointer min-h-[120px] transition-all',
+        'relative p-4 flex flex-col justify-between gap-2 cursor-pointer min-h-[120px] transition-all',
         'active:scale-[0.98] active:bg-primary/5 select-none',
         isDisabled
           ? 'opacity-50 cursor-not-allowed bg-muted/50'
-          : 'hover:border-primary hover:shadow-sm',
+          : inCart
+            ? 'border-primary/70 bg-primary/5 hover:border-primary hover:shadow-sm'
+            : 'hover:border-primary hover:shadow-sm',
       )}
       onClick={isDisabled ? undefined : onPress}
     >
+      {inCart && (
+        <span className="absolute -top-2 -right-2 min-w-[28px] h-7 px-2 rounded-full bg-primary text-primary-foreground text-sm font-bold inline-flex items-center justify-center shadow-sm tabular-nums">
+          ×{inCartQty}
+        </span>
+      )}
       <div className="text-base font-semibold text-foreground line-clamp-2 leading-tight">{item.name}</div>
       <div className="flex items-center justify-between">
         <div className="text-base font-bold text-primary tabular-nums">{formatMoney(item.price)}</div>

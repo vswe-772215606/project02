@@ -1,7 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  ReceiptText,
-  PlusSquare,
   Armchair,
   UtensilsCrossed,
   Settings,
@@ -24,18 +22,13 @@ type NavSection = {
   items: NavItem[];
 };
 
+// Floor map is now the home — new/existing orders both start from a table tap.
+// Keep nav minimal so waiters don't hunt for entry points during a rush.
 const NAV_SECTIONS: NavSection[] = [
-  {
-    heading: 'Buyurtmalar',
-    items: [
-      { to: '/', label: 'Mening buyurtmalarim', icon: ReceiptText, end: true },
-      { to: '/orders/new', label: 'Yangi buyurtma', icon: PlusSquare },
-    ],
-  },
   {
     heading: 'Operatsiya',
     items: [
-      { to: '/tables', label: 'Stollar', icon: Armchair },
+      { to: '/', label: 'Stollar', icon: Armchair, end: true },
       { to: '/menu', label: 'Menyu', icon: UtensilsCrossed },
     ],
   },

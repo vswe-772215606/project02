@@ -5,12 +5,11 @@ import { Topbar } from './Topbar';
 import { ConnectionBanner } from '../ConnectionBanner';
 
 const TITLE_BY_PATH: Array<{ match: RegExp; title: string }> = [
-  { match: /^\/orders\/new$/, title: 'Yangi buyurtma' },
-  { match: /^\/orders\/[^/]+$/, title: 'Buyurtma tafsiloti' },
-  { match: /^\/tables$/, title: 'Stollar' },
+  { match: /^\/orders\/new$/, title: 'Olib ketish' },
+  { match: /^\/orders\/[^/]+$/, title: 'Buyurtma' },
   { match: /^\/menu$/, title: 'Menyu' },
   { match: /^\/settings$/, title: 'Sozlamalar' },
-  { match: /^\/$/, title: 'Buyurtmalar' },
+  { match: /^\/$/, title: 'Stollar' },
 ];
 
 function titleFor(pathname: string): string {
