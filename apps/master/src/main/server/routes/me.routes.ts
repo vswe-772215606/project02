@@ -7,3 +7,4 @@ export const meRouter = Router();
 meRouter.use(requireAuth);
 
 meRouter.get('/today-stats', meController.todayStats);
+meRouter.get('/range-stats', meController.rangeStats);
