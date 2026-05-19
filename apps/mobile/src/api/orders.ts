@@ -10,7 +10,6 @@ export type OrderLine = {
   menuItemKind: 'FOOD' | 'SERVICE';
   comboGroupId: string | null;
   comboNameSnapshot: string | null;
-  name: string;
   nameSnapshot: string;
   price: number;
   quantity: number;

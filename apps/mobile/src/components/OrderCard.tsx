@@ -16,7 +16,7 @@ export function OrderCard({ order, onPress }: { order: Order; onPress: () => voi
   const variant = STATUS_VARIANTS[order.status] || 'slate';
 
   const mealPreview = (() => {
-    const names = activeLines.map((l) => l.name);
+    const names = activeLines.map((l) => l.nameSnapshot);
     if (names.length === 0) return null;
     if (names.length <= 2) return names.join(', ');
     return `${names.slice(0, 2).join(', ')} … (+${names.length - 2})`;

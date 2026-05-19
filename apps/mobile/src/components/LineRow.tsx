@@ -19,7 +19,7 @@ export function LineRow({ line, canEdit, busy, onPlus, onMinus, onNote, onCancel
     return (
       <View style={[styles.row, styles.canceled]}>
         <Text style={styles.canceledText}>
-          {line.name} × {line.quantity} — Bekor qilindi
+          {line.nameSnapshot} × {line.quantity} — Bekor qilindi
         </Text>
       </View>
     );
@@ -35,7 +35,7 @@ export function LineRow({ line, canEdit, busy, onPlus, onMinus, onNote, onCancel
       <View style={styles.mainRow}>
         <View style={styles.left}>
           {isService && <Text style={styles.serviceTag}>✨</Text>}
-          <Text style={styles.name} numberOfLines={2}>{line.name}</Text>
+          <Text style={styles.name} numberOfLines={2}>{line.nameSnapshot}</Text>
         </View>
         <Text style={styles.total}>{formatUZS(line.price * line.quantity)} so'm</Text>
       </View>

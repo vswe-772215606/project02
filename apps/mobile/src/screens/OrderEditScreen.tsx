@@ -156,7 +156,7 @@ export function OrderEditScreen() {
     setNoteModal({ lineId: line.id, current: line.notes ?? '' });
   };
   const confirmCancelLine = (line: OrderLine) => {
-    Alert.alert('Qatorni bekor qilish', `"${line.name}" ni bekor qilasizmi?`, [
+    Alert.alert('Qatorni bekor qilish', `"${line.nameSnapshot}" ni bekor qilasizmi?`, [
       { text: "Yo'q", style: 'cancel' },
       { text: 'Ha, bekor qil', style: 'destructive', onPress: () => cancelLineMutation.mutate(line.id) },
     ]);
