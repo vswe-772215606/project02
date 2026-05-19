@@ -14,3 +14,7 @@ apps/*/.expo/
 apps/master/prisma/*.db
 apps/master/prisma/**/*.db
 *.tsbuildinfo
+
+# Build artifacts
+*.apk
+*.zip
