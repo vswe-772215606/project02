@@ -103,6 +103,8 @@ export function NewOrderScreen() {
               numColumns={3}
               contentContainerStyle={styles.tableGrid}
               renderItem={({ item }) => {
+                // activeOrderId is SENT-only (master contract): a table held
+                // by another waiter's unsent draft stays free/selectable.
                 const occupied = !!item.activeOrderId;
                 return (
                   <TouchableOpacity

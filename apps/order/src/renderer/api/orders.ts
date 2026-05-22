@@ -63,8 +63,8 @@ export const ordersApi = {
   cancelLine: (orderId: string, lineId: string, reason?: string) =>
     api.post<OrderLine>(`/api/orders/${orderId}/lines/${lineId}/cancel`, { reason }),
   send: (orderId: string) => api.post<Order>(`/api/orders/${orderId}/send`),
-  cancel: (orderId: string, reason: string) =>
-    api.post<Order>(`/api/orders/${orderId}/cancel`, { reason }),
+  cancel: (orderId: string, reason: string, opts?: { keepalive?: boolean }) =>
+    api.post<Order>(`/api/orders/${orderId}/cancel`, { reason }, opts),
 };
 
 export const ACTIVE_STATUSES: OrderStatus[] = ['DRAFT', 'SENT'];

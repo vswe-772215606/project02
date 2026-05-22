@@ -51,7 +51,7 @@ Electron app where the **main process hosts the Express + Socket.io server**, an
   - `socket.ts` — Socket.io rooms `admin` and `waiter:{userId}`. There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }`.
   - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain.
-- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. A partial unique index enforces "one active order per table".
+- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. A partial unique index enforces "one SENT order per table" — only a `SENT` order occupies a table; unsent `DRAFT` orders do not, and multiple drafts may coexist on one table.
 - `src/renderer/` — React 18 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state.
 
 ### Order (`apps/order/`)

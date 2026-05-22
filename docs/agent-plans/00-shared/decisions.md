@@ -54,11 +54,11 @@ Add-ons:
 Server-side drafts:
 
 - Drafts are persisted to the database immediately. Every "add item" hits the API.
-- Old drafts (>12 hours, status `DRAFT`) are cleaned up by a daily scheduled task. There is no ticket-presence guard any more — only the timestamp.
+- Stale drafts are reaped by an hourly scheduled task: empty drafts (no `OrderLine`s) after ~30 minutes, drafts with lines after ~4 hours. There is no ticket-presence guard any more — only the timestamp and line count.
 
 ## Tables
 
-- One active order per table at a time. Enforced by partial unique index on `Order(tableId)` where status NOT IN (`CLOSED`, `WALKOUT`, `CANCELED`) AND `tableId IS NOT NULL`.
+- One **SENT** order per table at a time. A table is occupied only by a `SENT` (sent-but-unpaid) order. Unsent `DRAFT` orders do **not** occupy a table — multiple `DRAFT` orders may coexist on the same table. Enforced by partial unique index on `Order(tableId)` where `status = 'SENT'` AND `tableId IS NOT NULL`. The collision is checked explicitly on draft creation (reject if the table already has a `SENT` order) and surfaces from the index on `DRAFT → SENT` send.
 - Takeaway orders have `tableId: null` and `orderType: TAKEAWAY`.
 - Dine-in orders have `orderType: DINE_IN` and a non-null `tableId`.
 - Transfers supported: waiter can transfer their own orders, admin can transfer anyone's.

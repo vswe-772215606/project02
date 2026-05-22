@@ -177,28 +177,30 @@ export const orderService = {
       if (!table || !table.isActive) {
         throw Errors.NotFound('Table');
       }
+      // A DRAFT no longer occupies a table, so the SENT-only partial unique
+      // index won't auto-reject it — multiple drafts may coexist on a table.
+      // We still forbid opening a new order on a table that has a SENT order.
+      const sentOrderId = await tableRepo.findActiveOrderId(input.tableId);
+      if (sentOrderId) {
+        throw Errors.Conflict('Bu stolda allaqachon yuborilgan buyurtma bor');
+      }
     }
 
-    try {
-      const order = await orderRepo.create({
-        orderType: input.orderType,
-        status: OrderStatus.DRAFT,
-        waiter: {
-          connect: { id: input.waiterId },
-        },
-        table: input.tableId
-          ? {
-              connect: { id: input.tableId },
-            }
-          : undefined,
-      });
-      return mapToDto(order);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw Errors.Conflict('Table already has an active order');
-      }
-      throw error;
-    }
+    // No P2002 catch needed: a freshly-created DRAFT can never violate the
+    // SENT-only index. The SENT collision is handled at send-time instead.
+    const order = await orderRepo.create({
+      orderType: input.orderType,
+      status: OrderStatus.DRAFT,
+      waiter: {
+        connect: { id: input.waiterId },
+      },
+      table: input.tableId
+        ? {
+            connect: { id: input.tableId },
+          }
+        : undefined,
+    });
+    return mapToDto(order);
   },
 
   async getById(orderId: string, requestingUser: RequestingUser) {
@@ -450,34 +452,44 @@ export const orderService = {
 
   async send(input: { orderId: string; waiterId: string }) {
     return completeEmitContext(async () => {
-      return getPrisma().$transaction(async (tx) => {
-        const order = await getOrderOrThrow(input.orderId, tx);
-        ensureWaiterOwns(order, input.waiterId);
+      try {
+        return await getPrisma().$transaction(async (tx) => {
+          const order = await getOrderOrThrow(input.orderId, tx);
+          ensureWaiterOwns(order, input.waiterId);
 
-        if (order.status === OrderStatus.SENT) {
-          // Idempotent: already sent, return as-is.
-          return mapToDto(order);
+          if (order.status === OrderStatus.SENT) {
+            // Idempotent: already sent, return as-is.
+            return mapToDto(order);
+          }
+
+          if (order.status !== OrderStatus.DRAFT) {
+            throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
+          }
+
+          const activeLines = order.lines.filter((line) => !line.isCanceled);
+          if (activeLines.length === 0) {
+            throw Errors.Validation('Order has no lines');
+          }
+
+          const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
+          if (!updated) {
+            throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
+          }
+
+          deferEmit('admin', 'order:updated', { orderId: order.id });
+          deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+
+          return mapToDto(updated);
+        });
+      } catch (error) {
+        // DRAFT->SENT can now collide with the SENT-only partial unique index
+        // when another order on the same table was sent first. Drafts coexist
+        // freely; the conflict only surfaces at send-time.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw Errors.Conflict('Bu stolda allaqachon yuborilgan buyurtma bor');
         }
-
-        if (order.status !== OrderStatus.DRAFT) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.SENT);
-        }
-
-        const activeLines = order.lines.filter((line) => !line.isCanceled);
-        if (activeLines.length === 0) {
-          throw Errors.Validation('Order has no lines');
-        }
-
-        const updated = await orderRepo.setStatus(order.id, OrderStatus.SENT, OrderStatus.DRAFT, tx);
-        if (!updated) {
-          throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
-        }
-
-        deferEmit('admin', 'order:updated', { orderId: order.id });
-        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
-
-        return mapToDto(updated);
-      });
+        throw error;
+      }
     });
   },
 
@@ -508,7 +520,7 @@ export const orderService = {
 
       const existingOrderId = await tableRepo.findActiveOrderId(input.newTableId);
       if (existingOrderId && existingOrderId !== order.id) {
-        throw Errors.Conflict('Table already has an active order');
+        throw Errors.Conflict('Bu stolda allaqachon yuborilgan buyurtma bor');
       }
 
       try {
@@ -540,7 +552,7 @@ export const orderService = {
         });
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          throw Errors.Conflict('Table already has an active order');
+          throw Errors.Conflict('Bu stolda allaqachon yuborilgan buyurtma bor');
         }
         throw error;
       }

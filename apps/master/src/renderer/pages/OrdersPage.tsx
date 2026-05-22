@@ -35,6 +35,7 @@ import { formatMoney, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const FILTER_TABS: { status: OrderStatus }[] = [
+  { status: 'DRAFT' },
   { status: 'SENT' },
   { status: 'CLOSED' },
   { status: 'WALKOUT' },
@@ -415,7 +416,7 @@ function OrderDetailDialog({
             </Card>
 
             <div className="space-y-2">
-              {order.status === 'SENT' && (
+              {(order.status === 'SENT' || order.status === 'DRAFT') && (
                 <Button
                   variant="destructive"
                   size="sm"

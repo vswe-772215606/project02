@@ -47,6 +47,7 @@ The system uses a comprehensive Prisma schema (`apps/master/prisma/schema.prisma
 2. **Order Integrity**: State transitions are guarded (e.g., cannot transition to CLOSED if payments don't match the total).
 3. **Printer Mutex**: A Node-side queue (`p-queue`) ensures only one print job hits the physical printer at a time.
 4. **Service Charge**: A fixed UZS amount (configurable) applied per-bill, tracked for waiter analytics but excluded from restaurant revenue.
+5. **Table Occupancy**: A table is occupied only by a `SENT` order. Unsent `DRAFT` orders do not occupy a table — multiple drafts may coexist on one table. A partial unique index on `Order(tableId) WHERE status = 'SENT'` enforces at most one `SENT` order per table; the conflict surfaces when a draft is sent (`DRAFT → SENT`).
 
 ## 4. Communication Protocols
 

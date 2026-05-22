@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal,
-  ActivityIndicator, FlatList, Platform,
+  ActivityIndicator, FlatList, Platform, AppState,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -66,21 +66,49 @@ export function OrderEditScreen() {
     }
   }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-cancel empty DRAFT on back navigation — prevents orphan drafts
-  // when the waiter opens an order and leaves without adding anything.
+  // --- Empty-draft reaper -------------------------------------------------
+  // An abandoned DRAFT with zero active lines keeps its table occupied while
+  // being effectively invisible to the waiter. We reap such drafts on the
+  // client events RN reliably delivers before the screen/process goes away.
+  // We ONLY ever cancel a draft with no active (non-canceled) lines — a draft
+  // that already has items is never auto-canceled.
+  const reapedRef = useRef(false);
+
+  const reapIfEmptyDraft = useCallback(() => {
+    if (reapedRef.current || !order) return;
+    const hasActiveLines = order.lines.some((l) => !l.isCanceled);
+    if (order.status !== 'DRAFT' || hasActiveLines) return;
+    reapedRef.current = true;
+    // Fire-and-forget: we may be mid-navigation or about to be suspended.
+    ordersApi.cancel(orderId, "Bo'sh qoralama").catch(() => {});
+    void qc.invalidateQueries({ queryKey: ['orders'] });
+    void qc.invalidateQueries({ queryKey: ['tables'] });
+  }, [order, orderId, qc]);
+
+  // (a) Reap when the waiter navigates back off this screen.
   useEffect(() => {
-    if (!order) return;
-    const unsub = nav.addListener('beforeRemove', () => {
-      const hasActiveLines = order.lines.some((l) => !l.isCanceled);
-      if (order.status === 'DRAFT' && !hasActiveLines) {
-        // Fire-and-forget; navigation proceeds either way.
-        ordersApi.cancel(orderId, "Bo'sh qoralama").catch(() => {});
-        void qc.invalidateQueries({ queryKey: ['orders'] });
-        void qc.invalidateQueries({ queryKey: ['tables'] });
+    const unsub = nav.addListener('beforeRemove', reapIfEmptyDraft);
+    return unsub;
+  }, [nav, reapIfEmptyDraft]);
+
+  // (b) Reap when the app is backgrounded/inactivated while parked on an
+  // empty draft — covers the waiter switching apps or locking the phone.
+  // LIMITATION: a hard app kill (OS swipe-away or crash) fires no JS event,
+  // so that case cannot be reaped from the client and needs a server-side
+  // sweep. 'background'/'inactive' is the last hook RN delivers before the
+  // process is suspended, so this is the best-effort client-side cover.
+  // Returning to 'active' re-arms the reaper so a failed attempt (e.g. while
+  // offline) can retry on the next background cycle.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') {
+        reapIfEmptyDraft();
+      } else if (next === 'active') {
+        reapedRef.current = false;
       }
     });
-    return unsub;
-  }, [order, nav, orderId, qc]);
+    return () => sub.remove();
+  }, [reapIfEmptyDraft]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['orders'] });
@@ -90,7 +118,16 @@ export function OrderEditScreen() {
   const sendMutation = useMutation({
     mutationFn: () => ordersApi.send(orderId),
     onSuccess: () => { haptics.success(); invalidate(); },
-    onError: (err: any) => { haptics.error(); Alert.alert('Xato', err.message || "Yuborib bo'lmadi"); },
+    onError: (err: any) => {
+      haptics.error();
+      // A 409 here means another waiter's draft for this table was sent
+      // first (master: 'Bu stolda allaqachon yuborilgan buyurtma bor').
+      // Surface the server message — never fail silently — and refresh
+      // order/table state so occupancy reflects the new reality.
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ['tables'] });
+      Alert.alert('Xato', err?.message || "Yuborib bo'lmadi");
+    },
   });
   const cancelOrderMutation = useMutation({
     mutationFn: (reason: string) => ordersApi.cancel(orderId, reason),
@@ -478,6 +515,8 @@ export function OrderEditScreen() {
               numColumns={3}
               contentContainerStyle={{ paddingBottom: 40 }}
               renderItem={({ item }) => {
+                // activeOrderId is SENT-only (master contract): a table held
+                // by another waiter's unsent draft stays a valid transfer target.
                 const occupied = !!item.activeOrderId;
                 return (
                   <TouchableOpacity

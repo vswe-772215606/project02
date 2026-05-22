@@ -11,10 +11,17 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 // Floor map = home. Optimised for rush moments:
-//   - empty table → one tap creates a DRAFT and opens it
-//   - occupied table owned by me → one tap reopens with running total visible
-//   - occupied by another waiter → disabled with "Band"
+//   - free table → one tap creates a DRAFT and opens it
+//   - my own active order (DRAFT or SENT) → one tap reopens it
+//   - another waiter's SENT order → disabled with "Band"
 //   - persistent "Olib ketish" tile at the top for takeaway
+//
+// Occupancy rule: an unsent DRAFT no longer holds a table — only a SENT order
+// does. The server reflects this in `Table.activeOrderId`: it is the id of the
+// table's SENT order, or null when the table has only drafts (or nothing). So
+// a table carrying ANOTHER waiter's draft has activeOrderId = null, renders as
+// FREE, and is tappable — starting a second draft there is allowed. Any send
+// race is resolved server-side with a 409 at send time, not on this screen.
 //
 // Tables refresh every 10s and we listen for socket order:* events via the
 // global useSocket hook which invalidates ['tables']/['orders'] caches.
@@ -82,7 +89,9 @@ export function HomePage() {
       return;
     }
     if (table.activeOrderId) {
-      // Occupied by another waiter — block.
+      // activeOrderId is SENT-only — a value here means another waiter's sent
+      // order genuinely holds the table, so block. A draft-only table has
+      // activeOrderId = null and falls through to create a new draft.
       showToast('Stol band (boshqa ofitsiant)', 'error');
       return;
     }
@@ -181,6 +190,11 @@ export function HomePage() {
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3">
             {activeTables.map((t) => {
               const mine = myOrderByTable.get(t.id);
+              // activeOrderId is SENT-only: a value not matching my own order
+              // means another waiter's sent order holds the table → "Band".
+              // My own order (draft or sent) is in myOrderByTable and always
+              // wins — it renders as resumable, never as free or as "Band",
+              // even if another waiter's sent order also exists on the table.
               const otherWaiter = !!t.activeOrderId && !mine;
               return (
                 <TableTile

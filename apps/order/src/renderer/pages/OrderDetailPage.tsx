@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Minus, Plus, StickyNote, Trash2, ArrowLeft, Send, XCircle } from 'lucide-react';
@@ -28,6 +28,9 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   WALKOUT: 'destructive',
   CANCELED: 'outline',
 };
+
+// Reason recorded when an untouched draft is auto-cancelled on exit.
+const EMPTY_DRAFT_REASON = "Bo'sh qoralama avtomatik bekor qilindi";
 
 export function OrderDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
@@ -71,9 +74,17 @@ export function OrderDetailPage() {
     mutationFn: () => ordersApi.send(id),
     onMutate: () => patchOrder((prev) => ({ ...prev, status: 'SENT' })),
     onSuccess: () => showToast('Buyurtma yuborildi', 'success'),
-    onError: (err: Error, _vars, ctx) => {
+    onError: (err: Error & { code?: string }, _vars, ctx) => {
       rollback(ctx ?? {});
-      showToast(err.message || "Yuborib bo'lmadi", 'error');
+      // Send can now lose a race: if another waiter's draft for this table was
+      // sent first, the server returns 409 CONFLICT. Its Uzbek message is
+      // authoritative — surface it so the waiter sees why, never a silent
+      // failure. Fall back to the known conflict text if the body lacks one.
+      const fallback =
+        err.code === 'CONFLICT'
+          ? 'Bu stolda allaqachon yuborilgan buyurtma bor'
+          : "Yuborib bo'lmadi";
+      showToast(err.message || fallback, 'error');
     },
   });
 
@@ -154,17 +165,54 @@ export function OrderDetailPage() {
     [activeLines],
   );
 
-  // Back behavior: if we're leaving a DRAFT with no active lines, auto-cancel
-  // it server-side so the table is freed and we don't accumulate empty
-  // qoralama rows. Fire-and-forget — navigation happens immediately.
+  // Empty-draft reaping. An untouched DRAFT (zero active lines) keeps its table
+  // OCCUPIED for every waiter, so it must be cancelled server-side on EVERY
+  // exit path — back-arrow, sidebar navigation, and window close — not just the
+  // back button. Drafts that already have lines are resumable work and are
+  // never auto-cancelled.
+  //
+  // The ref mirror holds the latest order state so the unmount / beforeunload
+  // cleanups (which capture a stale closure) always read current values.
+  const reapStateRef = useRef<{ id: string; reapable: boolean }>({ id, reapable: false });
+  reapStateRef.current = {
+    id,
+    reapable: order?.status === 'DRAFT' && activeLines.length === 0,
+  };
+  // Latched so the draft is cancelled at most once even if multiple exit paths
+  // fire (e.g. back-arrow tap immediately followed by unmount).
+  const reapedRef = useRef(false);
+
+  const reapEmptyDraft = (opts?: { keepalive?: boolean }) => {
+    if (reapedRef.current) return;
+    const snap = reapStateRef.current;
+    if (!snap.reapable) return;
+    reapedRef.current = true;
+    void ordersApi.cancel(snap.id, EMPTY_DRAFT_REASON, opts).catch(() => {
+      // Silent — the floor map reconciles via socket / polling.
+    });
+  };
+
+  // Reap on the two exit paths that aren't a button press:
+  //  - sidebar navigation away from this route unmounts the component
+  //  - closing the Electron window fires `beforeunload`
+  // Note: the beforeunload cancel is best-effort. `keepalive: true` lets the
+  // request survive renderer teardown, but a hard process kill or an
+  // unreachable master at that instant will still drop it — such strays need
+  // a server-side reaper to clean up.
+  useEffect(() => {
+    const onBeforeUnload = () => reapEmptyDraft({ keepalive: true });
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      reapEmptyDraft();
+    };
+    // Cleanups read live state through refs, so an empty dep array is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Back behavior: reap an empty draft, then navigate. Fire-and-forget.
   const goHome = () => {
-    if (order && order.status === 'DRAFT' && activeLines.length === 0) {
-      void ordersApi
-        .cancel(id, "Bo'sh qoralama avtomatik bekor qilindi")
-        .catch(() => {
-          // Silent — the floor map will reconcile via socket / polling.
-        });
-    }
+    reapEmptyDraft();
     nav('/', { replace: true });
   };
 

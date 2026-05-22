@@ -4,6 +4,9 @@ import { useAuthStore } from '../stores/auth.store';
 type RequestOptions = {
   method: string;
   body?: unknown;
+  // `keepalive` lets a request outlive renderer teardown — needed when a call
+  // is fired from a `beforeunload` handler as the Electron window is closing.
+  keepalive?: boolean;
 };
 
 async function request<T>(path: string, options: RequestOptions): Promise<T> {
@@ -21,6 +24,7 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
     method: options.method,
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    keepalive: options.keepalive,
   });
 
   const text = await response.text();
@@ -45,7 +49,8 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path, { method: 'GET' }),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
+  post: <T>(path: string, body?: unknown, opts?: { keepalive?: boolean }) =>
+    request<T>(path, { method: 'POST', body, keepalive: opts?.keepalive }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
