@@ -6,6 +6,7 @@ import { orderService } from '../services/order.service';
 const createSchema = z.object({
   orderType: z.enum(['DINE_IN', 'TAKEAWAY']),
   tableId: z.string().nullable().optional(),
+  waiterId: z.string().nullable().optional(),
 });
 
 const listQuerySchema = z.object({
@@ -71,9 +72,10 @@ export const ordersController = {
     try {
       const body = createSchema.parse(req.body);
       const order = await orderService.createDraft({
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         orderType: body.orderType,
         tableId: body.tableId ?? null,
+        waiterId: body.waiterId ?? null,
       });
       res.status(201).json(order);
     } catch (error) {
@@ -109,7 +111,7 @@ export const ordersController = {
       const body = addItemSchema.parse(req.body);
       res.status(201).json(await orderService.addLine({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         menuItemId: body.menuItemId,
         quantity: body.quantity,
         notes: body.notes,
@@ -124,7 +126,7 @@ export const ordersController = {
       const body = addComboSchema.parse(req.body);
       res.status(201).json(await orderService.addCombo({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         comboId: body.comboId,
       }));
     } catch (error) {
@@ -137,7 +139,7 @@ export const ordersController = {
       const body = updateLineQuantitySchema.parse(req.body);
       res.json(await orderService.updateLineQuantity({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         lineId: req.params.lineId,
         quantity: body.quantity,
       }));
@@ -151,7 +153,7 @@ export const ordersController = {
       const body = noteSchema.parse(req.body);
       res.json(await orderService.editLineNote({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         lineId: req.params.lineId,
         notes: body.notes,
       }));
@@ -178,7 +180,7 @@ export const ordersController = {
     try {
       res.json(await orderService.send({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
       }));
     } catch (error) {
       next(error);

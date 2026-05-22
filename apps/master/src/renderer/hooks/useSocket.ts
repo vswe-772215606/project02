@@ -69,6 +69,7 @@ export function useSocket() {
     nextSocket.on('order:closed', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:walkout', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:transferred', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
+    nextSocket.on('order:canceled', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('menu:itemAvailability', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));
     nextSocket.on('ingredient:stockChanged', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['ingredients'] });

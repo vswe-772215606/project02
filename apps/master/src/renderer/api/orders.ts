@@ -56,9 +56,17 @@ export interface Order {
   serviceChargeWaived: boolean;
   createdAt: string;
   updatedAt: string;
+  approvedAt: string | null;
   closedAt: string | null;
   canceledAt: string | null;
   cancelReason: string | null;
+  payments?: Array<{
+    id: string;
+    method: PaymentMethod;
+    amount: number;
+    reference: string | null;
+    createdAt: string;
+  }>;
   debt?: {
     id: string;
     debtorName: string;
@@ -80,12 +88,14 @@ export const ordersApi = {
     return api.get<Order[]>(`/api/orders${qs ? '?' + qs : ''}`);
   },
   getById: (id: string) => api.get<Order>(`/api/orders/${id}`),
-  create: (data: { orderType: string; tableId?: string }) =>
+  create: (data: { orderType: string; tableId?: string | null; waiterId?: string | null }) =>
     api.post<Order>('/api/orders', data),
   addItem: (id: string, data: { menuItemId: string; quantity: number; notes?: string }) =>
     api.post<OrderLine>(`/api/orders/${id}/items`, data),
   addCombo: (id: string, data: { comboId: string }) =>
     api.post<OrderLine[]>(`/api/orders/${id}/combos`, data),
+  updateLineQuantity: (id: string, lineId: string, quantity: number) =>
+    api.patch<OrderLine>(`/api/orders/${id}/lines/${lineId}/quantity`, { quantity }),
   updateLineNotes: (id: string, lineId: string, notes: string) =>
     api.patch<OrderLine>(`/api/orders/${id}/lines/${lineId}/notes`, { notes }),
   cancelLine: (id: string, lineId: string, reason?: string) =>

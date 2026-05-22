@@ -7,6 +7,8 @@ import { AppShell } from './components/layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { ApprovalQueuePage } from './pages/ApprovalQueuePage';
 import { OrdersPage } from './pages/OrdersPage';
+import { CreateOrderPage } from './pages/CreateOrderPage';
+import { OrderDetailPage } from './pages/OrderDetailPage';
 import { MenuPage } from './pages/MenuPage';
 import { TablesPage } from './pages/TablesPage';
 import { UsersPage } from './pages/UsersPage';
@@ -34,6 +36,8 @@ function AuthedRoutes() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/approval-queue" element={<ApprovalQueuePage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/orders/new" element={<CreateOrderPage />} />
+        <Route path="/orders/:id" element={<OrderDetailPage />} />
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/tables" element={<TablesPage />} />
         <Route path="/users" element={<UsersPage />} />

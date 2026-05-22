@@ -51,6 +51,12 @@ Add-ons:
 - Quantity changes: increase = add a new line. Decrease before confirm = admin cancels the line (partial void on a `SENT` order — no stock restore).
 - Free-text notes on a line are editable while the order is `DRAFT`. Once `SENT`, notes are locked.
 
+Order creation & attribution:
+
+- A WAITER creating an order owns it (`order.waiterId` = themselves).
+- An ADMIN or OWNER may create an order **on behalf of a waiter**: they pick the waiter from a dropdown of active waiters, and `order.waiterId` is set to that chosen waiter (never the admin). The chosen user must be an active `WAITER`.
+- ADMIN and OWNER may add items, change quantities, cancel lines, and send/cancel any order — order management is operational, not waiter-scoped. Item **add** and line **cancel** are permitted on `SENT` orders as well as `DRAFT` (terminal orders stay immutable; stock-restore rules above are unchanged).
+
 Server-side drafts:
 
 - Drafts are persisted to the database immediately. Every "add item" hits the API.

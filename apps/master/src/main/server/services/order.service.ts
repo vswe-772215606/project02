@@ -8,6 +8,7 @@ import { orderLineRepo } from '../repositories/orderLine.repo';
 import { orderRepo } from '../repositories/order.repo';
 import { paymentRepo } from '../repositories/payment.repo';
 import { tableRepo } from '../repositories/table.repo';
+import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { billingService } from './billing.service';
 import { debtService } from './debt.service';
@@ -70,6 +71,10 @@ function mapToDto(order: any) {
       price: decimalToInt(l.unitPriceSnapshot),
       menuItemKind: l.menuItem?.kind ?? 'FOOD',
     })),
+    payments: order.payments?.map((p: any) => ({
+      ...p,
+      amount: decimalToInt(p.amount),
+    })),
     debt: order.debt
       ? {
           id: order.debt.id,
@@ -91,13 +96,11 @@ async function completeEmitContext<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-function ensureWaiterOwns(order: { waiterId: string }, waiterId: string): void {
-  if (order.waiterId !== waiterId) {
-    throw Errors.Forbidden('Forbidden');
-  }
-}
-
-function ensureReadable(order: { waiterId: string }, requestingUser: RequestingUser): void {
+/**
+ * Access rule for order read and management operations: a WAITER may act only
+ * on their own order; ADMIN and OWNER may act on any order.
+ */
+function ensureCanAct(order: { waiterId: string }, requestingUser: RequestingUser): void {
   if (requestingUser.role === UserRole.WAITER && order.waiterId !== requestingUser.id) {
     throw Errors.Forbidden('Forbidden');
   }
@@ -160,9 +163,10 @@ export const orderService = {
   },
 
   async createDraft(input: {
-    waiterId: string;
+    requestingUser: RequestingUser;
     orderType: 'DINE_IN' | 'TAKEAWAY';
     tableId?: string | null;
+    waiterId?: string | null;
   }) {
     if (input.orderType === 'DINE_IN' && !input.tableId) {
       throw Errors.Validation('DINE_IN orders require a table');
@@ -170,6 +174,19 @@ export const orderService = {
 
     if (input.orderType === 'TAKEAWAY' && input.tableId) {
       throw Errors.Validation('TAKEAWAY orders cannot have a table');
+    }
+
+    // Waiter resolution: a WAITER always owns the orders they create; an
+    // ADMIN/OWNER must pick the waiter the order is attributed to.
+    const effectiveWaiterId = input.requestingUser.role === UserRole.WAITER
+      ? input.requestingUser.id
+      : input.waiterId ?? null;
+    if (!effectiveWaiterId) {
+      throw Errors.Validation('Ofitsiant tanlanishi shart');
+    }
+    const waiter = await userRepo.findById(effectiveWaiterId);
+    if (!waiter || !waiter.isActive || waiter.role !== UserRole.WAITER) {
+      throw Errors.Validation('Tanlangan foydalanuvchi faol ofitsiant emas');
     }
 
     if (input.tableId) {
@@ -192,7 +209,7 @@ export const orderService = {
       orderType: input.orderType,
       status: OrderStatus.DRAFT,
       waiter: {
-        connect: { id: input.waiterId },
+        connect: { id: effectiveWaiterId },
       },
       table: input.tableId
         ? {
@@ -205,20 +222,20 @@ export const orderService = {
 
   async getById(orderId: string, requestingUser: RequestingUser) {
     const order = await getOrderOrThrow(orderId);
-    ensureReadable(order, requestingUser);
+    ensureCanAct(order, requestingUser);
     return mapToDto(order);
   },
 
   async addLine(input: {
     orderId: string;
-    waiterId: string;
+    requestingUser: RequestingUser;
     menuItemId: string;
     quantity: number;
     notes?: string;
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureWaiterOwns(order, input.waiterId);
+      ensureCanAct(order, input.requestingUser);
 
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'ADD_LINE');
@@ -260,14 +277,14 @@ export const orderService = {
 
         if (!isService) {
           await consumptionService.consume(
-            { id: line.id, menuItemId: input.menuItemId, actorUserId: input.waiterId },
+            { id: line.id, menuItemId: input.menuItemId, actorUserId: input.requestingUser.id },
             input.quantity,
             tx,
           );
         }
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
-        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+        deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
         return line;
       });
@@ -276,12 +293,12 @@ export const orderService = {
 
   async addCombo(input: {
     orderId: string;
-    waiterId: string;
+    requestingUser: RequestingUser;
     comboId: string;
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureWaiterOwns(order, input.waiterId);
+      ensureCanAct(order, input.requestingUser);
 
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'ADD_COMBO');
@@ -306,7 +323,7 @@ export const orderService = {
             quantity: component.quantity,
           }, tx);
           await consumptionService.consume(
-            { id: line.id, menuItemId: component.menuItemId, actorUserId: input.waiterId },
+            { id: line.id, menuItemId: component.menuItemId, actorUserId: input.requestingUser.id },
             component.quantity,
             tx,
           );
@@ -314,7 +331,7 @@ export const orderService = {
         }
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
-        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+        deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
         return lines;
       });
@@ -323,13 +340,13 @@ export const orderService = {
 
   async updateLineQuantity(input: {
     orderId: string;
-    waiterId: string;
+    requestingUser: RequestingUser;
     lineId: string;
     quantity: number;
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureWaiterOwns(order, input.waiterId);
+      ensureCanAct(order, input.requestingUser);
 
       const line = await orderLineRepo.findById(input.lineId);
       if (!line || line.orderId !== order.id || line.isCanceled) {
@@ -347,7 +364,7 @@ export const orderService = {
       return getPrisma().$transaction(async (tx) => {
         if (delta > 0 && line.menuItemId) {
           await consumptionService.consume(
-            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
+            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.requestingUser.id },
             delta,
             tx,
           );
@@ -356,7 +373,7 @@ export const orderService = {
           // dishes are considered prepared (matches maybeRestoreLineStock policy
           // on cancel) so we don't fabricate inventory.
           await consumptionService.restore(
-            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
+            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.requestingUser.id },
             Math.abs(delta),
             tx,
           );
@@ -365,7 +382,7 @@ export const orderService = {
         const updated = await orderLineRepo.updateQuantity(line.id, input.quantity, tx);
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
-        deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+        deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
         return updated;
       });
@@ -374,28 +391,29 @@ export const orderService = {
 
   async editLineNote(input: {
     orderId: string;
-    waiterId: string;
+    requestingUser: RequestingUser;
     lineId: string;
     notes: string;
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureWaiterOwns(order, input.waiterId);
+      ensureCanAct(order, input.requestingUser);
 
       const line = await orderLineRepo.findById(input.lineId);
       if (!line || line.orderId !== order.id) {
         throw Errors.NotFound('OrderLine');
       }
 
-      // Notes can be edited any time before the order is closed/walkout/canceled.
-      if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
+      // Per locked decision (decisions.md): line notes are editable only while
+      // the order is DRAFT. Once SENT they are locked.
+      if (order.status !== OrderStatus.DRAFT) {
         throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE');
       }
 
       const updatedLine = await orderLineRepo.updateNote(input.lineId, input.notes);
 
       deferEmit('admin', 'order:updated', { orderId: order.id });
-      deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+      deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
       return updatedLine;
     });
@@ -409,7 +427,7 @@ export const orderService = {
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureReadable(order, input.requestingUser);
+      ensureCanAct(order, input.requestingUser);
 
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'CANCEL_LINE');
@@ -439,6 +457,13 @@ export const orderService = {
       }
 
       return getPrisma().$transaction(async (tx) => {
+        // Idempotency guard: re-read the line inside the transaction so SQLite
+        // serializes racing cancels (or a UI double-submit). A second cancel
+        // must be rejected — otherwise maybeRestoreLineStock runs twice.
+        const fresh = await orderLineRepo.findById(input.lineId, tx);
+        if (!fresh || fresh.isCanceled) {
+          throw Errors.Conflict('Bu pozitsiya allaqachon bekor qilingan');
+        }
         const updated = await orderLineRepo.cancel(input.lineId, input.reason ?? '', tx);
         await maybeRestoreLineStock(line, order, input.requestingUser.id, tx);
 
@@ -450,12 +475,12 @@ export const orderService = {
     });
   },
 
-  async send(input: { orderId: string; waiterId: string }) {
+  async send(input: { orderId: string; requestingUser: RequestingUser }) {
     return completeEmitContext(async () => {
       try {
         return await getPrisma().$transaction(async (tx) => {
           const order = await getOrderOrThrow(input.orderId, tx);
-          ensureWaiterOwns(order, input.waiterId);
+          ensureCanAct(order, input.requestingUser);
 
           if (order.status === OrderStatus.SENT) {
             // Idempotent: already sent, return as-is.
@@ -477,7 +502,7 @@ export const orderService = {
           }
 
           deferEmit('admin', 'order:updated', { orderId: order.id });
-          deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
+          deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
           return mapToDto(updated);
         });
@@ -500,7 +525,7 @@ export const orderService = {
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureReadable(order, input.requestingUser);
+      ensureCanAct(order, input.requestingUser);
 
       const waiterAllowed = input.requestingUser.role === UserRole.WAITER && order.waiterId === input.requestingUser.id;
       const adminAllowed = input.requestingUser.role === UserRole.ADMIN
@@ -566,7 +591,7 @@ export const orderService = {
   }) {
     return completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
-      ensureReadable(order, input.requestingUser);
+      ensureCanAct(order, input.requestingUser);
 
       const isWaiter = input.requestingUser.role === UserRole.WAITER;
       const isAdminish = input.requestingUser.role === UserRole.ADMIN
