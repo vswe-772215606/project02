@@ -11,6 +11,9 @@ export interface ConfirmPayment {
 
 export interface ConfirmBody {
   discountId?: string | null;
+  // Ad-hoc discount amount in so'm — preferred over discountId for the
+  // new confirm flow. When set, the server uses it directly (no preset/percent).
+  discountAmount?: number | null;
   waiveServiceCharge?: boolean;
   payments: ConfirmPayment[];
   debt?: {

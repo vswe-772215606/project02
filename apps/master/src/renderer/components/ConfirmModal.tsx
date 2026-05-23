@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
   Plus,
@@ -14,7 +14,6 @@ import {
   Info,
   AlertTriangle,
 } from 'lucide-react';
-import { discountsApi } from '../api/discounts';
 import {
   ConfirmBody,
   Order,
@@ -47,7 +46,9 @@ interface ConfirmModalProps {
 export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
   const queryClient = useQueryClient();
 
-  const [discountId, setDiscountId] = useState<string>('');
+  // Direct discount input in so'm — admin types whatever was agreed at the
+  // till. Replaces the old "pick a preset percent/amount" dropdown.
+  const [discountInput, setDiscountInput] = useState<string>('');
   const [waiveService, setWaiveService] = useState<boolean>(Boolean(order.serviceChargeWaived));
   const [debtorName, setDebtorName] = useState<string>(order.debt?.debtorName ?? '');
   const [debtorPhone, setDebtorPhone] = useState<string>('');
@@ -79,24 +80,14 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
     [order.lines],
   );
 
-  const { data: discounts = [] } = useQuery({
-    queryKey: ['discounts'],
-    queryFn: () => discountsApi.list(),
-    enabled: open,
-  });
-
-  const selectedDiscount = useMemo(
-    () => discounts.find((item) => item.id === discountId),
-    [discountId, discounts],
-  );
-
-  const previewDiscount = useMemo(() => {
-    if (!selectedDiscount) return 0;
-    if (selectedDiscount.type === 'PERCENT') {
-      return Math.round((subtotal * selectedDiscount.value) / 100);
-    }
-    return Math.min(selectedDiscount.value, subtotal);
-  }, [selectedDiscount, subtotal]);
+  // Live discount preview — what the admin typed, clamped to the food subtotal
+  // (admin can't accidentally discount more than the food costs).
+  const discountAmountTyped = useMemo(() => {
+    const n = Number(discountInput);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.round(n), subtotal);
+  }, [discountInput, subtotal]);
+  const previewDiscount = discountAmountTyped;
 
   const previewServiceCharge = waiveService ? 0 : serviceFromLines;
   const previewTotal = subtotal - previewDiscount + previewServiceCharge;
@@ -125,7 +116,7 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
   const confirmMutation = useMutation({
     mutationFn: async (): Promise<Order> => {
       const body: ConfirmBody = {
-        discountId: discountId || null,
+        discountAmount: discountAmountTyped > 0 ? discountAmountTyped : null,
         waiveServiceCharge: waiveService,
         payments: payments.map((payment) => ({
           method: payment.method,
@@ -278,23 +269,23 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                    Chegirma
+                    Chegirma (so&apos;m)
                   </label>
-                  <select
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs font-black uppercase outline-none focus:border-blue-500 transition-colors"
-                    value={discountId}
-                    onChange={(e) => setDiscountId(e.target.value)}
-                  >
-                    <option value="">Yo&apos;q</option>
-                    {discounts
-                      .filter((item) => item.isActive)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} (
-                          {item.type === 'PERCENT' ? `${item.value}%` : formatUZS(item.value)})
-                        </option>
-                      ))}
-                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    placeholder="0"
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-right tabular-nums outline-none focus:border-blue-500 transition-colors"
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  {discountAmountTyped > 0 && Number(discountInput) > subtotal && (
+                    <p className="text-[10px] font-bold text-amber-600 uppercase tracking-tight">
+                      Ovqat summasidan oshib ketdi — {formatUZS(subtotal)} ga chegaralandi
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-end">
                   <label className="flex items-center gap-3 w-full cursor-pointer select-none rounded-md border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-600 uppercase hover:bg-slate-50 transition-colors">

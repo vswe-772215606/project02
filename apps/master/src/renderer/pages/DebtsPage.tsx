@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { HandCoins, Info, Loader2, Plus, Search, X } from 'lucide-react';
+import { HandCoins, Info, Loader2, Plus, Printer, Search, X } from 'lucide-react';
 import { debtsApi, type DebtListItem } from '../api/debts';
+import { ordersApi } from '../api/orders';
+import { toast } from 'sonner';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
@@ -114,6 +116,16 @@ export function DebtsPage() {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
     },
     onError: (error: Error) => setErrorMessage(error.message || "Qarz to'lovini saqlab bo'lmadi"),
+  });
+
+  // Reprint the original order's bill — handy when collecting debt and the
+  // customer wants a copy of what they're paying for. Goes through the same
+  // printer queue as a normal bill print.
+  const reprintMutation = useMutation({
+    mutationFn: (orderId: string) =>
+      ordersApi.reprintBill(orderId, "Nasiya to'lov vaqtida"),
+    onSuccess: () => toast.success("Chek printerga yuborildi"),
+    onError: (error: Error) => toast.error(error.message || "Chek chiqarib bo'lmadi"),
   });
 
   // Close repay dialog if selection changes
@@ -411,7 +423,21 @@ export function DebtsPage() {
                 onChange={(e) => setRepayNote(e.target.value)}
               />
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 flex-col sm:flex-row">
+              {detail?.orderId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => reprintMutation.mutate(detail.orderId)}
+                  disabled={reprintMutation.isPending || repayMutation.isPending}
+                  className="sm:mr-auto"
+                >
+                  {reprintMutation.isPending
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Printer className="h-4 w-4" />}
+                  Chek chiqarish
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"

@@ -228,6 +228,11 @@ export const orderService = {
 
       const isService = item.kind === MenuItemKind.SERVICE;
 
+      // 30s timeout: FIFO peel across many batches × many ingredients can
+      // exceed the 5s default under SQLite (e.g. selling 10 portions of a
+      // dish whose ingredient has 3 stacked batches). 30s is well under any
+      // realistic user-facing latency cap; the txn either completes fast or
+      // the consume code has a bug worth surfacing.
       return getPrisma().$transaction(async (tx) => {
         const existingMergeable = await tx.orderLine.findFirst({
           where: {
@@ -267,7 +272,7 @@ export const orderService = {
         deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
         return line;
-      });
+      }, { timeout: 30_000 });
     });
   },
 
@@ -314,7 +319,7 @@ export const orderService = {
         deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
         return lines;
-      });
+      }, { timeout: 30_000 });
     });
   },
 
@@ -365,7 +370,7 @@ export const orderService = {
         deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
         return updated;
-      });
+      }, { timeout: 30_000 });
     });
   },
 
@@ -615,6 +620,9 @@ export const orderService = {
   async confirm(input: {
     orderId: string;
     discountId?: string | null;
+    // Direct ad-hoc discount amount in so'm, entered at confirm time.
+    // Takes precedence over `discountId` when both are present.
+    discountAmount?: number | null;
     waiveServiceCharge?: boolean;
     payments: Array<{ method: PaymentMethod; amount: number | string; reference?: string }>;
     requestingUser: RequestingUser;
@@ -637,6 +645,7 @@ export const orderService = {
 
       const totals = await billingService.computeTotals(order, {
         discountId: input.discountId ?? null,
+        discountAmount: input.discountAmount ?? null,
         serviceChargeWaived: input.waiveServiceCharge ?? false,
       });
 
@@ -697,6 +706,7 @@ export const orderService = {
           metadata: {
             orderId: order.id,
             discountId: input.discountId ?? null,
+            discountAmount: input.discountAmount ?? null,
             waiveServiceCharge: input.waiveServiceCharge ?? false,
             total: totalDue,
             paymentMethods: input.payments.map((p) => p.method),

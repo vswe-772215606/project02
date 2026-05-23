@@ -54,7 +54,18 @@ function toDecimal(value: number): Prisma.Decimal {
 export const billingService = {
   async computeTotals(
     order: OrderForBilling,
-    opts: { discountId?: string | null; serviceChargeWaived: boolean },
+    opts: {
+      // Preset Discount FK — legacy path, still supported for any caller
+      // that still picks from the configured Discount table.
+      discountId?: string | null;
+      // Direct ad-hoc discount entered at confirm time, in so'm. Bypasses
+      // the percent/amount caps from settings; admin keys in whatever they
+      // agreed with the customer. Capped only at the food subtotal so we
+      // never end up with a negative net food line. If both discountId and
+      // discountAmount are passed, discountAmount wins (it's the new model).
+      discountAmount?: number | string | null;
+      serviceChargeWaived: boolean;
+    },
   ) {
     const activeLines = order.lines.filter((line) => !line.isCanceled);
 
@@ -68,7 +79,15 @@ export const billingService = {
 
     let discountAmount = 0;
 
-    if (opts.discountId) {
+    if (opts.discountAmount !== undefined && opts.discountAmount !== null) {
+      const raw = decimalToInt(opts.discountAmount);
+      if (raw < 0) {
+        throw Errors.Validation('Chegirma manfiy bo\'lishi mumkin emas');
+      }
+      // Cap at subtotal — admin types a number, we silently clamp instead of
+      // erroring so they never see "discount > food" weirdness on screen.
+      discountAmount = Math.min(raw, subtotal);
+    } else if (opts.discountId) {
       const discount = await discountRepo.findById(opts.discountId);
       if (!discount || !discount.isActive) {
         throw Errors.Validation('Discount is not active');

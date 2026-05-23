@@ -42,6 +42,9 @@ const updateLineQuantitySchema = z.object({
 
 const confirmSchema = z.object({
   discountId: z.string().min(1).nullable().optional(),
+  // Direct ad-hoc discount in so'm (admin types whatever they agreed with
+  // the customer). When present, takes precedence over discountId.
+  discountAmount: z.number().int().nonnegative().nullable().optional(),
   waiveServiceCharge: z.boolean().optional(),
   payments: z.array(z.object({
     method: z.nativeEnum(PaymentMethod),
@@ -218,6 +221,7 @@ export const ordersController = {
         orderId: req.params.id,
         requestingUser: requester(req),
         discountId: body.discountId ?? null,
+        discountAmount: body.discountAmount ?? null,
         waiveServiceCharge: body.waiveServiceCharge ?? false,
         payments: body.payments,
         debt: body.debt,
