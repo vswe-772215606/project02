@@ -1,9 +1,20 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import { financeCloseService } from '../services/finance-close.service';
 import { financeService } from '../services/finance.service';
 
 const dailyQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+const closeBody = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  note: z.string().max(500).optional(),
+});
+
+const reopenBody = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.string().trim().min(3),
 });
 
 // Either { from, to } as ISO dates, or legacy { month: YYYY-MM }, or
@@ -39,6 +50,36 @@ export const financeController = {
         ? new Date(`${q.date}T00:00:00`)
         : new Date();
       res.json(await financeService.dailyForAdmin(date));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async dailyClose(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = closeBody.parse(req.body ?? {});
+      const date = body.date ? new Date(`${body.date}T00:00:00`) : new Date();
+      const result = await financeCloseService.close({
+        date,
+        note: body.note,
+        actorUserId: req.user!.id,
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async dailyReopen(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = reopenBody.parse(req.body ?? {});
+      const date = new Date(`${body.date}T00:00:00`);
+      await financeCloseService.reopen({
+        date,
+        reason: body.reason,
+        actorUserId: req.user!.id,
+      });
+      res.json({ ok: true });
     } catch (error) {
       next(error);
     }

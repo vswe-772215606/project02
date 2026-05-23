@@ -1,6 +1,8 @@
 import { ExpenseStatus, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
+import { dayKey } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
+import { dailyCloseRepo } from '../repositories/dailyClose.repo';
 import { expenseRepo } from '../repositories/expense.repo';
 import { auditService } from './audit.service';
 
@@ -60,6 +62,7 @@ function mapExpense(item: Awaited<ReturnType<typeof expenseRepo.findById>>) {
     note: item.note,
     occurredAt: item.occurredAt.toISOString(),
     status: item.status,
+    isAdjustment: item.isAdjustment,
     reversedExpenseId: item.reversedExpenseId,
     purchaseId: item.purchaseId,
     repayable: item.repayable,
@@ -221,6 +224,15 @@ export const expenseService = {
       throw Errors.Validation('Chiqim summasi 0 dan katta bo\'lishi kerak');
     }
 
+    // Kelajakka qaratilgan yozuv qabul qilinmaydi.
+    if (input.occurredAt.getTime() > Date.now()) {
+      throw Errors.Validation('Chiqim sanasi kelajakka qaratib bo\'lmaydi');
+    }
+
+    // Yopilgan kunga kiritilgan yozuv → tuzatish.
+    const closedRow = await dailyCloseRepo.findByDate(dayKey(input.occurredAt));
+    const isAdjustment = closedRow !== null;
+
     const expense = await getPrisma().$transaction(async (tx) => {
       const created = await expenseRepo.create({
         category: { connect: { id: categoryId } },
@@ -229,6 +241,7 @@ export const expenseService = {
         note: input.note?.trim() || null,
         occurredAt: input.occurredAt,
         repayable: input.repayable ?? false,
+        isAdjustment,
         createdBy: { connect: { id: input.actorUserId } },
       }, tx);
 
@@ -244,6 +257,7 @@ export const expenseService = {
           reason: created.reason,
           repayable: input.repayable ?? false,
           occurredAt: created.occurredAt.toISOString(),
+          isAdjustment,
         },
       }, tx);
 

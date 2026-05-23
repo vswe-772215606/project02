@@ -1,7 +1,9 @@
 import { ExpenseStatus, IngredientMovementType, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
+import { dayKey } from '../lib/date';
 import { deferEmit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { getPrisma } from '../lib/prisma';
+import { dailyCloseRepo } from '../repositories/dailyClose.repo';
 import { expenseRepo } from '../repositories/expense.repo';
 import { ingredientRepo } from '../repositories/ingredient.repo';
 import { ingredientMovementRepo } from '../repositories/ingredientMovement.repo';
@@ -37,6 +39,7 @@ function mapPurchase(item: Awaited<ReturnType<typeof purchaseRepo.findById>>) {
     occurredAt: item.occurredAt.toISOString(),
     createdAt: item.createdAt.toISOString(),
     status: item.status,
+    isAdjustment: item.isAdjustment,
     reversedAt: item.reversedAt?.toISOString() ?? null,
     reversedById: item.reversedById,
     reversedByName: item.reversedBy?.fullName ?? null,
@@ -85,6 +88,14 @@ export const purchaseService = {
         throw Errors.Validation('Xarid summasi 0 dan katta bo\'lishi kerak');
       }
 
+      if (input.occurredAt.getTime() > Date.now()) {
+        throw Errors.Validation('Xarid sanasi kelajakka qaratib bo\'lmaydi');
+      }
+
+      // Yopilgan kunga kiritilgan xarid → tuzatish.
+      const closedRow = await dailyCloseRepo.findByDate(dayKey(input.occurredAt));
+      const isAdjustment = closedRow !== null;
+
       const quantityRecipeUnit = quantityBuyUnit.mul(ingredient.conversionFactor);
       const unitCostPerRecipeUnit = totalCostUzs.div(quantityRecipeUnit);
 
@@ -110,6 +121,7 @@ export const purchaseService = {
             reason: `Xarid: ${ingredient.name}`,
             note: input.supplierNote?.trim() || null,
             occurredAt: input.occurredAt,
+            isAdjustment,
             createdBy: { connect: { id: input.actorUserId } },
           },
           tx,
@@ -126,6 +138,7 @@ export const purchaseService = {
             supplierNote: input.supplierNote?.trim() || null,
             recordedBy: { connect: { id: input.actorUserId } },
             occurredAt: input.occurredAt,
+            isAdjustment,
             expense: { connect: { id: expense.id } },
           },
           tx,
