@@ -9,3 +9,4 @@ reportsRouter.use(requireAuth, requireRole('OWNER'));
 
 reportsRouter.get('/daily', reportsController.daily);
 reportsRouter.get('/monthly', reportsController.monthly);
+reportsRouter.get('/summary', reportsController.summary);

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer, FileDown, RefreshCw, ChevronDown } from 'lucide-react';
-import { DailyReport, MonthlyReport, reportsApi } from '../api/reports';
+import { DailyReport, MonthlyReport, SummaryReport, reportsApi } from '../api/reports';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
@@ -269,9 +269,15 @@ function MonthlyView({
 
 export function ReportsPage() {
   usePageTitle('Hisobotlar');
-  const [tab, setTab] = useState<'daily' | 'monthly'>('daily');
+  const [tab, setTab] = useState<'daily' | 'monthly' | 'summary'>('daily');
   const [date, setDate] = useState(localDateString);
   const [month, setMonth] = useState(localMonthString);
+  // Summary tab: default to first-of-month → today.
+  const [summaryFrom, setSummaryFrom] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [summaryTo, setSummaryTo] = useState(localDateString);
   const [selectedDay, setSelectedDay] = useState<DailyReport | null>(null);
   const selectedYear = month.slice(0, 4);
   const selectedMonthPart = month.slice(5, 7);
@@ -290,23 +296,40 @@ export function ReportsPage() {
     retry: false,
   });
 
+  const summaryQuery = useQuery({
+    queryKey: ['reports', 'summary', summaryFrom, summaryTo],
+    queryFn: () => reportsApi.getSummary(summaryFrom, summaryTo),
+    enabled: tab === 'summary',
+    retry: false,
+  });
+
   const isForbidden =
     (dailyQuery.error as { code?: string } | null)?.code === 'FORBIDDEN' ||
     (monthlyQuery.error as { code?: string } | null)?.code === 'FORBIDDEN' ||
+    (summaryQuery.error as { code?: string } | null)?.code === 'FORBIDDEN' ||
     (dailyQuery.error as Error | null)?.message === 'Forbidden' ||
-    (monthlyQuery.error as Error | null)?.message === 'Forbidden';
+    (monthlyQuery.error as Error | null)?.message === 'Forbidden' ||
+    (summaryQuery.error as Error | null)?.message === 'Forbidden';
 
   if (isForbidden) {
     return <ForbiddenMessage />;
   }
 
-  const isLoading = tab === 'daily' ? dailyQuery.isLoading : monthlyQuery.isLoading;
-  const isFetching = tab === 'daily' ? dailyQuery.isFetching : monthlyQuery.isFetching;
-  const error = tab === 'daily' ? dailyQuery.error : monthlyQuery.error;
+  const isLoading = tab === 'daily' ? dailyQuery.isLoading
+    : tab === 'monthly' ? monthlyQuery.isLoading
+    : summaryQuery.isLoading;
+  const isFetching = tab === 'daily' ? dailyQuery.isFetching
+    : tab === 'monthly' ? monthlyQuery.isFetching
+    : summaryQuery.isFetching;
+  const error = tab === 'daily' ? dailyQuery.error
+    : tab === 'monthly' ? monthlyQuery.error
+    : summaryQuery.error;
 
   const printSubtitle = tab === 'daily'
     ? `Kunlik moliyaviy hisobot — ${formatDateLabel(date)}`
-    : `Oylik moliyaviy hisobot — ${formatMonthLabel(month)}`;
+    : tab === 'monthly'
+      ? `Oylik moliyaviy hisobot — ${formatMonthLabel(month)}`
+      : `Umumiy moliyaviy hisobot — ${formatDateLabel(summaryFrom)} … ${formatDateLabel(summaryTo)}`;
 
   const onPrint = () => {
     printCurrentView();
@@ -338,7 +361,11 @@ export function ReportsPage() {
   return (
     <PageContent>
       <PrintHeader
-        title={tab === 'daily' ? 'Kunlik moliyaviy hisobot' : 'Oylik moliyaviy hisobot'}
+        title={
+          tab === 'daily' ? 'Kunlik moliyaviy hisobot'
+          : tab === 'monthly' ? 'Oylik moliyaviy hisobot'
+          : "Umumiy moliyaviy hisobot"
+        }
         subtitle={printSubtitle}
       />
 
@@ -358,7 +385,7 @@ export function ReportsPage() {
                   className="w-44 h-9"
                 />
               </div>
-            ) : (
+            ) : tab === 'monthly' ? (
               <div className="flex items-center gap-2">
                 <Label className="text-xs text-muted-foreground">Davr:</Label>
                 <Input
@@ -391,11 +418,34 @@ export function ReportsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="report-from" className="text-xs text-muted-foreground">Davr:</Label>
+                <Input
+                  id="report-from"
+                  type="date"
+                  value={summaryFrom}
+                  onChange={(e) => setSummaryFrom(e.target.value)}
+                  className="w-40 h-9"
+                />
+                <span className="text-xs text-muted-foreground">—</span>
+                <Input
+                  id="report-to"
+                  type="date"
+                  value={summaryTo}
+                  onChange={(e) => setSummaryTo(e.target.value)}
+                  className="w-40 h-9"
+                />
+              </div>
             )}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => (tab === 'daily' ? dailyQuery.refetch() : monthlyQuery.refetch())}
+              onClick={() => (
+                tab === 'daily' ? dailyQuery.refetch()
+                : tab === 'monthly' ? monthlyQuery.refetch()
+                : summaryQuery.refetch()
+              )}
               disabled={isFetching}
               title="Yangilash"
             >
@@ -415,10 +465,11 @@ export function ReportsPage() {
       />
 
       <div className="no-print">
-        <Tabs value={tab} onValueChange={(value) => setTab(value as 'daily' | 'monthly')}>
+        <Tabs value={tab} onValueChange={(value) => setTab(value as 'daily' | 'monthly' | 'summary')}>
           <TabsList>
             <TabsTrigger value="daily">Kunlik</TabsTrigger>
             <TabsTrigger value="monthly">Oylik</TabsTrigger>
+            <TabsTrigger value="summary">Umumiy</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -438,6 +489,8 @@ export function ReportsPage() {
         <DailyReportSections report={dailyQuery.data} />
       ) : tab === 'monthly' && monthlyQuery.data ? (
         <MonthlyView report={monthlyQuery.data} onSelectDay={setSelectedDay} />
+      ) : tab === 'summary' && summaryQuery.data ? (
+        <SummaryView report={summaryQuery.data} />
       ) : (
         <Card>
           <CardContent className="pt-6">
@@ -457,5 +510,209 @@ export function ReportsPage() {
         </DialogContent>
       </Dialog>
     </PageContent>
+  );
+}
+
+// ─── Summary (Umumiy) tab — date-range P&L + Cash basis side-by-side ──────
+function SummaryView({ report }: { report: SummaryReport }) {
+  const profit = Number(report.pnl.profit);
+  const cashFarq = Number(report.cash.farq);
+
+  return (
+    <div className="space-y-6">
+      {/* Incomes block — shared between both views */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-sm font-semibold uppercase tracking-wide">
+            Kirimlar — kategoriyalar bo'yicha
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Sotuv revenue menyu kategoriyalari bo'yicha
+          </p>
+        </CardHeader>
+        <CardContent>
+          {report.incomes.byMenuCategory.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Tanlangan davrda sotuv yo'q
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-2 font-medium">Kategoriya</th>
+                  <th className="text-right py-2 font-medium">Soni</th>
+                  <th className="text-right py-2 font-medium">Sotuv (so'm)</th>
+                  <th className="text-right py-2 font-medium">Tan narxi</th>
+                  <th className="text-right py-2 font-medium">Foyda</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.incomes.byMenuCategory.map((row) => {
+                  const p = Number(row.profit);
+                  return (
+                    <tr key={row.categoryId} className="border-b border-border/40">
+                      <td className="py-2 font-medium">{row.categoryName}</td>
+                      <td className="py-2 text-right tabular-nums">{row.qty}</td>
+                      <td className="py-2 text-right tabular-nums">{formatMoney(row.revenue)}</td>
+                      <td className="py-2 text-right tabular-nums text-muted-foreground">{formatMoney(row.cogs)}</td>
+                      <td className={`py-2 text-right tabular-nums font-medium ${p > 0 ? 'text-success' : p < 0 ? 'text-destructive' : ''}`}>
+                        {formatMoney(row.profit)}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-border font-bold">
+                  <td className="py-2 uppercase tracking-wide text-xs">Jami</td>
+                  <td className="py-2 text-right tabular-nums">{report.incomes.totals.qty}</td>
+                  <td className="py-2 text-right tabular-nums">{formatMoney(report.incomes.totals.revenue)}</td>
+                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatMoney(report.incomes.totals.cogs)}</td>
+                  <td className="py-2 text-right tabular-nums text-success">
+                    {formatMoney(String(Number(report.incomes.totals.revenue) - Number(report.incomes.totals.cogs)))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+          {(Number(report.incomes.other.debtRepaid) > 0 || Number(report.incomes.other.expenseReturns) > 0) && (
+            <div className="mt-3 pt-3 border-t border-dashed border-border space-y-1 text-sm">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
+                Boshqa kirimlar
+              </div>
+              {Number(report.incomes.other.debtRepaid) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Qarz qaytimi</span>
+                  <span className="tabular-nums">{formatMoney(report.incomes.other.debtRepaid)}</span>
+                </div>
+              )}
+              {Number(report.incomes.other.expenseReturns) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Chiqim qaytimi (avans va h.k.)</span>
+                  <span className="tabular-nums">{formatMoney(report.incomes.other.expenseReturns)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Two side-by-side cards: P&L | Cash basis */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* P&L view */}
+        <Card>
+          <CardHeader>
+            <h3 className="text-sm font-semibold uppercase tracking-wide">P&L (sof foyda)</h3>
+            <p className="text-xs text-muted-foreground">
+              Accrual — sotilgan ovqatlar tan narxi (COGS) hisobga olinadi, xaridlar emas
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
+                Chiqimlar — kategoriyalar bo'yicha
+              </div>
+              {report.pnl.expensesByCategory.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-1">Operatsion chiqim yo'q</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody>
+                    {report.pnl.expensesByCategory.map((row) => (
+                      <tr key={row.categoryId} className="border-b border-border/40">
+                        <td className="py-1.5">{row.categoryName}</td>
+                        <td className="py-1.5 text-right tabular-nums">{formatMoney(row.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="space-y-1 pt-3 border-t border-border">
+              <div className="flex justify-between text-sm">
+                <span>Sotuv (kirim)</span>
+                <span className="tabular-nums text-success">+{formatMoney(report.pnl.revenue)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Tan narxi (COGS)</span>
+                <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.cogs)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Operatsion chiqim</span>
+                <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.operatingExpense)}</span>
+              </div>
+              <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
+                <span className="uppercase tracking-wide">Sof foyda</span>
+                <span className={`tabular-nums ${profit > 0 ? 'text-success' : profit < 0 ? 'text-destructive' : ''}`}>
+                  {formatMoney(report.pnl.profit)}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Cash basis */}
+        <Card>
+          <CardHeader>
+            <h3 className="text-sm font-semibold uppercase tracking-wide">Naqd pul harakati</h3>
+            <p className="text-xs text-muted-foreground">
+              Cash basis — xaridlar to'g'ridan-to'g'ri chiqim, COGS yo'q
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
+                Chiqimlar — kategoriyalar bo'yicha (xaridlar bilan)
+              </div>
+              {report.cash.expensesByCategory.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-1">Chiqim yo'q</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody>
+                    {report.cash.expensesByCategory.map((row) => (
+                      <tr key={row.categoryId} className="border-b border-border/40">
+                        <td className="py-1.5">{row.categoryName}</td>
+                        <td className="py-1.5 text-right tabular-nums">{formatMoney(row.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="space-y-1 pt-3 border-t border-border">
+              <div className="flex justify-between text-sm">
+                <span>Sotuv (naqd + karta)</span>
+                <span className="tabular-nums text-success">+{formatMoney(report.cash.salesInflow)}</span>
+              </div>
+              {Number(report.cash.debtRepaid) > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Qarz qaytimi</span>
+                  <span className="tabular-nums text-success">+{formatMoney(report.cash.debtRepaid)}</span>
+                </div>
+              )}
+              {Number(report.cash.expenseReturns) > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Chiqim qaytimi</span>
+                  <span className="tabular-nums text-success">+{formatMoney(report.cash.expenseReturns)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm font-semibold border-t border-border/40 pt-1">
+                <span>Jami kirim</span>
+                <span className="tabular-nums text-success">{formatMoney(report.cash.totalIn)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Jami chiqim</span>
+                <span className="tabular-nums text-destructive">−{formatMoney(report.cash.totalOut)}</span>
+              </div>
+              <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
+                <span className="uppercase tracking-wide">Naqd farq</span>
+                <span className={`tabular-nums ${cashFarq > 0 ? 'text-success' : cashFarq < 0 ? 'text-destructive' : ''}`}>
+                  {formatMoney(report.cash.farq)}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }

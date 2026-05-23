@@ -4,6 +4,11 @@ import { debtRepo } from '../repositories/debt.repo';
 import { expenseRepo } from '../repositories/expense.repo';
 import { expenseService } from './expense.service';
 
+// Ingredient-purchase expenses live in this seeded category; they're shown in
+// the Xaridlar block, NOT counted as operating expenses — otherwise daily P&L
+// would double-count (purchase cash → "chiqim", then COGS when sold = same money twice).
+const INGREDIENT_EXPENSE_CATEGORY_ID = 'seed-cat-ingredients';
+
 function dayRange(date: Date) {
   const from = new Date(date);
   from.setHours(0, 0, 0, 0);
@@ -108,6 +113,119 @@ export const financeService = {
     });
     const expenseReturnsTotal = expenseReturns._sum.amount ?? new Prisma.Decimal(0);
 
+    // ---- NEW: Per-dish sales breakdown for today (P&L view) ----
+    // Each non-canceled line of a CLOSED order is a real sale. Revenue is
+    // (qty × unitPriceSnapshot); COGS is the snapshotted FIFO cost (null for
+    // pre-FIFO data or untracked items — treated as 0 here, full margin).
+    const todayLines = await prisma.orderLine.findMany({
+      where: {
+        isCanceled: false,
+        order: {
+          status: OrderStatus.CLOSED,
+          closedAt: { gte: dayStart, lte: dayEnd },
+        },
+      },
+      include: {
+        menuItem: {
+          select: {
+            id: true,
+            name: true,
+            kind: true,
+            category: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    type MealRow = {
+      menuItemId: string;
+      menuItemName: string;
+      categoryId: string;
+      categoryName: string;
+      isService: boolean;
+      qty: number;
+      revenue: Prisma.Decimal;
+      cogs: Prisma.Decimal;
+    };
+    const mealByItem = new Map<string, MealRow>();
+    for (const line of todayLines) {
+      const key = line.menuItem.id;
+      const row = mealByItem.get(key) ?? {
+        menuItemId: line.menuItem.id,
+        menuItemName: line.nameSnapshot, // historically-correct name at sale time
+        categoryId: line.menuItem.category.id,
+        categoryName: line.menuItem.category.name,
+        isService: line.menuItem.kind === 'SERVICE',
+        qty: 0,
+        revenue: new Prisma.Decimal(0),
+        cogs: new Prisma.Decimal(0),
+      };
+      row.qty += line.quantity;
+      row.revenue = row.revenue.plus(line.unitPriceSnapshot.mul(line.quantity));
+      // cogsSnapshot is the running sum from per-portion FIFO peels (see
+      // consumption.service.adjustLineCogs). null when nothing was tracked.
+      row.cogs = row.cogs.plus(line.cogsSnapshot ?? new Prisma.Decimal(0));
+      mealByItem.set(key, row);
+    }
+    const mealSales = Array.from(mealByItem.values())
+      .sort((a, b) => Number(b.revenue) - Number(a.revenue));
+
+    // Per-category subtotals — drives the visual grouping in FinancePage.
+    type CategoryRow = {
+      categoryId: string;
+      categoryName: string;
+      qty: number;
+      revenue: Prisma.Decimal;
+      cogs: Prisma.Decimal;
+    };
+    const categoryMap = new Map<string, CategoryRow>();
+    for (const row of mealSales) {
+      const c = categoryMap.get(row.categoryId) ?? {
+        categoryId: row.categoryId,
+        categoryName: row.categoryName,
+        qty: 0,
+        revenue: new Prisma.Decimal(0),
+        cogs: new Prisma.Decimal(0),
+      };
+      c.qty += row.qty;
+      c.revenue = c.revenue.plus(row.revenue);
+      c.cogs = c.cogs.plus(row.cogs);
+      categoryMap.set(row.categoryId, c);
+    }
+    const mealSalesByCategory = Array.from(categoryMap.values())
+      .sort((a, b) => Number(b.revenue) - Number(a.revenue));
+
+    const mealsRevenue = mealSales.reduce((s, r) => s.plus(r.revenue), new Prisma.Decimal(0));
+    const mealsCogs = mealSales.reduce((s, r) => s.plus(r.cogs), new Prisma.Decimal(0));
+
+    // ---- NEW: Operating expenses (chiqimlar) — excludes ingredient purchases.
+    // Ingredient purchases live in the "Xaridlar" block; counting them here
+    // would double-up against COGS in the P&L.
+    const operatingExpenseSummary = await expenseService.listByDate(date, {
+      excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
+    });
+    const operatingExpensesItems = operatingExpenseSummary.items;
+    const operatingExpenseTotal = new Prisma.Decimal(operatingExpenseSummary.totals.operating);
+
+    // ---- NEW: Debt today rollup (alohida nasiya bloki) ----
+    const debtsOpenedToday = await prisma.debt.aggregate({
+      where: { openedAt: { gte: dayStart, lte: dayEnd } },
+      _count: true,
+      _sum: { originalAmount: true },
+    });
+    const debtsCollectedToday = await prisma.debtRepayment.aggregate({
+      where: { paidAt: { gte: dayStart, lte: dayEnd } },
+      _count: true,
+      _sum: { amount: true },
+    });
+
+    // ---- NEW: Daily P&L ----
+    // Revenue: today's gross sales (already includes service charge & no
+    // discount net — same number staff see on the bill). For accrual purity
+    // we use mealsRevenue from line snapshots (matches per-dish breakdown).
+    // Outflow: COGS + operatingExpense (NOT raw purchases).
+    const pnlProfit = mealsRevenue.minus(mealsCogs).minus(operatingExpenseTotal);
+
     // ---- Drawer movement (cash drawer balance change today) ----
     const totalIn = cashIn.plus(cardIn).plus(debtRepaidCash).plus(debtRepaidCard).plus(expenseReturnsTotal);
     // Note: expense gross is the actual cash-out (not operating expense, which
@@ -180,6 +298,82 @@ export const financeService = {
         tableName: o.table?.name ?? null,
         billedTotal: decStr(o.totalSnapshot),
       })),
+
+      // ─── P&L view (sotuv − COGS − operatsion chiqim = sof foyda) ───
+      mealSales: mealSales.map((r) => ({
+        menuItemId: r.menuItemId,
+        menuItemName: r.menuItemName,
+        categoryId: r.categoryId,
+        categoryName: r.categoryName,
+        isService: r.isService,
+        qty: r.qty,
+        revenue: decStr(r.revenue),
+        cogs: decStr(r.cogs),
+        profit: decStr(r.revenue.minus(r.cogs)),
+      })),
+      mealSalesByCategory: mealSalesByCategory.map((c) => ({
+        categoryId: c.categoryId,
+        categoryName: c.categoryName,
+        qty: c.qty,
+        revenue: decStr(c.revenue),
+        cogs: decStr(c.cogs),
+        profit: decStr(c.revenue.minus(c.cogs)),
+      })),
+      mealSalesTotal: {
+        qty: mealSales.reduce((n, r) => n + r.qty, 0),
+        revenue: decStr(mealsRevenue),
+        cogs: decStr(mealsCogs),
+        profit: decStr(mealsRevenue.minus(mealsCogs)),
+      },
+
+      // Chiqimlar (operating only — ingredient purchases excluded; see Xaridlar block)
+      operatingExpenses: operatingExpensesItems.map((e) => ({
+        id: e.id,
+        occurredAt: e.occurredAt,
+        reason: e.reason,
+        amount: e.amount,
+        categoryName: e.categoryName,
+        repayable: e.repayable,
+        repayStatus: e.repayStatus,
+        status: e.status,
+      })),
+      operatingExpensesTotal: {
+        count: operatingExpensesItems.length,
+        gross: operatingExpenseSummary.totals.gross,
+        operating: operatingExpenseSummary.totals.operating,
+      },
+
+      // Xaridlar bloki — ingredient-purchase outflow. Informational, not in P&L outflow.
+      ingredientPurchases: purchases.map((p) => ({
+        id: p.id,
+        occurredAt: p.occurredAt.toISOString(),
+        ingredientName: p.ingredient.name,
+        quantityBuyUnit: p.quantityBuyUnit.toFixed(3),
+        buyUnit: p.ingredient.buyUnit,
+        totalCostUzs: decStr(p.totalCostUzs),
+        supplierNote: p.supplierNote,
+      })),
+      ingredientPurchasesTotal: {
+        count: purchases.length,
+        amount: decStr(purchasesTotal),
+      },
+
+      // Nasiya bloki — bugun ochilgan + bugun olingan + lifetime qoldiq
+      debtToday: {
+        openedCount: debtsOpenedToday._count,
+        openedAmount: decStr(debtsOpenedToday._sum.originalAmount ?? new Prisma.Decimal(0)),
+        collectedCount: debtsCollectedToday._count,
+        collectedAmount: decStr(debtsCollectedToday._sum.amount ?? new Prisma.Decimal(0)),
+        lifetimeOutstanding: decStr(outstandingDebts),
+      },
+
+      // Daily P&L summary — used by the Yakun block at the bottom of FinancePage.
+      pnl: {
+        revenue: decStr(mealsRevenue),
+        cogs: decStr(mealsCogs),
+        operatingExpense: decStr(operatingExpenseTotal),
+        profit: decStr(pnlProfit),
+      },
     };
   },
 

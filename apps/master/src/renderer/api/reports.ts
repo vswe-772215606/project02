@@ -166,7 +166,62 @@ export interface MonthlyReport {
   daily: DailyReport[];
 }
 
+export interface SummaryReport {
+  from: string;
+  to: string;
+  incomes: {
+    byMenuCategory: Array<{
+      categoryId: string;
+      categoryName: string;
+      qty: number;
+      revenue: string;
+      cogs: string;
+      profit: string;
+    }>;
+    totals: {
+      qty: number;
+      revenue: string;
+      cogs: string;
+    };
+    other: {
+      debtRepaid: string;
+      expenseReturns: string;
+    };
+    salesByPaymentMethod: {
+      cash: string;
+      card: string;
+      debt: string;
+    };
+  };
+  pnl: {
+    expensesByCategory: Array<{
+      categoryId: string;
+      categoryName: string;
+      amount: string;
+    }>;
+    revenue: string;
+    cogs: string;
+    operatingExpense: string;
+    profit: string;
+  };
+  cash: {
+    expensesByCategory: Array<{
+      categoryId: string;
+      categoryName: string;
+      amount: string;
+    }>;
+    salesInflow: string;
+    debtRepaid: string;
+    expenseReturns: string;
+    totalIn: string;
+    totalOut: string;
+    farq: string;
+  };
+}
+
 export const reportsApi = {
   getDaily: (date: string) => api.get<DailyReport>(`/api/reports/daily?date=${date}`),
   getMonthly: (month: string) => api.get<MonthlyReport>(`/api/reports/monthly?month=${month}`),
+  getSummary: (from: string, to: string) =>
+    api.get<SummaryReport>(`/api/reports/summary?from=${from}&to=${to}`),
 };

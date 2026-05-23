@@ -90,8 +90,16 @@ export const expenseService = {
     return expenseRepo.listCategories();
   },
 
-  async listByDate(date: Date) {
-    const items = await expenseRepo.listForDate(date);
+  async listByDate(date: Date, opts: { excludeCategoryIds?: string[] } = {}) {
+    const allItems = await expenseRepo.listForDate(date);
+    // Optional category filter — used by finance.dailyForAdmin to keep
+    // ingredient-purchase Expense rows out of the operating-expense numbers
+    // (they're displayed in their own "Xaridlar" block to avoid double-count
+    // against COGS).
+    const exclude = new Set(opts.excludeCategoryIds ?? []);
+    const items = exclude.size > 0
+      ? allItems.filter((item) => !exclude.has(item.categoryId))
+      : allItems;
     let gross = new Prisma.Decimal(0);
     let reversal = new Prisma.Decimal(0);
 

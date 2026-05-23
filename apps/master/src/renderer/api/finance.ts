@@ -62,6 +62,74 @@ export type FinanceDaily = {
     tableName: string | null;
     billedTotal: string;
   }>;
+
+  // ─── P&L view (kunlik foyda) ─────────────────────────────────────────
+  mealSales: Array<{
+    menuItemId: string;
+    menuItemName: string;
+    categoryId: string;
+    categoryName: string;
+    isService: boolean;
+    qty: number;
+    revenue: string;
+    cogs: string;
+    profit: string;
+  }>;
+  mealSalesByCategory: Array<{
+    categoryId: string;
+    categoryName: string;
+    qty: number;
+    revenue: string;
+    cogs: string;
+    profit: string;
+  }>;
+  mealSalesTotal: {
+    qty: number;
+    revenue: string;
+    cogs: string;
+    profit: string;
+  };
+  operatingExpenses: Array<{
+    id: string;
+    occurredAt: string;
+    reason: string;
+    amount: string;
+    categoryName: string;
+    repayable: boolean;
+    repayStatus: 'NOT_REPAYABLE' | 'PENDING' | 'PARTIAL' | 'RETURNED' | 'WRITTEN_OFF';
+    status: 'ACTIVE' | 'REVERSED' | 'REVERSAL';
+  }>;
+  operatingExpensesTotal: {
+    count: number;
+    gross: string;
+    operating: string;
+  };
+  ingredientPurchases: Array<{
+    id: string;
+    occurredAt: string;
+    ingredientName: string;
+    quantityBuyUnit: string;
+    buyUnit: string;
+    totalCostUzs: string;
+    supplierNote: string | null;
+  }>;
+  ingredientPurchasesTotal: {
+    count: number;
+    amount: string;
+  };
+  debtToday: {
+    openedCount: number;
+    openedAmount: string;
+    collectedCount: number;
+    collectedAmount: string;
+    lifetimeOutstanding: string;
+  };
+  pnl: {
+    revenue: string;
+    cogs: string;
+    operatingExpense: string;
+    profit: string;
+  };
 };
 
 export type ServiceChargeMatrix = {

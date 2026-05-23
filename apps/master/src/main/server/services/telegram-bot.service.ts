@@ -256,6 +256,11 @@ export const telegramBotService = {
           '<b>PDF hisobot:</b>\n' +
           '/pdf — Bugungi kun PDF hisoboti\n' +
           '/pdf <i>YIL-OY-KUN</i> — Tanlangan kun PDF\'i (masalan <code>/pdf 2026-05-12</code>)\n\n' +
+          '<b>Umumiy hisobot (sana oralig\'i):</b>\n' +
+          '/umumiy — Joriy oy (1-kundan bugungacha)\n' +
+          '/umumiy <i>2026-05-01 2026-05-23</i> — Sana oralig\'i\n' +
+          '/excel — Xuddi shu hisobot Excel formatida\n' +
+          '/excel <i>2026-05-01 2026-05-23</i> — Sana oralig\'i Excel\n\n' +
           '/yordam — Shu yordam matni',
           { parse_mode: 'HTML', ...mainMenu },
         );
@@ -272,6 +277,216 @@ export const telegramBotService = {
         tomorrow.setDate(tomorrow.getDate() + 1);
         if (date >= tomorrow) return null;
         return date;
+      };
+
+      // Parse two dates out of a command like "/umumiy 2026-05-01 2026-05-23".
+      // Missing args → defaults to first-of-current-month → today (matches the
+      // ReportsPage "Umumiy" tab default range).
+      const parseRangeArgs = (text: string): { from: Date; to: Date } => {
+        const matches = [...text.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)];
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const parseAt = (idx: number) => {
+          const m = matches[idx];
+          if (!m) return null;
+          const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+          return Number.isNaN(d.getTime()) ? null : d;
+        };
+
+        const from = parseAt(0) ?? monthStart;
+        const to = parseAt(1) ?? todayStart;
+        // Ensure ordering — if user typo's reversed dates, swap.
+        return from <= to ? { from, to } : { from: to, to: from };
+      };
+
+      // Compact HTML summary of the Umumiy report.
+      const sendSummaryText = async (ctx: any, from: Date, to: Date) => {
+        try {
+          await ctx.answerCbQuery().catch(() => {});
+          const report = await reportsService.summary({ from, to });
+          const lines: string[] = [];
+          lines.push(`📑 <b>Umumiy hisobot</b>  (${formatDateLabel(from)} → ${formatDateLabel(to)})`);
+          lines.push('');
+
+          lines.push('<b>Kirimlar — kategoriya bo\'yicha</b>');
+          if (report.incomes.byMenuCategory.length === 0) {
+            lines.push('  <i>Sotuv yo\'q</i>');
+          } else {
+            for (const r of report.incomes.byMenuCategory) {
+              lines.push(`  • ${r.categoryName}: ${formatMoney(r.revenue)} so'm  <i>(${r.qty} ta)</i>`);
+            }
+            lines.push(`  <b>Jami sotuv:</b> ${formatMoney(report.incomes.totals.revenue)} so'm`);
+            lines.push(`  <b>Jami COGS:</b> ${formatMoney(report.incomes.totals.cogs)} so'm`);
+          }
+          if (Number(report.incomes.other.debtRepaid) > 0 || Number(report.incomes.other.expenseReturns) > 0) {
+            lines.push('  <i>Boshqa:</i>');
+            if (Number(report.incomes.other.debtRepaid) > 0) {
+              lines.push(`    qarz qaytimi: ${formatMoney(report.incomes.other.debtRepaid)} so'm`);
+            }
+            if (Number(report.incomes.other.expenseReturns) > 0) {
+              lines.push(`    avans qaytimi: ${formatMoney(report.incomes.other.expenseReturns)} so'm`);
+            }
+          }
+          lines.push('');
+
+          lines.push('<b>P&amp;L (sof foyda)</b>');
+          if (report.pnl.expensesByCategory.length > 0) {
+            for (const r of report.pnl.expensesByCategory) {
+              lines.push(`  − ${r.categoryName}: ${formatMoney(r.amount)} so'm`);
+            }
+          }
+          lines.push(`  Sotuv:       ${formatMoney(report.pnl.revenue)} so'm`);
+          lines.push(`  COGS:        − ${formatMoney(report.pnl.cogs)} so'm`);
+          lines.push(`  Operatsion:  − ${formatMoney(report.pnl.operatingExpense)} so'm`);
+          lines.push(`  <b>Sof foyda:  ${formatMoney(report.pnl.profit)} so'm</b>`);
+          lines.push('');
+
+          lines.push('<b>Naqd pul harakati</b>');
+          if (report.cash.expensesByCategory.length > 0) {
+            for (const r of report.cash.expensesByCategory) {
+              lines.push(`  − ${r.categoryName}: ${formatMoney(r.amount)} so'm`);
+            }
+          }
+          lines.push(`  Jami kirim: ${formatMoney(report.cash.totalIn)} so'm`);
+          lines.push(`  Jami chiqim: ${formatMoney(report.cash.totalOut)} so'm`);
+          lines.push(`  <b>Naqd farq: ${formatMoney(report.cash.farq)} so'm</b>`);
+
+          await ctx.replyWithHTML(lines.join('\n'), mainMenu);
+        } catch (error) {
+          console.error('[TelegramBot] Umumiy hisobot xatosi:', error);
+          await ctx.reply('❌ Umumiy hisobotni olishda xatolik yuz berdi.');
+        }
+      };
+
+      // Generate XLSX with 4 sheets (Kirimlar, P&L chiqim, Cash chiqim, Yakun)
+      // and send as a Telegram document. Mirrors sendDailyPdf's tmp-file pattern.
+      const sendSummaryExcel = async (ctx: any, from: Date, to: Date) => {
+        let tmpPath: string | null = null;
+        try {
+          await ctx.answerCbQuery().catch(() => {});
+          await ctx.reply('📊 Excel tayyorlanmoqda, biroz kuting…');
+
+          const report = await reportsService.summary({ from, to });
+          const ExcelJS = (await import('exceljs')).default;
+          const os = await import('os');
+          const path = await import('path');
+          const fs = await import('fs/promises');
+
+          const wb = new ExcelJS.Workbook();
+          wb.creator = 'Chayxana POS';
+          wb.created = new Date();
+
+          // 1) Kirimlar (incomes by menu category)
+          const incomesSheet = wb.addWorksheet('Kirimlar');
+          incomesSheet.columns = [
+            { header: 'Kategoriya', key: 'cat', width: 28 },
+            { header: 'Soni', key: 'qty', width: 8 },
+            { header: 'Sotuv (so\'m)', key: 'revenue', width: 16 },
+            { header: 'Tan narxi (so\'m)', key: 'cogs', width: 16 },
+            { header: 'Foyda (so\'m)', key: 'profit', width: 16 },
+          ];
+          incomesSheet.getRow(1).font = { bold: true };
+          for (const r of report.incomes.byMenuCategory) {
+            incomesSheet.addRow({
+              cat: r.categoryName,
+              qty: r.qty,
+              revenue: Number(r.revenue),
+              cogs: Number(r.cogs),
+              profit: Number(r.profit),
+            });
+          }
+          const incTotalRow = incomesSheet.addRow({
+            cat: 'JAMI',
+            qty: report.incomes.totals.qty,
+            revenue: Number(report.incomes.totals.revenue),
+            cogs: Number(report.incomes.totals.cogs),
+            profit: Number(report.incomes.totals.revenue) - Number(report.incomes.totals.cogs),
+          });
+          incTotalRow.font = { bold: true };
+          ['C', 'D', 'E'].forEach((col) => {
+            incomesSheet.getColumn(col).numFmt = '#,##0';
+          });
+
+          // 2) P&L chiqimlar
+          const pnlSheet = wb.addWorksheet('Chiqim_PL');
+          pnlSheet.columns = [
+            { header: 'Kategoriya', key: 'cat', width: 28 },
+            { header: 'Summa (so\'m)', key: 'amount', width: 18 },
+          ];
+          pnlSheet.getRow(1).font = { bold: true };
+          for (const r of report.pnl.expensesByCategory) {
+            pnlSheet.addRow({ cat: r.categoryName, amount: Number(r.amount) });
+          }
+          pnlSheet.addRow({});
+          pnlSheet.addRow({ cat: 'Sotuv', amount: Number(report.pnl.revenue) }).font = { bold: true };
+          pnlSheet.addRow({ cat: 'COGS', amount: -Number(report.pnl.cogs) });
+          pnlSheet.addRow({ cat: 'Operatsion chiqim', amount: -Number(report.pnl.operatingExpense) });
+          const pnlRow = pnlSheet.addRow({ cat: 'SOF FOYDA', amount: Number(report.pnl.profit) });
+          pnlRow.font = { bold: true };
+          pnlSheet.getColumn('B').numFmt = '#,##0';
+
+          // 3) Cash basis chiqimlar
+          const cashSheet = wb.addWorksheet('Chiqim_Cash');
+          cashSheet.columns = [
+            { header: 'Kategoriya', key: 'cat', width: 28 },
+            { header: 'Summa (so\'m)', key: 'amount', width: 18 },
+          ];
+          cashSheet.getRow(1).font = { bold: true };
+          for (const r of report.cash.expensesByCategory) {
+            cashSheet.addRow({ cat: r.categoryName, amount: Number(r.amount) });
+          }
+          cashSheet.addRow({});
+          cashSheet.addRow({ cat: 'Jami kirim', amount: Number(report.cash.totalIn) }).font = { bold: true };
+          cashSheet.addRow({ cat: 'Jami chiqim', amount: -Number(report.cash.totalOut) });
+          const cashRow = cashSheet.addRow({ cat: 'NAQD FARQ', amount: Number(report.cash.farq) });
+          cashRow.font = { bold: true };
+          cashSheet.getColumn('B').numFmt = '#,##0';
+
+          // 4) Yakun — side-by-side compact summary
+          const summarySheet = wb.addWorksheet('Yakun');
+          summarySheet.columns = [
+            { header: 'Ko\'rsatkich', key: 'k', width: 30 },
+            { header: 'P&L', key: 'pnl', width: 18 },
+            { header: 'Cash basis', key: 'cash', width: 18 },
+          ];
+          summarySheet.getRow(1).font = { bold: true };
+          summarySheet.addRow({ k: 'Davr boshi', pnl: report.from, cash: report.from });
+          summarySheet.addRow({ k: 'Davr oxiri', pnl: report.to, cash: report.to });
+          summarySheet.addRow({});
+          summarySheet.addRow({ k: 'Kirim', pnl: Number(report.pnl.revenue), cash: Number(report.cash.totalIn) });
+          summarySheet.addRow({ k: 'COGS / —', pnl: Number(report.pnl.cogs), cash: '—' });
+          summarySheet.addRow({ k: 'Operatsion / barcha chiqim', pnl: Number(report.pnl.operatingExpense), cash: Number(report.cash.totalOut) });
+          const finalRow = summarySheet.addRow({ k: 'YAKUN', pnl: Number(report.pnl.profit), cash: Number(report.cash.farq) });
+          finalRow.font = { bold: true };
+          ['B', 'C'].forEach((col) => { summarySheet.getColumn(col).numFmt = '#,##0'; });
+
+          const filename = `chayxana-umumiy-${report.from}-${report.to}.xlsx`;
+          tmpPath = path.join(os.tmpdir(), `chayxana-bot-${Date.now()}-${filename}`);
+          await wb.xlsx.writeFile(tmpPath);
+
+          await ctx.replyWithDocument(
+            { source: tmpPath, filename },
+            {
+              caption: `📊 Umumiy moliyaviy hisobot\n${formatDateLabel(from)} → ${formatDateLabel(to)}`,
+              ...mainMenu,
+            },
+          );
+
+          try { await fs.unlink(tmpPath); } catch {}
+          tmpPath = null;
+        } catch (error: any) {
+          console.error('[TelegramBot] Excel yuborishda xatolik:', error);
+          const msg = error?.message ?? String(error);
+          await ctx.reply(`❌ Excel yaratishda xatolik: ${msg}`).catch(() => {});
+          if (tmpPath) {
+            try {
+              const fs = await import('fs/promises');
+              await fs.unlink(tmpPath);
+            } catch {}
+          }
+        }
       };
 
       // ─── Commands ───
@@ -345,6 +560,21 @@ export const telegramBotService = {
         await sendDailyPdf(ctx, date);
       });
 
+      // /umumiy [from] [to] — cross-category P&L + Cash basis summary
+      // /umumiy 2026-05-01 2026-05-23  (defaults: this month → today)
+      bot.command(['umumiy', 'summary'], async (ctx) => {
+        const text = (ctx.message as any)?.text ?? '';
+        const { from, to } = parseRangeArgs(text);
+        await sendSummaryText(ctx, from, to);
+      });
+
+      // /excel [from] [to] — same summary as XLSX workbook
+      bot.command(['excel'], async (ctx) => {
+        const text = (ctx.message as any)?.text ?? '';
+        const { from, to } = parseRangeArgs(text);
+        await sendSummaryExcel(ctx, from, to);
+      });
+
       // ─── Action buttons ───
       bot.action('report_today', (ctx) => sendDailyReport(ctx, new Date()));
       bot.action('report_yesterday', (ctx) => {
@@ -380,6 +610,8 @@ export const telegramBotService = {
           { command: 'xarajatlar', description: 'Bugungi xarajatlar' },
           { command: 'omborxona', description: 'Eng kam yetadigan mahsulotlar' },
           { command: 'pdf', description: 'Kunlik PDF hisobot (yoki /pdf YIL-OY-KUN)' },
+          { command: 'umumiy', description: 'Umumiy hisobot (yoki /umumiy FROM TO)' },
+          { command: 'excel', description: 'Umumiy hisobot Excel formatida' },
           { command: 'yordam', description: 'Buyruqlar ro\'yxati' },
           { command: 'start', description: 'Botni qayta ishga tushirish' },
         ]);
