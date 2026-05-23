@@ -1,3 +1,10 @@
+// TZ lock — Asia/Tashkent. Barcha `new Date()` ob'ektlari va Prisma serializatsiya
+// shu zona bo'yicha mahalliy vaqtni ishlatadi. MUTLAQ birinchi qator bo'lishi
+// kerak: undan keyingi importlar Date konstruktorlarini yaratishi mumkin. Linux
+// va macOS'da Node `tzset()` chaqiradi va zona darhol amal qiladi; Windows'da
+// Electron `--tz` flag o'rniga env-variable yetarli (sinovdan o'tgan).
+process.env.TZ = 'Asia/Tashkent';
+
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';

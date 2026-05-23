@@ -1,6 +1,9 @@
 import { PaymentMethod, Prisma } from '@prisma/client';
+import { dayRange, dayKey } from '../lib/date';
+import { computeRealCashIn } from '../lib/finance-formulas';
 import { expenseService } from './expense.service';
 import { getPrisma } from '../lib/prisma';
+import { dailyCloseRepo } from '../repositories/dailyClose.repo';
 
 const reportOrderInclude = {
   payments: true,
@@ -55,10 +58,7 @@ type ReportOrder = Prisma.OrderGetPayload<{ include: typeof reportOrderInclude }
 type ReportDebt = Prisma.DebtGetPayload<{ include: typeof reportDebtInclude }>;
 
 function dayBounds(date: Date) {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const { from: start, to: end } = dayRange(date);
   return { start, end };
 }
 
@@ -248,7 +248,7 @@ export const reportsService = {
     const prisma = getPrisma();
     const { start: dayStart, end: dayEnd } = dayBounds(date);
 
-    const [closedOrders, canceledOrders, walkoutOrders, expenseSummary, debts] = await Promise.all([
+    const [closedOrders, canceledOrders, walkoutOrders, expenseSummary, debts, purchases, expenseReturnsAgg, closeRow] = await Promise.all([
       prisma.order.findMany({
         where: {
           status: 'CLOSED',
@@ -283,14 +283,20 @@ export const reportsService = {
         include: reportDebtInclude,
         orderBy: [{ openedAt: 'asc' }],
       }),
+      prisma.purchase.findMany({
+        where: { occurredAt: { gte: dayStart, lt: dayEnd } },
+        select: { id: true, totalCostUzs: true, isAdjustment: true },
+      }),
+      prisma.expenseReturn.aggregate({
+        where: { receivedAt: { gte: dayStart, lt: dayEnd } },
+        _sum: { amount: true },
+      }),
+      dailyCloseRepo.findByDate(dayKey(dayStart)),
     ]);
 
     let grossSales = new Prisma.Decimal(0);
     let discounts = new Prisma.Decimal(0);
-    let debtSales = new Prisma.Decimal(0);
     let serviceCharge = new Prisma.Decimal(0);
-    let orderCash = new Prisma.Decimal(0);
-    let orderCard = new Prisma.Decimal(0);
 
     const perWaiterMap = new Map<string, {
       waiterId: string;
@@ -301,14 +307,9 @@ export const reportsService = {
     }>();
 
     for (const order of closedOrders) {
-      const payments = paymentBreakdown(order.payments);
-
       grossSales = grossSales.plus(dec(order.subtotalSnapshot));
       discounts = discounts.plus(dec(order.discountAmountSnapshot));
       serviceCharge = serviceCharge.plus(dec(order.serviceChargeSnapshot));
-      orderCash = orderCash.plus(payments.cash);
-      orderCard = orderCard.plus(payments.card);
-      debtSales = debtSales.plus(payments.debt);
 
       const waiterAgg = perWaiterMap.get(order.waiterId) ?? {
         waiterId: order.waiterId,
@@ -351,12 +352,20 @@ export const reportsService = {
       )
       .sort((a, b) => a.paidAt.localeCompare(b.paidAt));
 
-    const debtRepaymentsCash = debtRepaymentRows
-      .filter((row) => row.method === PaymentMethod.CASH)
-      .reduce((sum, row) => sum.plus(new Prisma.Decimal(row.amount)), new Prisma.Decimal(0));
-    const debtRepaymentsCard = debtRepaymentRows
-      .filter((row) => row.method === PaymentMethod.CARD)
-      .reduce((sum, row) => sum.plus(new Prisma.Decimal(row.amount)), new Prisma.Decimal(0));
+    const debtRepayments = debts.flatMap((debt) =>
+      debt.repayments.filter((r) => isWithinDay(r.paidAt, dayStart, dayEnd)),
+    );
+    const expenseReturnsTotal = expenseReturnsAgg._sum.amount ?? new Prisma.Decimal(0);
+    const cash = computeRealCashIn({
+      closedOrders,
+      debtRepayments,
+      expenseReturnsTotal,
+    });
+    const orderCash = cash.orderCash;
+    const orderCard = cash.orderCard;
+    const debtSales = cash.debtOpened;
+    const debtRepaymentsCash = cash.debtRepaymentsCash;
+    const debtRepaymentsCard = cash.debtRepaymentsCard;
 
     const openedTodayDebts = debts.filter((debt) => isWithinDay(debt.openedAt, dayStart, dayEnd));
     const openedTodayAmount = openedTodayDebts.reduce(
@@ -369,7 +378,10 @@ export const reportsService = {
     );
 
     const netSales = grossSales.minus(discounts);
-    const realCashIn = orderCash.plus(orderCard).plus(debtRepaymentsCash).plus(debtRepaymentsCard);
+    // Spec §6.2.5: realCashIn = orderCash + orderCard + debtRepaymentsCash +
+    // debtRepaymentsCard + expenseReturnsTotal. Yagona util ham ADMIN, ham
+    // OWNER javobida bir xil natija beradi.
+    const realCashIn = cash.realCashIn;
     const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
     // Operating expense for profit math: excludes pending-repayable rows; for
     // written-off repayables, counts only the unrecovered (loss) portion.
@@ -380,6 +392,47 @@ export const reportsService = {
     const billedTotal = netSales.plus(serviceCharge);
     const paymentTotal = orderCash.plus(orderCard).plus(debtSales);
     const paymentDifference = billedTotal.minus(paymentTotal);
+
+    // Xarid jami (purchase.occurredAt = D) va expense-non-purchase ajratish —
+    // renderer endi ikki marta sanay olmaydi.
+    const purchasesTotal = purchases.reduce(
+      (sum, p) => sum.plus(p.totalCostUzs),
+      new Prisma.Decimal(0),
+    );
+    const expensesNonPurchase = expenseNet.minus(purchasesTotal);
+    const expensesTotal = expensesNonPurchase.plus(purchasesTotal);
+
+    // Tuzatishlar (isAdjustment=true) — yopilgan kun snapshotidan keyin
+    // kelgan yozuvlar.
+    const [adjExpenses, adjPurchases] = await Promise.all([
+      prisma.expense.findMany({
+        where: { occurredAt: { gte: dayStart, lt: dayEnd }, isAdjustment: true },
+        include: { category: { select: { id: true, name: true } } },
+      }),
+      prisma.purchase.findMany({
+        where: { occurredAt: { gte: dayStart, lt: dayEnd }, isAdjustment: true },
+        include: { ingredient: { select: { id: true, name: true } } },
+      }),
+    ]);
+    const adjustments = {
+      expenseCount: adjExpenses.length,
+      expenseTotal: adjExpenses
+        .reduce((sum, e) => (e.status === 'REVERSAL' ? sum.minus(e.amount) : sum.plus(e.amount)), new Prisma.Decimal(0))
+        .toFixed(0),
+      purchaseCount: adjPurchases.length,
+      purchaseTotal: adjPurchases
+        .reduce((sum, p) => sum.plus(p.totalCostUzs), new Prisma.Decimal(0))
+        .toFixed(0),
+    };
+
+    const closedEnvelope = closeRow
+      ? {
+          closedAt: closeRow.closedAt.toISOString(),
+          closedByName: closeRow.closedBy.fullName,
+          note: closeRow.note,
+          snapshot: closeRow.snapshot,
+        }
+      : null;
 
     return {
       date: dayStart.toISOString().slice(0, 10),
@@ -409,6 +462,17 @@ export const reportsService = {
         byCategory: expenseSummary.byCategory,
         items: expenseSummary.items,
       },
+      // Renderer ikki marta sanamasligi uchun outflow shu shaklda berildi.
+      // expensesTotal = expensesNonPurchase + purchasesTotal (foydalanuvchi
+      // qo'lda qo'shsa ham hech qachon xato bo'lmaydi).
+      outflow: {
+        expensesNonPurchase: decStr(expensesNonPurchase),
+        purchasesTotal: decStr(purchasesTotal),
+        expensesTotal: decStr(expensesTotal),
+        purchasesCount: purchases.length,
+      },
+      closed: closedEnvelope,
+      adjustments,
       results: {
         salesBasedProfit: decStr(salesBasedProfit),
         cashflowBasedNet: decStr(cashflowBasedNet),

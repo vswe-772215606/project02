@@ -651,7 +651,9 @@ Kun `D` uchun:
    - `paidAt` kuni `D` bo'lgan `DebtRepayment.method = CARD`
 
 5. `realCashIn(D)`
-   - `orderCash(D) + orderCard(D) + debtRepaymentsCash(D) + debtRepaymentsCard(D)`
+   - `orderCash(D) + orderCard(D) + debtRepaymentsCash(D) + debtRepaymentsCard(D) + expenseReturnsTotal(D)`
+   - `expenseReturnsTotal(D)` — `receivedAt` kuni `D` bo'lgan `ExpenseReturn.amount` yig'indisi (avans/zalog qaytimi kassaga qaytadi).
+   - Bu formula bitta util `lib/finance-formulas.ts:computeRealCashIn` orqali ADMIN va OWNER javoblarida bir xil hisoblanadi.
 
 ## 6.3. Chiqim bloki
 
@@ -760,6 +762,101 @@ Implementatsiyadan keyin kamida quyidagilar tekshiriladi:
 13. owner report endpointga kira olishi
 14. Telegram yuborish muvaffaqiyatli logi
 15. Telegram yuborish xatosi audit logi
+
+## 12. Soft-close (kunni yopish)
+
+Kunlik moliyaning rasmiy raqamlari `DailyClose` modeli orqali snapshot qilinadi.
+
+### 12.1. Maqsad
+
+- Yopish paytidagi raqamlar audit / Telegram report uchun "haqiqat manbai".
+- Yopilgandan keyin baribir kechagi chiqim yoki xarid kelishi mumkin — lekin
+  asl snapshot o'zgarmaydi. Yangi yozuvlar `isAdjustment=true` bilan
+  alohida ko'rsatiladi.
+
+### 12.2. Schema
+
+```prisma
+model DailyClose {
+  id              String   @id @default(cuid())
+  date            String   @unique  // YYYY-MM-DD, Asia/Tashkent
+  closedAt        DateTime @default(now())
+  closedByUserId  String
+  snapshot        Json
+  note            String?
+  closedBy        User     @relation("DailyCloseActor", fields: [closedByUserId], references: [id])
+}
+```
+
+`Expense.isAdjustment` va `Purchase.isAdjustment` (default `false`) — soft-close
+ehtiyojlari uchun.
+
+### 12.3. Avtomatik bayroq
+
+`POST /api/expenses` va `POST /api/purchases` (xarid):
+
+1. agar `occurredAt > now()` → reject (`Chiqim/Xarid sanasi kelajakka qaratib bo'lmaydi`).
+2. agar `DailyClose` shu `dayKey(occurredAt)` uchun mavjud → `isAdjustment=true`.
+3. aks holda → `isAdjustment=false`.
+
+### 12.4. Endpointlar
+
+- `POST /api/finance/daily-close` — **OWNER only**. Body: `{ date?: 'YYYY-MM-DD', note? }`.
+  Default sana — bugun (Asia/Tashkent). Yopilgan kun qaytadan yopilmaydi.
+- `POST /api/finance/daily-reopen` — **OWNER only**. Body: `{ date, reason }`.
+  `DAILY_REOPENED` audit yozuvi tushadi.
+
+### 12.5. GET javobi (`/api/finance/daily`, `/api/reports/daily`)
+
+```ts
+{
+  ...current,        // hozirgi (real-time) raqamlar
+  closed: null | {
+    closedAt, closedByName, note,
+    snapshot: { /* yopilgan paytdagi to'liq raqamlar */ }
+  },
+  adjustments: {
+    expenseCount, expenseTotal,
+    purchaseCount, purchaseTotal,
+    expenses: [...],
+    purchases: [...],
+  }
+}
+```
+
+Renderer hozirgi raqamlardan snapshot raqamini ayirib delta ko'rsatadi.
+
+### 12.6. AuditAction
+
+- `DAILY_CLOSED` — yopilganda.
+- `DAILY_REOPENED` — qayta ochilganda (reason talab qilinadi).
+
+## 13. Outflow shakli (double-count fix)
+
+`GET /api/finance/daily` va `/api/reports/daily` javobida `outflow`:
+
+```ts
+outflow: {
+  expensesNonPurchase: string,   // xaridlardan boshqa chiqimlar (net)
+  purchasesTotal: string,        // xaridlar (Expense ham, Purchase ham)
+  expensesTotal: string,         // = expensesNonPurchase + purchasesTotal
+  purchasesCount: number,
+  // ... eski tafsilotlar (gross, reversal, operating, pendingRepayable)
+}
+```
+
+Renderer'da hech qachon `expensesNet + purchasesTotal` bilan qo'shilmaydi —
+`Purchase` ham bog'liq `Expense` ga ega bo'lgani uchun, expensesNet ichida
+allaqachon hisoblangan.
+
+## 14. TZ (vaqt zonasi)
+
+- Production: `process.env.TZ = 'Asia/Tashkent'` server boot'da o'rnatiladi
+  (`apps/master/src/main/index.ts` ning birinchi qatori).
+- Yagona util `apps/master/src/main/server/lib/date.ts` — `dayStart`,
+  `dayEnd`, `dayRange`, `dayKey`. Hamma servis shu funksiyalarni chaqiradi.
+- Eskidan har bir servis ichida `setHours(0,0,0,0)` qilingan dublikatlar
+  bekor qilingan.
 
 ## 11. Implementatsiya tartibi
 
