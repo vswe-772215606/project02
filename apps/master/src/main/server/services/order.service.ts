@@ -112,20 +112,19 @@ async function getOrderOrThrow(orderId: string, tx?: Tx): Promise<OrderWithDetai
 }
 
 /**
- * Restore ingredient stock for a single line.
+ * Restore ingredient stock for a single line on cancel.
  *
- * New lifecycle rule: stock is only restored when the order is still DRAFT.
- * Once the order is SENT, dishes are considered prepared and ingredients are
- * not restored on cancel (conservative rule).
+ * Qoida: DRAFT yoki SENT buyurtmadagi qator bekor qilinsa, ingredientlar
+ * omborga qaytariladi. WALKOUT bu yo'lga kirmaydi (mehmon taom yegan deb
+ * hisoblanadi) — markWalkout shu funksiyani chaqirmaydi.
  */
 async function maybeRestoreLineStock(
   line: OrderWithDetails['lines'][number],
-  order: { status: OrderStatus },
+  _order: { status: OrderStatus },
   actorUserId: string,
   tx: Tx,
 ) {
   if (line.isCanceled) return;
-  if (order.status !== OrderStatus.DRAFT) return;
   if (!line.menuItemId) return;
   await consumptionService.restore(
     { id: line.id, menuItemId: line.menuItemId, actorUserId },
@@ -349,10 +348,10 @@ export const orderService = {
             delta,
             tx,
           );
-        } else if (delta < 0 && line.menuItemId && order.status === OrderStatus.DRAFT) {
-          // Stock is only restored on decrement while still DRAFT. Once SENT,
-          // dishes are considered prepared (matches maybeRestoreLineStock policy
-          // on cancel) so we don't fabricate inventory.
+        } else if (delta < 0 && line.menuItemId) {
+          // Miqdor kamaytirilsa, kamaytirilgan ulush omborga qaytadi.
+          // DRAFT va SENT ikkalasiga ham amal qiladi — maybeRestoreLineStock
+          // bilan bir xil mantiq.
           await consumptionService.restore(
             { id: line.id, menuItemId: line.menuItemId, actorUserId: input.waiterId },
             Math.abs(delta),
@@ -419,10 +418,10 @@ export const orderService = {
       }
 
       // Role rules:
-      //   WAITER  → DRAFT or SENT (must own the order). SENT line cancels
-      //             don't restore stock (per existing maybeRestoreLineStock
-      //             behavior) and are audited like any cancel.
-      //   ADMIN/OWNER → DRAFT or SENT.
+      //   WAITER       → DRAFT yoki SENT (faqat o'z buyurtmasi).
+      //   ADMIN/OWNER  → DRAFT yoki SENT.
+      // Bekor qilinganda ingredient omborga qaytariladi
+      // (maybeRestoreLineStock — DRAFT va SENT ikkalasi uchun).
       const isWaiter = input.requestingUser.role === UserRole.WAITER;
       const isAdminish = input.requestingUser.role === UserRole.ADMIN
         || input.requestingUser.role === UserRole.OWNER;
@@ -560,9 +559,9 @@ export const orderService = {
       const isAdminish = input.requestingUser.role === UserRole.ADMIN
         || input.requestingUser.role === UserRole.OWNER;
 
-      // Waiters can now cancel their own SENT orders too, not only DRAFT.
-      // Stock is restored only on DRAFT cancels (existing maybeRestoreLineStock
-      // behavior) so cancelling a SENT order doesn't fabricate inventory.
+      // Ofitsiantlar o'z DRAFT yoki SENT buyurtmalarini bekor qila oladi.
+      // Ingredient ombori DRAFT va SENT ikkalasida ham qaytariladi
+      // (maybeRestoreLineStock).
       const waiterAllowed = isWaiter
         && order.waiterId === input.requestingUser.id
         && (order.status === OrderStatus.DRAFT || order.status === OrderStatus.SENT);
@@ -577,7 +576,8 @@ export const orderService = {
       return getPrisma().$transaction(async (tx) => {
         const updated = await orderRepo.setCanceled(order.id, input.reason, tx);
 
-        // Stock restore: only DRAFT cancels return ingredients.
+        // Bekor qilish: DRAFT yoki SENT — barcha faol qatorlardagi ingredient
+        // omborga qaytariladi.
         for (const line of order.lines) {
           await maybeRestoreLineStock(line, order, input.requestingUser.id, tx);
         }
