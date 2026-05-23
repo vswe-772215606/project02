@@ -107,6 +107,8 @@ enum AuditAction {
   DEBT_WRITTEN_OFF
   REPORT_SENT
   REPORT_SEND_FAILED
+  DAILY_CLOSED
+  DAILY_REOPENED
   INGREDIENT_CREATED
   INGREDIENT_UPDATED
   INGREDIENT_ACTIVATED
@@ -178,6 +180,7 @@ model User {
   wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
   expensesWrittenOff    Expense[]            @relation("ExpenseWriteOff")
   expenseReturnsReceived ExpenseReturn[]     @relation("ExpenseReturnReceiver")
+  dailyClosesPerformed  DailyClose[]         @relation("DailyCloseActor")
 
   @@index([role])
   @@index([isActive])
@@ -307,6 +310,7 @@ model Order {
 
   approvedAt             DateTime?
   approvedById           String?
+  sentAt                 DateTime?
   closedAt               DateTime?
   canceledAt             DateTime?
   cancelReason           String?
@@ -432,6 +436,13 @@ model Expense {
   writtenOffReason  String?
   writtenOffById    String?
 
+  // Tuzatish bayrog'i (soft-close):
+  //   - false: oddiy yozuv, kun yopiq bo'lmagan paytda kiritilgan.
+  //   - true:  yopilgan kun uchun keyin kiritilgan (yoki kelajakka qaratilgan,
+  //             keyin korreksiya qilingan) yozuv. Hisobotda alohida ko'rinadi.
+  // Avtomatik server tomonidan belgilanadi (kontroller / service).
+  isAdjustment      Boolean       @default(false)
+
   createdById       String
   createdAt         DateTime      @default(now())
 
@@ -449,6 +460,27 @@ model Expense {
   @@index([createdById])
   @@index([repayable])
   @@index([writtenOffAt])
+  @@index([isAdjustment])
+}
+
+// Soft-close: kun yopilgandan keyin shu kun moliyasi snapshot bo'lib qotadi.
+// Yangi yozuvlar baribir ruxsat etiladi (oldindan tushgan chek, kechagi xarid)
+// lekin ular `isAdjustment=true` bilan belgilanadi va alohida bo'limda chiqadi.
+// Snapshot Telegram report va owner verifikatsiyasi uchun "rasmiy" raqamlar.
+model DailyClose {
+  id              String   @id @default(cuid())
+  // Mahalliy kun kaliti (YYYY-MM-DD, Asia/Tashkent). Yagona unique kalit.
+  date            String   @unique
+  closedAt        DateTime @default(now())
+  closedByUserId  String
+  // Yopish paytidagi to'liq raqamlar dump. Format: services/finance-close.service.ts.
+  snapshot        Json
+  note            String?
+
+  closedBy        User     @relation("DailyCloseActor", fields: [closedByUserId], references: [id])
+
+  @@index([closedAt])
+  @@index([closedByUserId])
 }
 
 model ExpenseReturn {
@@ -610,6 +642,9 @@ model Purchase {
   reversedById          String?
   reversalNote          String?
 
+  // Soft-close tuzatish bayrog'i. Expense.isAdjustment bilan bir xil mantiq.
+  isAdjustment          Boolean        @default(false)
+
   ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
   recordedBy    User                  @relation("PurchaseRecorder", fields: [recordedById], references: [id])
   reversedBy    User?                 @relation("PurchaseReverser", fields: [reversedById], references: [id])
@@ -619,6 +654,7 @@ model Purchase {
   @@index([ingredientId, occurredAt])
   @@index([occurredAt])
   @@index([status])
+  @@index([isAdjustment])
 }
 
 enum PurchaseStatus {
