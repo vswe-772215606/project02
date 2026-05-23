@@ -28,17 +28,58 @@ const categoryUpdateSchema = categorySchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
-const itemSchema = z.object({
+// Legacy shape — name/price/category/kind only. Still accepted on update.
+const itemUpdateSchema = z.object({
+  categoryId: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  price: z.union([z.number().int(), z.string().min(1)]).optional(),
+  description: z.string().optional(),
+  displayOrder: z.number().int().optional(),
+  kind: z.enum(['FOOD', 'SERVICE']).optional(),
+  isActive: z.boolean().optional(),
+});
+
+// New create shape — discriminated by `mode`. The form always sends name,
+// category, price; the mode decides whether stock/cost/ingredient fields are
+// expected. Legacy callers that send no `mode` are treated as SERVICE so
+// behavior is unchanged for untracked items.
+const unitEnum = z.enum(['dona', 'kg', 'l']);
+
+const simpleModeSchema = z.object({
+  unit: unitEnum,
+  unitCost: z.union([z.number().positive(), z.string().min(1)]),
+  initialQty: z.union([z.number().nonnegative(), z.string().min(1)]).optional(),
+});
+
+const compositeIngredientSchema = z.object({
+  name: z.string().min(1),
+  unit: unitEnum,
+  quantityPerPortion: z.union([z.number().positive(), z.string().min(1)]),
+  initialQty: z.union([z.number().positive(), z.string().min(1)]),
+  initialUnitCost: z.union([z.number().positive(), z.string().min(1)]),
+});
+
+const compositeModeSchema = z.object({
+  notes: z.string().optional().nullable(),
+  ingredients: z.array(compositeIngredientSchema).min(1),
+});
+
+const itemCreateSchema = z.object({
   categoryId: z.string().min(1),
   name: z.string().min(1),
   price: z.union([z.number().int(), z.string().min(1)]),
   description: z.string().optional(),
   displayOrder: z.number().int().optional(),
-  kind: z.enum(['FOOD', 'SERVICE']).optional(),
-});
-
-const itemUpdateSchema = itemSchema.partial().extend({
-  isActive: z.boolean().optional(),
+  mode: z.enum(['SERVICE', 'SIMPLE', 'COMPOSITE']).default('SERVICE'),
+  simple: simpleModeSchema.optional(),
+  composite: compositeModeSchema.optional(),
+}).superRefine((val, ctx) => {
+  if (val.mode === 'SIMPLE' && !val.simple) {
+    ctx.addIssue({ code: 'custom', message: 'Oddiy mahsulot uchun `simple` maydoni kerak', path: ['simple'] });
+  }
+  if (val.mode === 'COMPOSITE' && !val.composite) {
+    ctx.addIssue({ code: 'custom', message: 'Kompozit mahsulot uchun `composite` maydoni kerak', path: ['composite'] });
+  }
 });
 const availabilitySchema = z.object({ isAvailable: z.boolean() });
 
@@ -106,7 +147,7 @@ export const menuController = {
 
   async createItem(req: Request, res: Response, next: NextFunction) {
     try {
-      const body = itemSchema.parse(req.body);
+      const body = itemCreateSchema.parse(req.body);
       const item = await menuService.createItem(body, req.user!.id);
       res.status(201).json(item);
     } catch (error) {

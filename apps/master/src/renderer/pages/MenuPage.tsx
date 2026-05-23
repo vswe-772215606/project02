@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,7 +17,7 @@ import {
   X,
   Search,
 } from 'lucide-react';
-import { menuApi, Category, MenuItem, Combo } from '../api/menu';
+import { menuApi, Category, MenuItem, Combo, CreateItemPayload, CreateItemUnit } from '../api/menu';
 import { yieldApi } from '../api/yield';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
@@ -35,7 +35,9 @@ const categorySchema = z.object({
   displayOrder: z.number().int().default(0),
 });
 
-const itemSchema = z.object({
+// Edit-mode keeps the lightweight shape (no mode switching on existing items —
+// stock/recipe edits go through the dedicated pages).
+const itemEditSchema = z.object({
   name: z.string().min(1, 'Nom kiritilishi shart'),
   categoryId: z.string().min(1, 'Kategoriya tanlanishi shart'),
   price: z.number().min(0, "Narx noto'g'ri"),
@@ -49,7 +51,7 @@ type CategoryFormData = {
   displayOrder: number;
 };
 
-type ItemFormSubmit = {
+type ItemEditSubmit = {
   name: string;
   categoryId: string;
   price: number;
@@ -128,9 +130,12 @@ export function MenuPage() {
 
   // Item Mutations
   const createItemMutation = useMutation({
-    mutationFn: (data: any) => menuApi.createItem(data),
+    mutationFn: (data: CreateItemPayload) => menuApi.createItem(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['menu'] });
+      queryClient.invalidateQueries({ queryKey: ['ingredients'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['yield'] });
       setIsAddingItem(false);
     }
   });
@@ -416,16 +421,23 @@ export function MenuPage() {
         />
       )}
 
-      {(isAddingItem || editItem) && (
-        <ItemModal
+      {editItem && (
+        <ItemEditModal
           item={editItem}
           categories={categories}
+          onClose={() => setEditItem(null)}
+          onSave={(data) => updateItemMutation.mutate({ id: editItem.id, data })}
+        />
+      )}
+
+      {isAddingItem && (
+        <ItemCreateModal
+          categories={categories}
           initialCategoryId={activeCategory?.id}
-          onClose={() => { setIsAddingItem(false); setEditItem(null); }}
-          onSave={(data: ItemFormSubmit) => editItem
-            ? updateItemMutation.mutate({ id: editItem.id, data })
-            : createItemMutation.mutate(data)
-          }
+          onClose={() => setIsAddingItem(false)}
+          onSave={(data) => createItemMutation.mutate(data)}
+          isPending={createItemMutation.isPending}
+          errorMessage={createItemMutation.error instanceof Error ? createItemMutation.error.message : null}
         />
       )}
 
@@ -475,37 +487,45 @@ function CategoryModal({ category, onClose, onSave }: any) {
   );
 }
 
-function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any) {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm({
-    resolver: zodResolver(itemSchema),
-    defaultValues: item ? {
-      ...item,
+// ─── Edit existing item ──────────────────────────────────────────────────────
+// Kept slim by design: stock/cost edits go through PurchasesPage (FIFO batches),
+// recipe edits through RecipesPage. The single-form-with-modes UX is for
+// CREATE only; once an item exists, its mode is implicit in the data model.
+function ItemEditModal({
+  item,
+  categories,
+  onClose,
+  onSave,
+}: {
+  item: MenuItem;
+  categories: Category[];
+  onClose: () => void;
+  onSave: (data: ItemEditSubmit) => void;
+}) {
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(itemEditSchema),
+    defaultValues: {
+      name: item.name,
+      categoryId: item.categoryId,
+      price: item.price,
+      description: item.description ?? '',
+      displayOrder: item.displayOrder,
       isService: item.kind === 'SERVICE',
-    } : {
-      name: '',
-      categoryId: initialCategoryId || '',
-      price: 0,
-      description: '',
-      displayOrder: 0,
-      isService: false,
-    }
+    },
   });
 
   const submit = handleSubmit((data: any) => {
     const { isService, ...rest } = data;
-    onSave({
-      ...rest,
-      kind: isService ? 'SERVICE' : 'FOOD',
-    });
+    onSave({ ...rest, kind: isService ? 'SERVICE' : 'FOOD' });
   });
 
   return (
-    <Modal title={item ? "Mahsulotni tahrirlash" : "Yangi mahsulot"} onClose={onClose} maxWidth="max-w-lg">
+    <Modal title="Mahsulotni tahrirlash" onClose={onClose} maxWidth="max-w-lg">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Nomi</label>
-            <input 
+            <input
               {...register('name')}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -513,17 +533,17 @@ function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Kategoriya</label>
-            <select 
+            <select
               {...register('categoryId')}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Tanlang...</option>
-              {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Narxi (UZS)</label>
-            <input 
+            <label className="block text-sm font-medium text-slate-700 mb-1">Sotuv narxi (UZS)</label>
+            <input
               type="number"
               {...register('price', { valueAsNumber: true })}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
@@ -531,40 +551,419 @@ function ItemModal({ item, categories, initialCategoryId, onClose, onSave }: any
           </div>
           <div className="col-span-2">
             <label className="block text-sm font-medium text-slate-700 mb-1">Tavsif (ixtiyoriy)</label>
-            <textarea 
+            <textarea
               {...register('description')}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 h-20"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tartib raqami</label>
-            <input 
+            <input
               type="number"
               {...register('displayOrder', { valueAsNumber: true })}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="col-span-2 mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-            <div className="flex items-start space-x-2">
-              <input
-                type="checkbox"
-                id="is-service"
-                {...register('isService')}
-                className="mt-1 w-4 h-4 text-amber-600 border-amber-300 rounded focus:ring-amber-500"
-              />
-              <label htmlFor="is-service" className="text-sm font-medium text-slate-800">
-                Bu — xizmat haqi mahsuloti
-                <p className="font-normal text-xs text-slate-600 mt-0.5">
-                  Belgilab qo'yilsa: oshxonaga bormaydi, retsept talab qilmaydi, zaxira hisoblanmaydi.
-                  Ofitsiant buyurtmaga qatori sifatida qo'shadi (masalan, kishi soniga qarab).
-                </p>
-              </label>
-            </div>
+          <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            Zaxira yoki tannarx tahriri uchun <strong>Xaridlar</strong> sahifasiga, retsept tahriri uchun{' '}
+            <strong>Retseptlar</strong> sahifasiga o'ting.
           </div>
         </div>
         <div className="flex space-x-3 pt-4">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
           <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700">Saqlash</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Create new item: three-mode form ────────────────────────────────────────
+type Mode = 'SIMPLE' | 'COMPOSITE' | 'SERVICE';
+
+type IngRow = {
+  name: string;
+  unit: CreateItemUnit;
+  quantityPerPortion: string; // recipe-unit per portion (g, ml, dona)
+  initialQty: string;         // in buyUnit
+  initialUnitCost: string;    // so'm per buyUnit
+};
+
+function freshIngRow(): IngRow {
+  return { name: '', unit: 'kg', quantityPerPortion: '', initialQty: '', initialUnitCost: '' };
+}
+
+// Each unit preset implies a recipe-unit and conversion factor. Used both for
+// the unit dropdown labels and for the live cost preview math.
+const UNIT_DISPLAY: Record<CreateItemUnit, { buy: string; recipe: string; conv: number }> = {
+  dona: { buy: 'dona', recipe: 'dona', conv: 1 },
+  kg:   { buy: 'kg',   recipe: 'gramm', conv: 1000 },
+  l:    { buy: 'l',    recipe: 'ml',    conv: 1000 },
+};
+
+function ItemCreateModal({
+  categories,
+  initialCategoryId,
+  onClose,
+  onSave,
+  isPending,
+  errorMessage,
+}: {
+  categories: Category[];
+  initialCategoryId?: string;
+  onClose: () => void;
+  onSave: (data: CreateItemPayload) => void;
+  isPending?: boolean;
+  errorMessage?: string | null;
+}) {
+  const [mode, setMode] = useState<Mode>('SIMPLE');
+  const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState(initialCategoryId || '');
+  const [price, setPrice] = useState('');
+  const [description, setDescription] = useState('');
+
+  // SIMPLE fields
+  const [simpleUnit, setSimpleUnit] = useState<CreateItemUnit>('dona');
+  const [simpleCost, setSimpleCost] = useState('');
+  const [simpleInitialQty, setSimpleInitialQty] = useState('');
+
+  // COMPOSITE fields
+  const [recipeNotes, setRecipeNotes] = useState('');
+  const [ingredients, setIngredients] = useState<IngRow[]>([freshIngRow()]);
+
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Live computed cost for COMPOSITE: sum of (per-portion qty × per-recipeUnit cost).
+  // We normalise via UNIT_DISPLAY.conv: user types cost per buyUnit but
+  // quantityPerPortion is in recipeUnit (e.g. gramm), so we divide by conv.
+  const compositePortionCost = useMemo(() => {
+    let total = 0;
+    for (const row of ingredients) {
+      const qpp = Number(row.quantityPerPortion);
+      const cost = Number(row.initialUnitCost);
+      const conv = UNIT_DISPLAY[row.unit].conv;
+      if (qpp > 0 && cost > 0 && conv > 0) {
+        total += qpp * (cost / conv);
+      }
+    }
+    return Math.round(total);
+  }, [ingredients]);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    const trimmedName = name.trim();
+    if (!trimmedName) return setFormError('Nomini kiriting');
+    if (!categoryId) return setFormError('Kategoriyani tanlang');
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) return setFormError('Sotuv narxi noto\'g\'ri');
+
+    const base = {
+      categoryId,
+      name: trimmedName,
+      price: priceNum,
+      description: description.trim() || undefined,
+    };
+
+    if (mode === 'SERVICE') {
+      onSave({ ...base, mode: 'SERVICE' });
+      return;
+    }
+
+    if (mode === 'SIMPLE') {
+      const costNum = Number(simpleCost);
+      if (!Number.isFinite(costNum) || costNum <= 0) return setFormError('Tan narxi 0 dan katta bo\'lsin');
+      const qtyStr = simpleInitialQty.trim();
+      const qtyNum = qtyStr === '' ? undefined : Number(qtyStr);
+      if (qtyNum !== undefined && (!Number.isFinite(qtyNum) || qtyNum < 0)) {
+        return setFormError('Boshlang\'ich soni noto\'g\'ri');
+      }
+      onSave({
+        ...base,
+        mode: 'SIMPLE',
+        simple: {
+          unit: simpleUnit,
+          unitCost: costNum,
+          ...(qtyNum !== undefined && qtyNum > 0 ? { initialQty: qtyNum } : {}),
+        },
+      });
+      return;
+    }
+
+    // COMPOSITE
+    const cleanRows = ingredients
+      .map((r) => ({ ...r, name: r.name.trim() }))
+      .filter((r) => r.name || r.quantityPerPortion || r.initialQty || r.initialUnitCost);
+    if (cleanRows.length === 0) return setFormError('Kamida bitta mahsulot kiriting');
+    const seen = new Set<string>();
+    for (const row of cleanRows) {
+      if (!row.name) return setFormError('Mahsulot nomini kiriting');
+      if (seen.has(row.name.toLowerCase())) return setFormError(`"${row.name}" ikki marta kiritildi`);
+      seen.add(row.name.toLowerCase());
+      const qpp = Number(row.quantityPerPortion);
+      const iq = Number(row.initialQty);
+      const cost = Number(row.initialUnitCost);
+      if (!(qpp > 0)) return setFormError(`"${row.name}" — porsiyaga miqdor noto'g'ri`);
+      if (!(iq > 0)) return setFormError(`"${row.name}" — boshlang'ich zaxira noto'g'ri`);
+      if (!(cost > 0)) return setFormError(`"${row.name}" — birlik narxi noto'g'ri`);
+    }
+    onSave({
+      ...base,
+      mode: 'COMPOSITE',
+      composite: {
+        notes: recipeNotes.trim() || null,
+        ingredients: cleanRows.map((r) => ({
+          name: r.name,
+          unit: r.unit,
+          quantityPerPortion: Number(r.quantityPerPortion),
+          initialQty: Number(r.initialQty),
+          initialUnitCost: Number(r.initialUnitCost),
+        })),
+      },
+    });
+  };
+
+  const updateIng = (idx: number, patch: Partial<IngRow>) => {
+    setIngredients((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+
+  return (
+    <Modal title="Yangi mahsulot" onClose={onClose} maxWidth="max-w-2xl">
+      <form onSubmit={submit} className="space-y-5">
+        {/* Mode picker — three radio cards */}
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { id: 'SIMPLE', label: 'Oddiy', hint: "O'z zaxirasi va tan narxi (Pepsi, baklava)" },
+            { id: 'COMPOSITE', label: 'Mahsulotlardan tayyorlanadi', hint: 'Retsept asosida (plov, lag\'mon)' },
+            { id: 'SERVICE', label: 'Xizmat haqi', hint: "Zaxira yo'q, retsept yo'q" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setMode(opt.id)}
+              className={`text-left rounded-lg border px-3 py-2.5 transition ${
+                mode === opt.id
+                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                  : 'border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              <div className="text-sm font-semibold text-slate-800">{opt.label}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{opt.hint}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Common fields */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nomi</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Kategoriya</label>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tanlang...</option>
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Sotuv narxi (so'm)</label>
+            <input
+              type="number"
+              step="100"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tavsif (ixtiyoriy)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 h-16"
+            />
+          </div>
+        </div>
+
+        {/* SIMPLE block */}
+        {mode === 'SIMPLE' && (
+          <div className="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-3">
+            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Oddiy mahsulot — o'z zaxirasi</div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Birlik</label>
+                <select
+                  value={simpleUnit}
+                  onChange={(e) => setSimpleUnit(e.target.value as CreateItemUnit)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="dona">Dona</option>
+                  <option value="kg">Kilogramm</option>
+                  <option value="l">Litr</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Tan narxi (so'm / {UNIT_DISPLAY[simpleUnit].buy})
+                </label>
+                <input
+                  type="number"
+                  step="100"
+                  value={simpleCost}
+                  onChange={(e) => setSimpleCost(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Boshlang'ich soni ({UNIT_DISPLAY[simpleUnit].buy})
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="ixtiyoriy"
+                  value={simpleInitialQty}
+                  onChange={(e) => setSimpleInitialQty(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Soni kiritilsa, shu miqdor narx bilan ombor partiyasi sifatida yoziladi. Har sotuvda 1 {UNIT_DISPLAY[simpleUnit].buy} ayriladi.
+            </p>
+          </div>
+        )}
+
+        {/* COMPOSITE block */}
+        {mode === 'COMPOSITE' && (
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Mahsulotlardan tayyorlanadi — retsept</div>
+              <button
+                type="button"
+                onClick={() => setIngredients((rows) => [...rows, freshIngRow()])}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
+              >
+                <Plus size={14} /> Mahsulot qo'shish
+              </button>
+            </div>
+
+            {ingredients.map((row, idx) => (
+              <div key={idx} className="bg-white border border-emerald-200/60 rounded-lg p-3 space-y-2 relative">
+                <div className="grid grid-cols-12 gap-2">
+                  <div className="col-span-5">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Mahsulot nomi</label>
+                    <input
+                      value={row.name}
+                      onChange={(e) => updateIng(idx, { name: e.target.value })}
+                      placeholder="masalan: Tovuq go'shti"
+                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Birlik</label>
+                    <select
+                      value={row.unit}
+                      onChange={(e) => updateIng(idx, { unit: e.target.value as CreateItemUnit })}
+                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="dona">Dona</option>
+                      <option value="kg">Kg → gramm</option>
+                      <option value="l">L → ml</option>
+                    </select>
+                  </div>
+                  <div className="col-span-3">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
+                      1 porsiyaga ({UNIT_DISPLAY[row.unit].recipe})
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={row.quantityPerPortion}
+                      onChange={(e) => updateIng(idx, { quantityPerPortion: e.target.value })}
+                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="col-span-1 flex items-end justify-end">
+                    {ingredients.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setIngredients((rows) => rows.filter((_, i) => i !== idx))}
+                        className="text-slate-400 hover:text-red-500 p-1"
+                        aria-label="O'chirish"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
+                      Boshlang'ich zaxira ({UNIT_DISPLAY[row.unit].buy})
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={row.initialQty}
+                      onChange={(e) => updateIng(idx, { initialQty: e.target.value })}
+                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
+                      Birlik narxi (so'm / {UNIT_DISPLAY[row.unit].buy})
+                    </label>
+                    <input
+                      type="number"
+                      step="100"
+                      value={row.initialUnitCost}
+                      onChange={(e) => updateIng(idx, { initialUnitCost: e.target.value })}
+                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div className="flex justify-between items-center pt-1 px-1">
+              <span className="text-xs text-slate-500">Bir porsiya tannarxi</span>
+              <span className="text-base font-bold text-emerald-700 tabular-nums">
+                {compositePortionCost > 0 ? `${compositePortionCost.toLocaleString('uz-UZ')} so'm` : '—'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* SERVICE block */}
+        {mode === 'SERVICE' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-slate-700">
+            Xizmat haqi mahsuloti — oshxonaga bormaydi, retsept talab qilmaydi, zaxira hisoblanmaydi.
+            Ofitsiant buyurtmaga qatori sifatida qo'shadi (masalan, kishi soniga qarab).
+          </div>
+        )}
+
+        {(formError || errorMessage) && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {formError || errorMessage}
+          </div>
+        )}
+
+        <div className="flex space-x-3 pt-1">
+          <button type="button" onClick={onClose} disabled={isPending} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
+          <button type="submit" disabled={isPending} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-60">
+            {isPending ? 'Saqlanmoqda...' : 'Saqlash'}
+          </button>
         </div>
       </form>
     </Modal>

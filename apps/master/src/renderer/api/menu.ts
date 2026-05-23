@@ -36,6 +36,42 @@ export interface Combo {
   components: ComboComponent[];
 }
 
+// Discriminated payload for POST /api/menu/items. `mode` decides whether the
+// item carries its own stock (SIMPLE), is composed from ingredients with
+// per-portion quantities (COMPOSITE), or is a non-tracked service charge (SERVICE).
+export type CreateItemUnit = 'dona' | 'kg' | 'l';
+
+export type CreateItemPayload = {
+  categoryId: string;
+  name: string;
+  price: number;
+  description?: string;
+  displayOrder?: number;
+} & (
+  | { mode: 'SERVICE' }
+  | {
+      mode: 'SIMPLE';
+      simple: {
+        unit: CreateItemUnit;
+        unitCost: number;     // so'm per buyUnit
+        initialQty?: number;  // optional, in buyUnit
+      };
+    }
+  | {
+      mode: 'COMPOSITE';
+      composite: {
+        notes?: string | null;
+        ingredients: Array<{
+          name: string;
+          unit: CreateItemUnit;
+          quantityPerPortion: number; // in recipeUnit per portion
+          initialQty: number;         // in buyUnit
+          initialUnitCost: number;    // so'm per buyUnit
+        }>;
+      };
+    }
+);
+
 export const menuApi = {
   getMenu: (includeInactive = false) => api.get<{ categories: Category[] }>(`/api/menu${includeInactive ? '?includeInactive=true' : ''}`),
   listCategories: (includeInactive = false) => api.get<Category[]>(`/api/menu/categories${includeInactive ? '?includeInactive=true' : ''}`),
@@ -45,7 +81,7 @@ export const menuApi = {
     api.patch<Category>(`/api/menu/categories/${id}`, data),
   
   listItems: (includeInactive = false) => api.get<MenuItem[]>(`/api/menu/items${includeInactive ? '?includeInactive=true' : ''}`),
-  createItem: (data: { categoryId: string; name: string; price: number; description?: string; displayOrder?: number }) =>
+  createItem: (data: CreateItemPayload) =>
     api.post<MenuItem>('/api/menu/items', data),
   updateItem: (id: string, data: Partial<MenuItem>) => 
     api.patch<MenuItem>(`/api/menu/items/${id}`, data),
