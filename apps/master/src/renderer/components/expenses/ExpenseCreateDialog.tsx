@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Info } from 'lucide-react';
 import { expensesApi } from '@/api/expenses';
+import { financeApi } from '@/api/finance';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -33,6 +34,15 @@ export function ExpenseCreateDialog({
   const [note, setNote] = useState('');
   const [repayable, setRepayable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Tanlangan kun yopilganmi? Yopilgan bo'lsa, foydalanuvchini ogohlantiramiz —
+  // server baribir qabul qiladi, lekin yozuv `isAdjustment=true` bo'lib belgilanadi.
+  const { data: dailyForDate } = useQuery({
+    queryKey: ['finance', 'daily', date],
+    queryFn: () => financeApi.daily(date),
+    enabled: open,
+  });
+  const isClosedDay = !!dailyForDate?.closed;
 
   useEffect(() => {
     if (open) {
@@ -134,6 +144,15 @@ export function ExpenseCreateDialog({
               </p>
             </div>
           </label>
+
+          {isClosedDay && (
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+              <Info className="h-4 w-4 text-amber-700" />
+              <AlertDescription>
+                Bu kun yopilgan — yozuv &quot;tuzatish&quot; sifatida belgilanadi va alohida bo&apos;limda chiqadi.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {error && (
             <Alert variant="destructive">

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { purchasesApi, type Purchase } from '@/api/purchases';
 import { ingredientsApi } from '@/api/ingredients';
+import { financeApi } from '@/api/finance';
 import { PageContent } from '@/components/feedback/PageContent';
 import { PageHeader } from '@/components/feedback/PageHeader';
 import { EmptyState } from '@/components/feedback/EmptyState';
@@ -376,6 +377,7 @@ export function PurchasesPage() {
                 type="datetime-local"
                 {...createForm.register('occurredAt')}
               />
+              <ClosedDayHint occurredAt={createForm.watch('occurredAt')} />
             </div>
 
             <div className="space-y-1.5">
@@ -560,5 +562,23 @@ export function PurchasesPage() {
         </SheetContent>
       </Sheet>
     </PageContent>
+  );
+}
+
+// Tanlangan sana yopilgan kun bo'lsa, foydalanuvchini ogohlantirish.
+function ClosedDayHint({ occurredAt }: { occurredAt: string | undefined }) {
+  const dateKey = occurredAt ? occurredAt.slice(0, 10) : '';
+  const { data } = useQuery({
+    queryKey: ['finance', 'daily', dateKey],
+    queryFn: () => financeApi.daily(dateKey),
+    enabled: Boolean(dateKey),
+  });
+  if (!data?.closed) return null;
+  return (
+    <Alert className="border-amber-300 bg-amber-50 text-amber-900 py-2">
+      <AlertDescription className="text-xs">
+        Bu kun yopilgan — yozuv &quot;tuzatish&quot; sifatida belgilanadi va alohida bo&apos;limda chiqadi.
+      </AlertDescription>
+    </Alert>
   );
 }
