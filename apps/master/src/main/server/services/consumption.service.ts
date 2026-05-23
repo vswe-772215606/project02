@@ -76,12 +76,17 @@ async function applyDelta(
     }
 
     const fresh = await ingredientRepo.findById(t.ingredientId, tx);
+    const avgCost = fresh?.weightedAvgCost ?? new Prisma.Decimal(0);
     await ingredientMovementRepo.create({
       ingredient: { connect: { id: t.ingredientId } },
       type,
       quantity: t.needed,
+      // CONSUME/RESTORE paytida cost basis sifatida joriy weightedAvgCost saqlanadi.
+      // Bu kelajakda COGS rekonstruksiyasi uchun zarur (v1 da ishlatilmaydi, lekin
+      // movement audit-trail to'liq bo'lsin).
+      unitCostSnapshot: avgCost,
       resultingStock: fresh?.currentStock ?? new Prisma.Decimal(0),
-      resultingAvgCost: fresh?.weightedAvgCost ?? new Prisma.Decimal(0),
+      resultingAvgCost: avgCost,
       orderLine: { connect: { id: line.id } },
       actor: { connect: { id: line.actorUserId } },
       occurredAt: new Date(),

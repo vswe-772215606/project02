@@ -117,24 +117,41 @@ async function getOrderOrThrow(orderId: string, tx?: Tx): Promise<OrderWithDetai
 /**
  * Restore ingredient stock for a single line.
  *
- * New lifecycle rule: stock is only restored when the order is still DRAFT.
- * Once the order is SENT, dishes are considered prepared and ingredients are
- * not restored on cancel (conservative rule).
+ * Qoidalar:
+ *  - DRAFT order: doim restore. Hech qachon yuborilmagan.
+ *  - SENT order: faqat shu chiziq order yuborilgandan KEYIN qo'shilgan bo'lsa
+ *    (line.createdAt > order.sentAt). Asl SEND paytida bo'lgan chiziqlar
+ *    "tayyorlangan" deb hisoblanadi va qaytarilmaydi.
+ *
+ * Bu BUG-1 ning yamoq joyi: post-send admin-add → admin-cancel kombinatsiyasi
+ * stockni jim yutadigan edi.
  */
 async function maybeRestoreLineStock(
   line: OrderWithDetails['lines'][number],
-  order: { status: OrderStatus },
+  order: { status: OrderStatus; sentAt: Date | null },
   actorUserId: string,
   tx: Tx,
 ) {
   if (line.isCanceled) return;
-  if (order.status !== OrderStatus.DRAFT) return;
   if (!line.menuItemId) return;
-  await consumptionService.restore(
-    { id: line.id, menuItemId: line.menuItemId, actorUserId },
-    line.quantity,
-    tx,
-  );
+
+  if (order.status === OrderStatus.DRAFT) {
+    await consumptionService.restore(
+      { id: line.id, menuItemId: line.menuItemId, actorUserId },
+      line.quantity,
+      tx,
+    );
+    return;
+  }
+
+  // SENT (yoki keyingi terminal status): faqat post-send qo'shilgan chiziq.
+  if (order.status === OrderStatus.SENT && order.sentAt && line.createdAt > order.sentAt) {
+    await consumptionService.restore(
+      { id: line.id, menuItemId: line.menuItemId, actorUserId },
+      line.quantity,
+      tx,
+    );
+  }
 }
 
 export const orderService = {
@@ -368,15 +385,21 @@ export const orderService = {
             delta,
             tx,
           );
-        } else if (delta < 0 && line.menuItemId && order.status === OrderStatus.DRAFT) {
-          // Stock is only restored on decrement while still DRAFT. Once SENT,
-          // dishes are considered prepared (matches maybeRestoreLineStock policy
-          // on cancel) so we don't fabricate inventory.
-          await consumptionService.restore(
-            { id: line.id, menuItemId: line.menuItemId, actorUserId: input.requestingUser.id },
-            Math.abs(delta),
-            tx,
-          );
+        } else if (delta < 0 && line.menuItemId) {
+          // Restore qoidasi maybeRestoreLineStock bilan bir xil: DRAFT'da doim;
+          // SENT'da faqat shu chiziq sendAt'dan keyin qo'shilgan bo'lsa.
+          const allowRestore =
+            order.status === OrderStatus.DRAFT
+            || (order.status === OrderStatus.SENT
+                && order.sentAt !== null
+                && line.createdAt > order.sentAt);
+          if (allowRestore) {
+            await consumptionService.restore(
+              { id: line.id, menuItemId: line.menuItemId, actorUserId: input.requestingUser.id },
+              Math.abs(delta),
+              tx,
+            );
+          }
         }
 
         const updated = await orderLineRepo.updateQuantity(line.id, input.quantity, tx);
@@ -500,6 +523,13 @@ export const orderService = {
           if (!updated) {
             throw Errors.IllegalStateTransition(OrderStatus.DRAFT, OrderStatus.SENT);
           }
+          // Post-send stock-restore qoidasi uchun yuborilgan vaqt.
+          // setStatus generic, alohida update bilan yozamiz (atomarlik shu
+          // tx ichida ta'minlanadi).
+          await tx.order.update({
+            where: { id: order.id },
+            data: { sentAt: new Date() },
+          });
 
           deferEmit('admin', 'order:updated', { orderId: order.id });
           deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
