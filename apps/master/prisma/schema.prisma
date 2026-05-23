@@ -116,6 +116,7 @@ enum AuditAction {
   PURCHASE_RECORDED
   PURCHASE_UPDATED
   PURCHASE_REVERSED
+  PURCHASE_DELETED
   RECIPE_CREATED
   RECIPE_UPDATED
   RECIPE_ACTIVATED
@@ -173,6 +174,7 @@ model User {
   ingredientMovements   IngredientMovement[] @relation("IngredientMovementActor")
   purchasesRecorded     Purchase[]           @relation("PurchaseRecorder")
   purchasesReversed     Purchase[]           @relation("PurchaseReverser")
+  purchasesDeleted      Purchase[]           @relation("PurchaseDeleter")
   recipesEdited         RecipeEdit[]         @relation("RecipeEditor")
   stocktakesPerformed   Stocktake[]          @relation("StocktakePerformer")
   wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
@@ -356,6 +358,7 @@ model OrderLine {
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem            MenuItem             @relation(fields: [menuItemId], references: [id])
   ingredientMovements IngredientMovement[]
+  batchConsumptions   OrderLineBatchConsumption[]
 
   @@index([orderId])
   @@index([comboGroupId])
@@ -599,6 +602,11 @@ model Purchase {
   ingredientId          String
   quantityBuyUnit       Decimal
   quantityRecipeUnit    Decimal
+  // FIFO: how much of this batch is still unconsumed (in recipeUnit).
+  // Starts equal to quantityRecipeUnit; decremented atomically when sales
+  // peel from this batch (oldest-first). Past sales freeze their cogsSnapshot,
+  // so reducing remainingQty never restates history.
+  remainingQty          Decimal        @default(0)
   totalCostUzs          Decimal
   unitCostPerRecipeUnit Decimal
   supplierNote          String?
@@ -609,21 +617,47 @@ model Purchase {
   reversedAt            DateTime?
   reversedById          String?
   reversalNote          String?
+  deletedAt             DateTime?
+  deletedById           String?
+  deletionNote          String?
 
   ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
   recordedBy    User                  @relation("PurchaseRecorder", fields: [recordedById], references: [id])
   reversedBy    User?                 @relation("PurchaseReverser", fields: [reversedById], references: [id])
+  deletedBy     User?                 @relation("PurchaseDeleter", fields: [deletedById], references: [id])
   expense       Expense?
   movements     IngredientMovement[]
+  batchConsumptions OrderLineBatchConsumption[]
 
   @@index([ingredientId, occurredAt])
   @@index([occurredAt])
   @@index([status])
+  // FIFO hot path: "next batch to peel" — oldest active batch with remainingQty > 0.
+  @@index([ingredientId, status, occurredAt])
 }
 
 enum PurchaseStatus {
   ACTIVE
   REVERSED
+  DELETED
+}
+
+// FIFO: every order line peel is recorded here so restores (cancel/decrement)
+// return qty to the SAME batches it came from. OrderLine.cogsSnapshot is the
+// sum across these rows.
+model OrderLineBatchConsumption {
+  id            String   @id @default(cuid())
+  orderLineId   String
+  purchaseId    String
+  quantity      Decimal
+  unitCost      Decimal
+  createdAt     DateTime @default(now())
+
+  orderLine     OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  purchase      Purchase  @relation(fields: [purchaseId], references: [id])
+
+  @@index([orderLineId])
+  @@index([purchaseId])
 }
 
 model WasteEvent {

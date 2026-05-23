@@ -11,3 +11,4 @@ purchaseRouter.get('/', purchaseController.list);
 purchaseRouter.post('/', purchaseController.record);
 purchaseRouter.patch('/:id', purchaseController.update);
 purchaseRouter.post('/:id/reverse', purchaseController.reverse);
+purchaseRouter.post('/:id/delete', purchaseController.delete);

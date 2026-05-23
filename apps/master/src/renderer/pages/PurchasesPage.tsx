@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Plus, RotateCcw, Search, ShoppingCart, X } from 'lucide-react';
+import { Loader2, Plus, RotateCcw, Search, ShoppingCart, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { purchasesApi, type Purchase } from '@/api/purchases';
@@ -37,10 +37,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+// Admin enters qty and unit cost per buy-unit (e.g. 100 dona × 20,000 = 2,000,000).
+// totalCostUzs is computed = qty × unitCost and sent to the server (existing API).
 const createSchema = z.object({
   ingredientId: z.string().min(1, 'Mahsulot tanlang'),
   quantityBuyUnit: z.coerce.number().positive('Miqdor 0 dan katta'),
-  totalCostUzs: z.coerce.number().positive('Summa 0 dan katta'),
+  unitCostPerBuyUnit: z.coerce.number().positive('Birlik narxi 0 dan katta'),
   occurredAt: z.string().min(1),
   supplierNote: z.string().optional(),
 });
@@ -77,6 +79,8 @@ export function PurchasesPage() {
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [pendingReverse, setPendingReverse] = useState<Purchase | null>(null);
   const [reverseNote, setReverseNote] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<Purchase | null>(null);
+  const [deleteNote, setDeleteNote] = useState('');
   const [search, setSearch] = useState('');
 
   const { data: purchases, isLoading } = useQuery({
@@ -109,7 +113,7 @@ export function PurchasesPage() {
     defaultValues: {
       ingredientId: '',
       quantityBuyUnit: 0,
-      totalCostUzs: 0,
+      unitCostPerBuyUnit: 0,
       occurredAt: todayISODate(),
       supplierNote: '',
     },
@@ -139,7 +143,7 @@ export function PurchasesPage() {
       createForm.reset({
         ingredientId: '',
         quantityBuyUnit: 0,
-        totalCostUzs: 0,
+        unitCostPerBuyUnit: 0,
         occurredAt: todayISODate(),
         supplierNote: '',
       });
@@ -177,11 +181,29 @@ export function PurchasesPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string }) =>
+      purchasesApi.delete(id, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['ingredients'] });
+      toast.success("Xarid o'chirildi");
+      setPendingDelete(null);
+      setDeleteNote('');
+      setEditing(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const onCreate = createForm.handleSubmit((values) => {
+    // Backend takes totalCostUzs; we derive it from qty × unitCost so the
+    // server contract stays unchanged. Rounding to integer UZS (no fractional
+    // so'm in receipts).
+    const totalCostUzs = Math.round(values.quantityBuyUnit * values.unitCostPerBuyUnit);
     recordMutation.mutate({
       ingredientId: values.ingredientId,
       quantityBuyUnit: values.quantityBuyUnit,
-      totalCostUzs: values.totalCostUzs,
+      totalCostUzs,
       occurredAt: new Date(values.occurredAt).toISOString(),
       supplierNote: values.supplierNote || undefined,
     });
@@ -194,6 +216,11 @@ export function PurchasesPage() {
 
   const selectedIngredientId = createForm.watch('ingredientId');
   const selectedIngredient = selectedIngredientId ? ingredientById.get(selectedIngredientId) : null;
+  const liveQty = createForm.watch('quantityBuyUnit');
+  const liveUnitCost = createForm.watch('unitCostPerBuyUnit');
+  const liveTotal = Number(liveQty) > 0 && Number(liveUnitCost) > 0
+    ? Math.round(Number(liveQty) * Number(liveUnitCost))
+    : 0;
 
   const columns: DataTableColumn<Purchase>[] = [
     {
@@ -206,12 +233,17 @@ export function PurchasesPage() {
       header: 'Mahsulot',
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <span className={row.status === 'REVERSED' ? 'text-muted-foreground line-through' : 'font-medium'}>
+          <span className={row.status !== 'ACTIVE' ? 'text-muted-foreground line-through' : 'font-medium'}>
             {row.ingredient.name}
           </span>
           {row.status === 'REVERSED' && (
             <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200">
               Bekor qilingan
+            </Badge>
+          )}
+          {row.status === 'DELETED' && (
+            <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+              O'chirilgan
             </Badge>
           )}
         </div>
@@ -221,7 +253,16 @@ export function PurchasesPage() {
       key: 'qty',
       header: 'Miqdor',
       align: 'right',
-      cell: (row) => <QuantityCell value={row.quantityBuyUnit} unit={row.ingredient.buyUnit} />,
+      cell: (row) => (
+        <div className="text-right">
+          <QuantityCell value={row.quantityBuyUnit} unit={row.ingredient.buyUnit} />
+          {row.status === 'ACTIVE' && Number(row.consumedQty) > 0 && (
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              qoldi: {row.remainingQty} {row.ingredient.recipeUnit}
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       key: 'total',
@@ -251,7 +292,12 @@ export function PurchasesPage() {
     },
   ];
 
-  const canReverseEditing = editing && editing.status === 'ACTIVE' && isSameLocalDay(editing.occurredAt);
+  const canReverseEditing = editing
+    && editing.status === 'ACTIVE'
+    && isSameLocalDay(editing.occurredAt)
+    && Number(editing.consumedQty) === 0;
+  const canDeleteEditing = editing && editing.status === 'ACTIVE';
+  const editingConsumed = editing ? Number(editing.consumedQty) : 0;
 
   return (
     <PageContent>
@@ -356,17 +402,28 @@ export function PurchasesPage() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="purchase-total">Summa (UZS)</Label>
+                <Label htmlFor="purchase-unit-cost">
+                  Birlik narxi {selectedIngredient && (
+                    <span className="text-muted-foreground">(so'm / {selectedIngredient.buyUnit})</span>
+                  )}
+                </Label>
                 <Input
-                  id="purchase-total"
+                  id="purchase-unit-cost"
                   type="number"
                   step="100"
-                  {...createForm.register('totalCostUzs')}
+                  {...createForm.register('unitCostPerBuyUnit')}
                 />
-                {createForm.formState.errors.totalCostUzs && (
-                  <p className="text-xs text-destructive">{createForm.formState.errors.totalCostUzs.message}</p>
+                {createForm.formState.errors.unitCostPerBuyUnit && (
+                  <p className="text-xs text-destructive">{createForm.formState.errors.unitCostPerBuyUnit.message}</p>
                 )}
               </div>
+            </div>
+
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Jami summa</span>
+              <span className="text-base font-semibold tabular-nums">
+                {liveTotal > 0 ? `${liveTotal.toLocaleString('uz-UZ')} so'm` : '—'}
+              </span>
             </div>
 
             <div className="space-y-1.5">
@@ -408,8 +465,10 @@ export function PurchasesPage() {
           <SheetHeader>
             <SheetTitle>Xaridni tahrirlash</SheetTitle>
             <SheetDescription>
-              Faqat sana va izohni o'zgartirish mumkin. Miqdor yoki summani tuzatish uchun
-              xaridni bekor qilib, qaytadan kiriting.
+              Faqat sana va izohni o'zgartirish mumkin. Miqdor yoki narxni tuzatish uchun
+              xaridni <strong>o'chirib</strong>, to'g'ri qiymat bilan yangidan kiriting.
+              Allaqachon sotilgan qism sotilgan vaqtdagi narxda muzlatib qo'yiladi —
+              hisobotlar o'zgarmaydi.
             </SheetDescription>
           </SheetHeader>
 
@@ -425,9 +484,23 @@ export function PurchasesPage() {
                   <span className="tabular-nums">{editing.quantityBuyUnit} {editing.ingredient.buyUnit}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Summa</span>
+                  <span className="text-muted-foreground">Birlik narxi</span>
+                  <span className="tabular-nums">
+                    <MoneyCell value={editing.unitCostPerRecipeUnit} /> / {editing.ingredient.recipeUnit}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jami summa</span>
                   <span className="tabular-nums"><MoneyCell value={editing.totalCostUzs} /></span>
                 </div>
+                {editing.status === 'ACTIVE' && editingConsumed > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Allaqachon ishlatildi</span>
+                    <span className="tabular-nums">
+                      {editing.consumedQty} / {editing.quantityRecipeUnit} {editing.ingredient.recipeUnit}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Kim kiritdi</span>
                   <span>{editing.recordedByName}</span>
@@ -440,6 +513,14 @@ export function PurchasesPage() {
                     )}
                     {editing.reversalNote && (
                       <div className="text-xs text-red-700/80">Sabab: {editing.reversalNote}</div>
+                    )}
+                  </div>
+                )}
+                {editing.status === 'DELETED' && (
+                  <div className="mt-2 rounded-md bg-amber-50 border border-amber-200 p-2 space-y-0.5">
+                    <div className="text-xs font-semibold text-amber-700">O'chirilgan</div>
+                    {editing.deletionNote && (
+                      <div className="text-xs text-amber-700/80">Sabab: {editing.deletionNote}</div>
                     )}
                   </div>
                 )}
@@ -472,30 +553,51 @@ export function PurchasesPage() {
               )}
 
               <SheetFooter className="flex-col sm:flex-row gap-2">
-                {canReverseEditing && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:mr-auto"
-                    onClick={() => { setReverseNote(''); setPendingReverse(editing); }}
-                    disabled={reverseMutation.isPending}
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                    Bekor qilish
-                  </Button>
-                )}
+                <div className="flex flex-col sm:flex-row gap-2 sm:mr-auto">
+                  {canReverseEditing && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => { setReverseNote(''); setPendingReverse(editing); }}
+                      disabled={reverseMutation.isPending || deleteMutation.isPending}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Bekor qilish
+                    </Button>
+                  )}
+                  {canDeleteEditing && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => { setDeleteNote(''); setPendingDelete(editing); }}
+                      disabled={reverseMutation.isPending || deleteMutation.isPending}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      O'chirish
+                    </Button>
+                  )}
+                </div>
                 <Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={updateMutation.isPending}>
                   Yopish
                 </Button>
-                <Button type="submit" disabled={updateMutation.isPending || editing.status === 'REVERSED'}>
+                <Button type="submit" disabled={updateMutation.isPending || editing.status !== 'ACTIVE'}>
                   {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Saqlash
                 </Button>
               </SheetFooter>
 
-              {editing.status === 'ACTIVE' && !canReverseEditing && (
+              {editing.status === 'ACTIVE' && !canReverseEditing && editingConsumed > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Faqat bugungi xaridni bekor qilish mumkin. Eski xaridlar uchun sanoq orqali tuzating.
+                  Bu partiyadan allaqachon iste'mol qilingan, shuning uchun "Bekor qilish" mavjud emas.
+                  "O'chirish" tugmasi qoldiqni omborga olib tashlaydi va sotilgan qism o'z narxida muzlatib qoladi.
+                </p>
+              )}
+              {editing.status === 'ACTIVE' && !canReverseEditing && editingConsumed === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Bekor qilish faqat shu kunda kiritilgan partiyalar uchun ishlaydi.
+                  Eski xaridni o'chirish uchun "O'chirish" tugmasidan foydalaning.
                 </p>
               )}
             </form>
@@ -555,6 +657,103 @@ export function PurchasesPage() {
             >
               {reverseMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Ha, bekor qilish
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Delete flow — soft delete with consume-aware warning */}
+      <Sheet
+        open={!!pendingDelete}
+        onOpenChange={(open) => { if (!open) { setPendingDelete(null); setDeleteNote(''); } }}
+      >
+        <SheetContent className="sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Xaridni o'chirish</SheetTitle>
+            <SheetDescription>
+              {pendingDelete && (
+                <>
+                  "<span className="font-medium">{pendingDelete.ingredient.name}</span>" partiyasi o'chiriladi.
+                </>
+              )}
+            </SheetDescription>
+          </SheetHeader>
+
+          {pendingDelete && (
+            <div className="py-4 space-y-3">
+              <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jami partiya</span>
+                  <span className="tabular-nums">
+                    {pendingDelete.quantityRecipeUnit} {pendingDelete.ingredient.recipeUnit}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Allaqachon ishlatildi</span>
+                  <span className="tabular-nums">
+                    {pendingDelete.consumedQty} {pendingDelete.ingredient.recipeUnit}
+                  </span>
+                </div>
+                <div className="flex justify-between font-medium">
+                  <span>Omborga qaytarib olinadi</span>
+                  <span className="tabular-nums">
+                    {pendingDelete.remainingQty} {pendingDelete.ingredient.recipeUnit}
+                  </span>
+                </div>
+              </div>
+
+              {Number(pendingDelete.consumedQty) > 0 && (
+                <Alert>
+                  <AlertDescription className="text-xs leading-relaxed">
+                    Bu partiyadan <strong>{pendingDelete.consumedQty} {pendingDelete.ingredient.recipeUnit}</strong> allaqachon
+                    sotilgan. Ularning narxi sotilgan vaqtdagi qiymatda <strong>muzlatib qo'yiladi</strong> —
+                    hisobotlardan ko'chmaydi va keyingi sotuvlarga ham ta'sir qilmaydi.
+                    Faqat qolgan <strong>{pendingDelete.remainingQty} {pendingDelete.ingredient.recipeUnit}</strong> zaxiradan
+                    olinadi va shu qism xarajati ham reverse qilinadi.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="space-y-1.5">
+                <Label htmlFor="delete-note">Sabab (majburiy)</Label>
+                <Textarea
+                  id="delete-note"
+                  autoFocus
+                  rows={3}
+                  value={deleteNote}
+                  onChange={(e) => setDeleteNote(e.target.value)}
+                  placeholder="Masalan: narx yoki miqdor noto'g'ri kiritilgan"
+                  disabled={deleteMutation.isPending}
+                />
+              </div>
+            </div>
+          )}
+
+          <SheetFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setPendingDelete(null); setDeleteNote(''); }}
+              disabled={deleteMutation.isPending}
+            >
+              Yo'q
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingDelete) return;
+                const note = deleteNote.trim();
+                if (!note) {
+                  toast.error('Sababni kiriting');
+                  return;
+                }
+                deleteMutation.mutate({ id: pendingDelete.id, note });
+              }}
+              disabled={deleteMutation.isPending || !deleteNote.trim()}
+            >
+              {deleteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Ha, o'chirish
             </Button>
           </SheetFooter>
         </SheetContent>

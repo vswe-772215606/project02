@@ -1,6 +1,6 @@
 import { api } from './client';
 
-export type PurchaseStatus = 'ACTIVE' | 'REVERSED';
+export type PurchaseStatus = 'ACTIVE' | 'REVERSED' | 'DELETED';
 
 export type Purchase = {
   id: string;
@@ -14,6 +14,8 @@ export type Purchase = {
   };
   quantityBuyUnit: string;
   quantityRecipeUnit: string;
+  remainingQty: string;
+  consumedQty: string;
   totalCostUzs: string;
   unitCostPerRecipeUnit: string;
   supplierNote: string | null;
@@ -27,6 +29,9 @@ export type Purchase = {
   reversedById: string | null;
   reversedByName: string | null;
   reversalNote: string | null;
+  deletedAt: string | null;
+  deletedById: string | null;
+  deletionNote: string | null;
 };
 
 export type PurchaseRecordInput = {
@@ -59,4 +64,7 @@ export const purchasesApi = {
 
   reverse: (id: string, note: string) =>
     api.post<Purchase>(`/api/purchases/${id}/reverse`, { note }),
+
+  delete: (id: string, note: string) =>
+    api.post<Purchase>(`/api/purchases/${id}/delete`, { note }),
 };

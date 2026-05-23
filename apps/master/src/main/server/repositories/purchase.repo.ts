@@ -79,4 +79,56 @@ export const purchaseRepo = {
     }
     return { qty, cost };
   },
+
+  /**
+   * FIFO peel candidates — oldest-first, only ACTIVE batches with leftover qty.
+   * Tie-break by createdAt then id so the order is stable across calls.
+   */
+  async findActiveBatchesForIngredient(ingredientId: string, tx?: Tx) {
+    return (tx ?? getPrisma()).purchase.findMany({
+      where: {
+        ingredientId,
+        status: 'ACTIVE',
+        remainingQty: { gt: 0 },
+      },
+      orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        remainingQty: true,
+        unitCostPerRecipeUnit: true,
+        occurredAt: true,
+      },
+    });
+  },
+
+  /**
+   * Atomic FIFO peel: decrement remainingQty only if the batch still has at
+   * least `qty` left. Concurrent peels can't double-spend a batch — if two
+   * orders both try to take from the same row, the second will get count=0
+   * and the caller falls through to the next batch.
+   */
+  async peelAtomic(purchaseId: string, qty: Prisma.Decimal, tx?: Tx) {
+    return (tx ?? getPrisma()).purchase.updateMany({
+      where: {
+        id: purchaseId,
+        status: 'ACTIVE',
+        remainingQty: { gte: qty },
+      },
+      data: {
+        remainingQty: { decrement: qty },
+      },
+    });
+  },
+
+  /**
+   * Restore qty to a batch on cancel/decrement. No status check — even a
+   * REVERSED batch can receive a restore if it was peeled before reversal
+   * (callers usually only restore from ACTIVE batches anyway).
+   */
+  async restoreToBatch(purchaseId: string, qty: Prisma.Decimal, tx?: Tx) {
+    return (tx ?? getPrisma()).purchase.update({
+      where: { id: purchaseId },
+      data: { remainingQty: { increment: qty } },
+    });
+  },
 };

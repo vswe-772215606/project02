@@ -25,6 +25,10 @@ const reverseSchema = z.object({
   note: z.string().trim().min(1, 'Sabab kerak'),
 });
 
+const deleteSchema = z.object({
+  note: z.string().trim().min(1, 'Sabab kerak'),
+});
+
 export const purchaseController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -74,6 +78,19 @@ export const purchaseController = {
     try {
       const body = reverseSchema.parse(req.body);
       res.json(await purchaseService.reverse({
+        id: req.params.id,
+        note: body.note,
+        actorUserId: req.user!.id,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = deleteSchema.parse(req.body);
+      res.json(await purchaseService.delete({
         id: req.params.id,
         note: body.note,
         actorUserId: req.user!.id,
