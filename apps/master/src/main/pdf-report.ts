@@ -376,21 +376,41 @@ export async function generateDailyReportPdf(opts: {
 
   // ─── 1. Yakuniy ko'rsatkichlar (headline block) ────────────────────
   sectionTitle(doc, 'Yakuniy ko\'rsatkichlar', 'Bu kun bo\'yicha eng asosiy raqamlar');
-  kvBlock(doc, 'Foyda hisobi', [
-    { label: 'Sof savdo', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m' },
-    { label: 'Netto chiqim', value: '-' + fmtUZSDecimal(data.expenses.net) + ' so\'m', tone: 'muted' },
-    {
-      label: 'Sof foyda (savdo asosida)',
-      value: fmtSigned(data.results.salesBasedProfit) + ' so\'m',
-      bold: true,
-      tone: Number(data.results.salesBasedProfit) >= 0 ? 'good' : 'danger',
-    },
-    { label: 'Pul oqimi natijasi', value: fmtSigned(data.results.cashflowBasedNet) + ' so\'m', bold: true },
-    { label: 'Xizmat haqi (alohida)', value: fmtUZSDecimal(data.sales.serviceCharge) + ' so\'m', tone: 'muted' },
-  ]);
+  // PRD 13: Sof foyda = sotuv − tan narxi − chiqim. Read canonical figures
+  // from ledger.pnl so the 3 components and the bottom line match exactly.
+  const pnl = (data as any).ledger?.pnl;
+  if (pnl) {
+    kvBlock(doc, 'Foyda hisobi', [
+      { label: 'Sotuv', value: fmtUZSDecimal(pnl.revenue) + ' so\'m' },
+      { label: '− Tan narxi', value: '-' + fmtUZSDecimal(pnl.cogs) + ' so\'m', tone: 'muted' },
+      { label: '− Chiqim', value: '-' + fmtUZSDecimal(pnl.operatingExpense) + ' so\'m', tone: 'muted' },
+      {
+        label: 'Sof foyda',
+        value: fmtSigned(pnl.profit) + ' so\'m',
+        bold: true,
+        tone: Number(pnl.profit) >= 0 ? 'good' : 'danger',
+      },
+      { label: 'Kassa o\'zgarishi', value: fmtSigned(data.results.cashflowBasedNet) + ' so\'m', bold: true },
+      { label: 'Xizmat haqi (alohida)', value: fmtUZSDecimal(data.sales.serviceCharge) + ' so\'m', tone: 'muted' },
+    ]);
+  } else {
+    // Pre-PRD-13 fallback (in-flight scheduler).
+    kvBlock(doc, 'Foyda hisobi', [
+      { label: 'Sotuv', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m' },
+      { label: 'Chiqim', value: '-' + fmtUZSDecimal(data.expenses.net) + ' so\'m', tone: 'muted' },
+      {
+        label: 'Sof foyda',
+        value: fmtSigned(data.results.salesBasedProfit) + ' so\'m',
+        bold: true,
+        tone: Number(data.results.salesBasedProfit) >= 0 ? 'good' : 'danger',
+      },
+      { label: 'Kassa o\'zgarishi', value: fmtSigned(data.results.cashflowBasedNet) + ' so\'m', bold: true },
+      { label: 'Xizmat haqi (alohida)', value: fmtUZSDecimal(data.sales.serviceCharge) + ' so\'m', tone: 'muted' },
+    ]);
+  }
 
   kvBlock(doc, 'To\'lov tekshiruvi', [
-    { label: 'Yakuniy chek summasi', value: fmtUZSDecimal(data.checks.salesVsPayments.billedTotal) + ' so\'m' },
+    { label: 'Chek summasi', value: fmtUZSDecimal(data.checks.salesVsPayments.billedTotal) + ' so\'m' },
     { label: 'To\'lovlar yig\'indisi', value: fmtUZSDecimal(data.checks.salesVsPayments.paymentTotal) + ' so\'m' },
     {
       label: 'Farq',
@@ -408,26 +428,26 @@ export async function generateDailyReportPdf(opts: {
     { label: 'To\'lamay ketgan', value: `${data.sales.walkoutOrders} ta`, tone: data.sales.walkoutOrders > 0 ? 'danger' : 'muted' },
   ]);
   kvBlock(doc, 'Summalar', [
-    { label: 'Brutto savdo', value: fmtUZSDecimal(data.sales.grossSales) + ' so\'m' },
+    { label: 'Yalpi sotuv', value: fmtUZSDecimal(data.sales.grossSales) + ' so\'m' },
     { label: 'Chegirmalar', value: '-' + fmtUZSDecimal(data.sales.discounts) + ' so\'m', tone: 'muted' },
-    { label: 'Sof ovqat savdosi', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m', bold: true },
+    { label: 'Sof sotuv', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m', bold: true },
     { label: 'Xizmat haqi (mijoz to\'lagan)', value: fmtUZSDecimal(data.sales.serviceCharge) + ' so\'m' },
     { label: 'Qarzga sotildi', value: fmtUZSDecimal(data.sales.debtSales) + ' so\'m', tone: Number(data.sales.debtSales) > 0 ? 'warn' : 'muted' },
   ]);
 
   // ─── 3. Pul oqimi ──────────────────────────────────────────────────
-  sectionTitle(doc, 'Pul oqimi', 'Kassaga tushgan va undan ketgan pul');
-  kvBlock(doc, 'Kirim', [
-    { label: 'Naqd (buyurtmalardan)', value: fmtUZSDecimal(data.cashflow.orderCash) + ' so\'m' },
-    { label: 'Karta (buyurtmalardan)', value: fmtUZSDecimal(data.cashflow.orderCard) + ' so\'m' },
-    { label: 'Nasiya qaytimi (naqd)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCash) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCash) > 0 ? 'good' : 'muted' },
-    { label: 'Nasiya qaytimi (karta)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCard) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCard) > 0 ? 'good' : 'muted' },
-    { label: 'Jami real kirim', value: fmtUZSDecimal(data.cashflow.realCashIn) + ' so\'m', bold: true },
+  sectionTitle(doc, 'Pul oqimi', 'Kassaga kelgan va undan ketgan pul');
+  kvBlock(doc, 'Kelgan', [
+    { label: 'Naqd (sotuvdan)', value: fmtUZSDecimal(data.cashflow.orderCash) + ' so\'m' },
+    { label: 'Karta (sotuvdan)', value: fmtUZSDecimal(data.cashflow.orderCard) + ' so\'m' },
+    { label: 'Qarz qaytimi (naqd)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCash) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCash) > 0 ? 'good' : 'muted' },
+    { label: 'Qarz qaytimi (karta)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCard) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCard) > 0 ? 'good' : 'muted' },
+    { label: 'Jami kelgan', value: fmtUZSDecimal(data.cashflow.realCashIn) + ' so\'m', bold: true },
   ]);
-  kvBlock(doc, 'Chiqim', [
+  kvBlock(doc, 'Ketgan', [
     { label: 'Kiritilgan chiqim', value: fmtUZSDecimal(data.checks.expenses.recordedExpense) + ' so\'m' },
     { label: 'Bekor qilingan', value: fmtUZSDecimal(data.checks.expenses.reversalAmount) + ' so\'m', tone: Number(data.checks.expenses.reversalAmount) > 0 ? 'warn' : 'muted' },
-    { label: 'Netto chiqim', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true },
+    { label: 'Jami ketgan', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true },
   ]);
 
   // ─── 4. Xarajatlar — turkumlar + items ────────────────────────────
@@ -481,7 +501,7 @@ export async function generateDailyReportPdf(opts: {
       ]),
       {
         footerRow: [
-          'JAMI (netto)',
+          'JAMI',
           '',
           '',
           '',
@@ -493,7 +513,7 @@ export async function generateDailyReportPdf(opts: {
 
   // ─── 5. Buyurtmalar registri ──────────────────────────────────────
   doc.addPage();
-  sectionTitle(doc, 'Buyurtmalar reestri', 'Tanlangan kun bo\'yicha barcha yopilgan, bekor qilingan va to\'lamagan');
+  sectionTitle(doc, 'Buyurtmalar ro\'yxati');
   if (data.ordersTable.length > 0) {
     const totals = {
       gross: sumStrings(data.ordersTable.map((o) => o.gross)),
@@ -511,7 +531,7 @@ export async function generateDailyReportPdf(opts: {
         { header: 'Stol', width: 1.4 },
         { header: 'Ofitsiant', width: 1.7 },
         { header: 'Holat', width: 1 },
-        { header: 'Brutto', width: 1.2, align: 'right' },
+        { header: 'Yalpi', width: 1.2, align: 'right' },
         { header: 'Sof', width: 1.2, align: 'right' },
         { header: 'Naqd', width: 1.2, align: 'right' },
         { header: 'Karta', width: 1.2, align: 'right' },
@@ -598,7 +618,7 @@ export async function generateDailyReportPdf(opts: {
         { header: 'Turkum', width: 1.8 },
         { header: 'Miqdor', width: 1.2, align: 'right' },
         { header: 'Buyurtmalarda', width: 1.4, align: 'right' },
-        { header: 'Brutto savdo', width: 1.7, align: 'right' },
+        { header: 'Sotuv', width: 1.7, align: 'right' },
         { header: 'O\'rt. 1 buyurtma', width: 1.7, align: 'right' },
       ],
       data.mealSales.map((m) => [
@@ -726,44 +746,47 @@ export async function generateDailyReportPdf(opts: {
   doc.addPage();
   sectionTitle(doc, 'YAKUNIY HISOBOT', `Barcha asosiy raqamlar bir joyda — ${dateLabel}`);
 
-  kvBlock(doc, 'Savdo / Daromad', [
-    { label: 'Brutto savdo', value: fmtUZSDecimal(data.sales.grossSales) + ' so\'m' },
+  kvBlock(doc, 'Sotuv', [
+    { label: 'Yalpi sotuv', value: fmtUZSDecimal(data.sales.grossSales) + ' so\'m' },
     { label: 'Chegirmalar', value: '-' + fmtUZSDecimal(data.sales.discounts) + ' so\'m', tone: 'muted' },
-    { label: 'Sof ovqat savdosi', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m', bold: true },
+    { label: 'Sof sotuv', value: fmtUZSDecimal(data.sales.netSales) + ' so\'m', bold: true },
     { label: 'Xizmat haqi (ofitsiantlarga)', value: fmtUZSDecimal(data.sales.serviceCharge) + ' so\'m', tone: 'muted' },
-    { label: 'Yakuniy chek summasi', value: fmtUZSDecimal(data.checks.salesVsPayments.billedTotal) + ' so\'m', bold: true },
+    { label: 'Chek summasi', value: fmtUZSDecimal(data.checks.salesVsPayments.billedTotal) + ' so\'m', bold: true },
   ]);
 
-  kvBlock(doc, 'Real kassa kirimi', [
-    { label: 'Naqd (buyurtmalardan)', value: fmtUZSDecimal(data.cashflow.orderCash) + ' so\'m' },
-    { label: 'Karta (buyurtmalardan)', value: fmtUZSDecimal(data.cashflow.orderCard) + ' so\'m' },
-    { label: 'Nasiya qaytimi (naqd)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCash) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCash) > 0 ? 'good' : 'muted' },
-    { label: 'Nasiya qaytimi (karta)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCard) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCard) > 0 ? 'good' : 'muted' },
-    { label: 'Jami real kirim', value: fmtUZSDecimal(data.cashflow.realCashIn) + ' so\'m', bold: true },
+  kvBlock(doc, 'Kassaga kelgan pul', [
+    { label: 'Naqd (sotuvdan)', value: fmtUZSDecimal(data.cashflow.orderCash) + ' so\'m' },
+    { label: 'Karta (sotuvdan)', value: fmtUZSDecimal(data.cashflow.orderCard) + ' so\'m' },
+    { label: 'Qarz qaytimi (naqd)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCash) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCash) > 0 ? 'good' : 'muted' },
+    { label: 'Qarz qaytimi (karta)', value: fmtUZSDecimal(data.cashflow.debtRepaymentsCard) + ' so\'m', tone: Number(data.cashflow.debtRepaymentsCard) > 0 ? 'good' : 'muted' },
+    { label: 'Jami kelgan', value: fmtUZSDecimal(data.cashflow.realCashIn) + ' so\'m', bold: true },
     { label: 'Qarzga sotildi (kelajak)', value: fmtUZSDecimal(data.sales.debtSales) + ' so\'m', tone: Number(data.sales.debtSales) > 0 ? 'warn' : 'muted' },
   ]);
 
-  kvBlock(doc, 'Chiqimlar (netto)', [
-    { label: 'Kiritilgan brutto', value: fmtUZSDecimal(data.expenses.gross) + ' so\'m' },
+  kvBlock(doc, 'Chiqimlar', [
+    { label: 'Kiritilgan', value: fmtUZSDecimal(data.expenses.gross) + ' so\'m' },
     { label: 'Bekor qilingan', value: '-' + fmtUZSDecimal(data.checks.expenses.reversalAmount) + ' so\'m', tone: 'muted' },
-    { label: 'Netto chiqim', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true, tone: 'warn' },
+    { label: 'Jami chiqim', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true, tone: 'warn' },
   ]);
 
-  kvBlock(doc, 'Nasiya holati (bugun yopilgandagi)', [
+  kvBlock(doc, 'Qarz holati', [
     { label: 'Bugun ochilgan', value: fmtUZSDecimal(data.debtSnapshot.openedTodayAmount) + ' so\'m', tone: Number(data.debtSnapshot.openedTodayAmount) > 0 ? 'warn' : 'muted' },
     { label: 'Bugun qaytarilgan', value: fmtUZSDecimal(data.debtSnapshot.repaidTodayAmount) + ' so\'m', tone: Number(data.debtSnapshot.repaidTodayAmount) > 0 ? 'good' : 'muted' },
-    { label: 'Jami qoldiq', value: fmtUZSDecimal(data.debtSnapshot.outstandingTotal) + ' so\'m', bold: true, tone: Number(data.debtSnapshot.outstandingTotal) > 0 ? 'danger' : 'good' },
+    { label: 'Qarz qoldig\'i', value: fmtUZSDecimal(data.debtSnapshot.outstandingTotal) + ' so\'m', bold: true, tone: Number(data.debtSnapshot.outstandingTotal) > 0 ? 'danger' : 'good' },
   ]);
 
+  // Canonical P&L (PRD 13) — read from ledger.pnl when present.
+  const yakunPnl = (data as any).ledger?.pnl;
+  const yakunProfit = yakunPnl ? yakunPnl.profit : data.results.salesBasedProfit;
   kvBlock(doc, 'Yakuniy natija', [
     {
-      label: 'SOF FOYDA (savdo asosida)',
-      value: fmtSigned(data.results.salesBasedProfit) + ' so\'m',
+      label: 'SOF FOYDA',
+      value: fmtSigned(yakunProfit) + ' so\'m',
       bold: true,
-      tone: Number(data.results.salesBasedProfit) >= 0 ? 'good' : 'danger',
+      tone: Number(yakunProfit) >= 0 ? 'good' : 'danger',
     },
     {
-      label: 'KASSA HARAKATI (real)',
+      label: 'KASSA O\'ZGARISHI',
       value: fmtSigned(data.results.cashflowBasedNet) + ' so\'m',
       bold: true,
       tone: Number(data.results.cashflowBasedNet) >= 0 ? 'good' : 'danger',

@@ -348,7 +348,7 @@ export const telegramBotService = {
               lines.push(`  • ${r.categoryName}: ${formatMoney(r.revenue)} so'm  <i>(${r.qty} ta)</i>`);
             }
             lines.push(`  <b>Jami sotuv:</b> ${formatMoney(report.incomes.totals.revenue)} so'm`);
-            lines.push(`  <b>Jami COGS:</b> ${formatMoney(report.incomes.totals.cogs)} so'm`);
+            lines.push(`  <b>Jami tan narxi:</b> ${formatMoney(report.incomes.totals.cogs)} so'm`);
           }
           if (Number(report.incomes.other.debtRepaid) > 0 || Number(report.incomes.other.expenseReturns) > 0) {
             lines.push('  <i>Boshqa:</i>');
@@ -361,27 +361,27 @@ export const telegramBotService = {
           }
           lines.push('');
 
-          lines.push('<b>P&amp;L (sof foyda)</b>');
+          lines.push('<b>Sof foyda</b>');
           if (report.pnl.expensesByCategory.length > 0) {
             for (const r of report.pnl.expensesByCategory) {
               lines.push(`  − ${r.categoryName}: ${formatMoney(r.amount)} so'm`);
             }
           }
           lines.push(`  Sotuv:       ${formatMoney(report.pnl.revenue)} so'm`);
-          lines.push(`  COGS:        − ${formatMoney(report.pnl.cogs)} so'm`);
-          lines.push(`  Operatsion:  − ${formatMoney(report.pnl.operatingExpense)} so'm`);
+          lines.push(`  Tan narxi:   − ${formatMoney(report.pnl.cogs)} so'm`);
+          lines.push(`  Chiqim:      − ${formatMoney(report.pnl.operatingExpense)} so'm`);
           lines.push(`  <b>Sof foyda:  ${formatMoney(report.pnl.profit)} so'm</b>`);
           lines.push('');
 
-          lines.push('<b>Naqd pul harakati</b>');
+          lines.push('<b>Pul harakati</b>');
           if (report.cash.expensesByCategory.length > 0) {
             for (const r of report.cash.expensesByCategory) {
               lines.push(`  − ${r.categoryName}: ${formatMoney(r.amount)} so'm`);
             }
           }
-          lines.push(`  Jami kirim: ${formatMoney(report.cash.totalIn)} so'm`);
-          lines.push(`  Jami chiqim: ${formatMoney(report.cash.totalOut)} so'm`);
-          lines.push(`  <b>Naqd farq: ${formatMoney(report.cash.farq)} so'm</b>`);
+          lines.push(`  Jami kelgan: ${formatMoney(report.cash.totalIn)} so'm`);
+          lines.push(`  Jami ketgan: ${formatMoney(report.cash.totalOut)} so'm`);
+          lines.push(`  <b>Farq: ${formatMoney(report.cash.farq)} so'm</b>`);
 
           await ctx.replyWithHTML(lines.join('\n'), mainMenu);
         } catch (error) {
@@ -439,8 +439,8 @@ export const telegramBotService = {
             incomesSheet.getColumn(col).numFmt = '#,##0';
           });
 
-          // 2) P&L chiqimlar
-          const pnlSheet = wb.addWorksheet('Chiqim_PL');
+          // 2) Sof foyda chiqimlari
+          const pnlSheet = wb.addWorksheet('Foyda chiqimi');
           pnlSheet.columns = [
             { header: 'Kategoriya', key: 'cat', width: 28 },
             { header: 'Summa (so\'m)', key: 'amount', width: 18 },
@@ -451,14 +451,14 @@ export const telegramBotService = {
           }
           pnlSheet.addRow({});
           pnlSheet.addRow({ cat: 'Sotuv', amount: Number(report.pnl.revenue) }).font = { bold: true };
-          pnlSheet.addRow({ cat: 'COGS', amount: -Number(report.pnl.cogs) });
-          pnlSheet.addRow({ cat: 'Operatsion chiqim', amount: -Number(report.pnl.operatingExpense) });
+          pnlSheet.addRow({ cat: 'Tan narxi', amount: -Number(report.pnl.cogs) });
+          pnlSheet.addRow({ cat: 'Chiqim', amount: -Number(report.pnl.operatingExpense) });
           const pnlRow = pnlSheet.addRow({ cat: 'SOF FOYDA', amount: Number(report.pnl.profit) });
           pnlRow.font = { bold: true };
           pnlSheet.getColumn('B').numFmt = '#,##0';
 
-          // 3) Cash basis chiqimlar
-          const cashSheet = wb.addWorksheet('Chiqim_Cash');
+          // 3) Pul harakati chiqimlari
+          const cashSheet = wb.addWorksheet('Pul harakati');
           cashSheet.columns = [
             { header: 'Kategoriya', key: 'cat', width: 28 },
             { header: 'Summa (so\'m)', key: 'amount', width: 18 },
@@ -468,26 +468,26 @@ export const telegramBotService = {
             cashSheet.addRow({ cat: r.categoryName, amount: Number(r.amount) });
           }
           cashSheet.addRow({});
-          cashSheet.addRow({ cat: 'Jami kirim', amount: Number(report.cash.totalIn) }).font = { bold: true };
-          cashSheet.addRow({ cat: 'Jami chiqim', amount: -Number(report.cash.totalOut) });
-          const cashRow = cashSheet.addRow({ cat: 'NAQD FARQ', amount: Number(report.cash.farq) });
+          cashSheet.addRow({ cat: 'Jami kelgan', amount: Number(report.cash.totalIn) }).font = { bold: true };
+          cashSheet.addRow({ cat: 'Jami ketgan', amount: -Number(report.cash.totalOut) });
+          const cashRow = cashSheet.addRow({ cat: 'FARQ', amount: Number(report.cash.farq) });
           cashRow.font = { bold: true };
           cashSheet.getColumn('B').numFmt = '#,##0';
 
-          // 4) Yakun — side-by-side compact summary
+          // 4) Yakun — qisqacha
           const summarySheet = wb.addWorksheet('Yakun');
           summarySheet.columns = [
             { header: 'Ko\'rsatkich', key: 'k', width: 30 },
-            { header: 'P&L', key: 'pnl', width: 18 },
-            { header: 'Cash basis', key: 'cash', width: 18 },
+            { header: 'Sof foyda', key: 'pnl', width: 18 },
+            { header: 'Pul harakati', key: 'cash', width: 18 },
           ];
           summarySheet.getRow(1).font = { bold: true };
           summarySheet.addRow({ k: 'Davr boshi', pnl: report.from, cash: report.from });
           summarySheet.addRow({ k: 'Davr oxiri', pnl: report.to, cash: report.to });
           summarySheet.addRow({});
-          summarySheet.addRow({ k: 'Kirim', pnl: Number(report.pnl.revenue), cash: Number(report.cash.totalIn) });
-          summarySheet.addRow({ k: 'COGS / —', pnl: Number(report.pnl.cogs), cash: '—' });
-          summarySheet.addRow({ k: 'Operatsion / barcha chiqim', pnl: Number(report.pnl.operatingExpense), cash: Number(report.cash.totalOut) });
+          summarySheet.addRow({ k: 'Sotuv / Kelgan pul', pnl: Number(report.pnl.revenue), cash: Number(report.cash.totalIn) });
+          summarySheet.addRow({ k: 'Tan narxi / —', pnl: Number(report.pnl.cogs), cash: '—' });
+          summarySheet.addRow({ k: 'Chiqim / Ketgan pul', pnl: Number(report.pnl.operatingExpense), cash: Number(report.cash.totalOut) });
           const finalRow = summarySheet.addRow({ k: 'YAKUN', pnl: Number(report.pnl.profit), cash: Number(report.cash.farq) });
           finalRow.font = { bold: true };
           ['B', 'C'].forEach((col) => { summarySheet.getColumn(col).numFmt = '#,##0'; });
@@ -735,16 +735,16 @@ export const telegramBotService = {
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`🍽 <b>Savdo</b>`);
+    lines.push(`🍽 <b>Sotuv</b>`);
     lines.push(`  Yopilgan buyurtmalar: <b>${sales.closedOrders}</b> ta`);
-    lines.push(`  Brutto savdo: <b>${formatMoney(sales.grossSales)}</b> so'm`);
+    lines.push(`  Yalpi sotuv: <b>${formatMoney(sales.grossSales)}</b> so'm`);
     if (Number(sales.discounts) > 0) {
       lines.push(`  Chegirmalar: <b>−${formatMoney(sales.discounts)}</b> so'm`);
     }
-    lines.push(`  Sof ovqat savdosi: <b>${formatMoney(sales.netSales)}</b> so'm`);
+    lines.push(`  Sof sotuv: <b>${formatMoney(sales.netSales)}</b> so'm`);
     lines.push(`  ✨ Xizmat haqi (ofitsiantlarga): <b>${formatMoney(sales.serviceCharge)}</b> so'm`);
     if (sales.walkoutOrders > 0) {
-      lines.push(`  ⚠ Walkout: <b>${sales.walkoutOrders}</b> ta`);
+      lines.push(`  ⚠ To'lamay ketgan: <b>${sales.walkoutOrders}</b> ta`);
     }
     if (sales.canceledOrders > 0) {
       lines.push(`  Bekor qilinganlar: <b>${sales.canceledOrders}</b> ta`);
@@ -752,9 +752,9 @@ export const telegramBotService = {
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`💵 <b>Pul oqimi (kassa)</b>`);
-    lines.push(`  Naqd savdolardan: <b>${formatMoney(cashflow.orderCash)}</b> so'm`);
-    lines.push(`  Karta savdolardan: <b>${formatMoney(cashflow.orderCard)}</b> so'm`);
+    lines.push(`💵 <b>Kassaga kelgan pul</b>`);
+    lines.push(`  Naqd (sotuvdan): <b>${formatMoney(cashflow.orderCash)}</b> so'm`);
+    lines.push(`  Karta (sotuvdan): <b>${formatMoney(cashflow.orderCard)}</b> so'm`);
     if (Number(sales.debtSales) > 0) {
       lines.push(`  Qarzga sotildi: <b>${formatMoney(sales.debtSales)}</b> so'm`);
     }
@@ -763,16 +763,16 @@ export const telegramBotService = {
     if (debtRepaidTotal > 0) {
       lines.push(`  Qaytgan qarz: <b>${formatMoney(debtRepaidTotal)}</b> so'm`);
     }
-    lines.push(`  📥 Jami pul tushdi: <b>${formatMoney(cashflow.realCashIn)}</b> so'm`);
+    lines.push(`  📥 Jami kelgan: <b>${formatMoney(cashflow.realCashIn)}</b> so'm`);
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`📤 <b>Xarajatlar</b>`);
-    lines.push(`  Brutto: <b>${formatMoney(expenses.gross)}</b> so'm`);
+    lines.push(`📤 <b>Chiqimlar</b>`);
+    lines.push(`  Kiritilgan: <b>${formatMoney(expenses.gross)}</b> so'm`);
     if (Number(expenses.reversal) > 0) {
       lines.push(`  Bekor qilingan: <b>−${formatMoney(expenses.reversal)}</b> so'm`);
     }
-    lines.push(`  Operatsion (foyda hisobida): <b>${formatMoney(expenses.operating)}</b> so'm`);
+    lines.push(`  Foyda hisobida: <b>${formatMoney(expenses.operating)}</b> so'm`);
     if (Number(expenses.pendingRepayable) > 0) {
       lines.push(`  ⏳ Kutilayotgan qaytim: <b>${formatMoney(expenses.pendingRepayable)}</b> so'm`);
     }
@@ -791,36 +791,36 @@ export const telegramBotService = {
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`💰 <b>Foyda hisobi</b>`);
+    lines.push(`💰 <b>Foyda</b>`);
     const profitIcon = Number(salesProfit) >= 0 ? '🟢' : '🔴';
-    lines.push(`  ${profitIcon} Savdo asosida: <b>${formatMoney(salesProfit)}</b> so'm`);
-    lines.push(`  Pul oqimi natijasi: <b>${formatMoney(cashflowNet)}</b> so'm`);
-    lines.push(`  Ochiq qarz qoldig'i: <b>${formatMoney(outstanding)}</b> so'm`);
+    lines.push(`  ${profitIcon} Sof foyda: <b>${formatMoney(salesProfit)}</b> so'm`);
+    lines.push(`  Kassa o'zgarishi: <b>${formatMoney(cashflowNet)}</b> so'm`);
+    lines.push(`  Qarz qoldig'i: <b>${formatMoney(outstanding)}</b> so'm`);
 
     return lines.join('\n');
   },
 
-  /** Owner monthly P&L message. */
+  /** Oylik hisobot xabari (owner). */
   formatMonthlyMessage(report: any): string {
     const lines: string[] = [];
     const totals = report.totals;
-    lines.push(`📈 <b>${formatMonthLabel(report.month)} — oylik moliyaviy hisobot</b>`);
+    lines.push(`📈 <b>${formatMonthLabel(report.month)} — oylik hisobot</b>`);
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`🍽 <b>Savdo</b>`);
+    lines.push(`🍽 <b>Sotuv</b>`);
     lines.push(`  Yopilgan buyurtmalar: <b>${totals.closedOrders}</b> ta`);
     if (totals.walkoutOrders > 0) {
-      lines.push(`  ⚠ Walkout: <b>${totals.walkoutOrders}</b> ta`);
+      lines.push(`  ⚠ To'lamay ketgan: <b>${totals.walkoutOrders}</b> ta`);
     }
     if (totals.canceledOrders > 0) {
       lines.push(`  Bekor qilinganlar: <b>${totals.canceledOrders}</b> ta`);
     }
-    lines.push(`  Brutto savdo: <b>${formatMoney(totals.grossSales)}</b> so'm`);
+    lines.push(`  Yalpi sotuv: <b>${formatMoney(totals.grossSales)}</b> so'm`);
     if (Number(totals.discounts) > 0) {
       lines.push(`  Chegirmalar: <b>−${formatMoney(totals.discounts)}</b> so'm`);
     }
-    lines.push(`  Sof savdo: <b>${formatMoney(totals.netSales)}</b> so'm`);
+    lines.push(`  Sof sotuv: <b>${formatMoney(totals.netSales)}</b> so'm`);
     lines.push(`  ✨ Xizmat haqi (ofitsiantlarga): <b>${formatMoney(totals.serviceCharge)}</b> so'm`);
     if (Number(totals.debtSales) > 0) {
       lines.push(`  Qarzga sotildi: <b>${formatMoney(totals.debtSales)}</b> so'm`);
@@ -828,20 +828,20 @@ export const telegramBotService = {
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`💵 <b>Pul oqimi</b>`);
-    lines.push(`  📥 Real kassa kirimi: <b>${formatMoney(totals.realCashIn)}</b> so'm`);
-    lines.push(`  📤 Netto xarajat: <b>${formatMoney(totals.expensesNet)}</b> so'm`);
+    lines.push(`💵 <b>Pul harakati</b>`);
+    lines.push(`  📥 Kassaga kelgan: <b>${formatMoney(totals.realCashIn)}</b> so'm`);
+    lines.push(`  📤 Jami chiqim: <b>${formatMoney(totals.expensesNet)}</b> so'm`);
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`💰 <b>Foyda hisobi</b>`);
+    lines.push(`💰 <b>Foyda</b>`);
     const salesProfit = Number(totals.salesBasedProfit);
     const cashflowNet = Number(totals.cashflowBasedNet);
     const sProf = salesProfit >= 0 ? '🟢' : '🔴';
     const cProf = cashflowNet >= 0 ? '🟢' : '🔴';
-    lines.push(`  ${sProf} Savdo asosida: <b>${formatMoney(totals.salesBasedProfit)}</b> so'm`);
-    lines.push(`  ${cProf} Pul oqimi natijasi: <b>${formatMoney(totals.cashflowBasedNet)}</b> so'm`);
-    lines.push(`  Oy oxiri ochiq qarz: <b>${formatMoney(totals.outstandingDebtEndOfMonth)}</b> so'm`);
+    lines.push(`  ${sProf} Sof foyda: <b>${formatMoney(totals.salesBasedProfit)}</b> so'm`);
+    lines.push(`  ${cProf} Kassa o'zgarishi: <b>${formatMoney(totals.cashflowBasedNet)}</b> so'm`);
+    lines.push(`  Oy oxiri qarz qoldig'i: <b>${formatMoney(totals.outstandingDebtEndOfMonth)}</b> so'm`);
     lines.push('');
 
     // Top 5 days by net sales
@@ -894,15 +894,15 @@ export const telegramBotService = {
 
   formatExpensesMessage(date: Date, summary: any): string {
     const lines: string[] = [];
-    lines.push(`📤 <b>${formatDateLabel(date)} — xarajatlar</b>`);
+    lines.push(`📤 <b>${formatDateLabel(date)} — chiqimlar</b>`);
     lines.push('');
     lines.push('━━━━━━━━━━━━━━━━━━━━');
-    lines.push(`  Brutto: <b>${formatMoney(summary.totals.gross)}</b> so'm`);
+    lines.push(`  Kiritilgan: <b>${formatMoney(summary.totals.gross)}</b> so'm`);
     if (Number(summary.totals.reversal) > 0) {
       lines.push(`  Bekor qilingan: <b>−${formatMoney(summary.totals.reversal)}</b> so'm`);
     }
-    lines.push(`  Netto: <b>${formatMoney(summary.totals.net)}</b> so'm`);
-    lines.push(`  Operatsion: <b>${formatMoney(summary.totals.operating)}</b> so'm`);
+    lines.push(`  Jami chiqim: <b>${formatMoney(summary.totals.net)}</b> so'm`);
+    lines.push(`  Foyda hisobida: <b>${formatMoney(summary.totals.operating)}</b> so'm`);
     if (Number(summary.totals.pendingRepayable) > 0) {
       lines.push(`  ⏳ Kutilayotgan qaytim: <b>${formatMoney(summary.totals.pendingRepayable)}</b> so'm`);
     }
@@ -1027,12 +1027,12 @@ export const telegramBotService = {
     lines.push('');
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push('<b>📊 Jami</b>');
-    lines.push(`  Buyurtmalar: <b>${totalOrders}</b> ta` + (totalWalkouts > 0 ? ` · walkout: ${totalWalkouts}` : ''));
-    lines.push(`  Savdo: <b>${formatMoney(totalSales)}</b> so'm`);
+    lines.push(`  Buyurtmalar: <b>${totalOrders}</b> ta` + (totalWalkouts > 0 ? ` · to'lamay ketgan: ${totalWalkouts}` : ''));
+    lines.push(`  Sotuv: <b>${formatMoney(totalSales)}</b> so'm`);
     lines.push(`  ✨ Xizmat haqi (jami): <b>${formatMoney(totalServiceCharge)}</b> so'm`);
-    lines.push(`  Real kassa kirimi: <b>${formatMoney(totalCashIn)}</b> so'm`);
-    lines.push(`  Operatsion xarajat: <b>${formatMoney(totalOperating)}</b> so'm`);
-    lines.push(`  Savdo foydasi (jami): <b>${formatMoney(totalProfit)}</b> so'm`);
+    lines.push(`  Kassaga kelgan: <b>${formatMoney(totalCashIn)}</b> so'm`);
+    lines.push(`  Chiqim: <b>${formatMoney(totalOperating)}</b> so'm`);
+    lines.push(`  Sof foyda: <b>${formatMoney(totalProfit)}</b> so'm`);
 
     return lines.join('\n');
   },
