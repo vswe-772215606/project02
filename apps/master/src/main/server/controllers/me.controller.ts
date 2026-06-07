@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { getPrisma } from '../lib/prisma';
+import { localDayKey, localDayRangeFor, parseLocalDay } from '../lib/time';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -14,18 +15,6 @@ const rangeStatsQuery = z.object({
   to: z.string().regex(ISO_DATE),
 });
 
-// Local YYYY-MM-DD for "today" — the staff's calendar day, not UTC.
-// Avoids the bug where defaulting to `new Date().toISOString().slice(0, 10)`
-// returns yesterday's date for the first few hours of the morning in UTC+5.
-function localTodayKey(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function localDayKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 /**
  * Waiter-scoped stats endpoints. Lets a waiter see their own service charge
  * earned etc. without exposing the admin /api/users/today-stats endpoint.
@@ -34,10 +23,8 @@ export const meController = {
   async todayStats(req: Request, res: Response, next: NextFunction) {
     try {
       const { date } = todayStatsQuery.parse(req.query);
-      const dayKey = date ?? localTodayKey();
-      const dayStart = new Date(`${dayKey}T00:00:00`);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setHours(23, 59, 59, 999);
+      const dayKey = date ?? localDayKey();
+      const { start: dayStart, end: dayEnd } = localDayRangeFor(dayKey);
 
       const userId = req.user!.id;
 
@@ -45,7 +32,7 @@ export const meController = {
         getPrisma().order.findMany({
           where: {
             status: OrderStatus.CLOSED,
-            closedAt: { gte: dayStart, lte: dayEnd },
+            closedAt: { gte: dayStart, lt: dayEnd },
             waiterId: userId,
           },
           select: {
@@ -59,14 +46,14 @@ export const meController = {
         getPrisma().order.count({
           where: {
             status: OrderStatus.CANCELED,
-            canceledAt: { gte: dayStart, lte: dayEnd },
+            canceledAt: { gte: dayStart, lt: dayEnd },
             waiterId: userId,
           },
         }),
         getPrisma().order.count({
           where: {
             status: OrderStatus.WALKOUT,
-            updatedAt: { gte: dayStart, lte: dayEnd },
+            walkoutAt: { gte: dayStart, lt: dayEnd },
             waiterId: userId,
           },
         }),
@@ -110,15 +97,17 @@ export const meController = {
   async rangeStats(req: Request, res: Response, next: NextFunction) {
     try {
       const { from, to } = rangeStatsQuery.parse(req.query);
-      const dayStart = new Date(`${from}T00:00:00`);
-      const dayEnd = new Date(`${to}T23:59:59.999`);
+      const dayStart = parseLocalDay(from);
+      // Range is half-open [dayStart, rangeEnd) where rangeEnd = start of the
+      // day AFTER `to` — so `to` itself is included.
+      const rangeEnd = localDayRangeFor(to).end;
 
-      if (dayEnd < dayStart) {
+      if (rangeEnd <= dayStart) {
         res.status(400).json({ error: { code: 'INVALID_RANGE', message: 'to must be >= from' } });
         return;
       }
 
-      const spanDays = Math.round((dayEnd.getTime() - dayStart.getTime()) / 86400000);
+      const spanDays = Math.round((rangeEnd.getTime() - dayStart.getTime()) / 86400000);
       if (spanDays > 92) {
         res.status(400).json({ error: { code: 'RANGE_TOO_LARGE', message: 'Range capped at 92 days' } });
         return;
@@ -129,7 +118,7 @@ export const meController = {
       const closedOrders = await getPrisma().order.findMany({
         where: {
           status: OrderStatus.CLOSED,
-          closedAt: { gte: dayStart, lte: dayEnd },
+          closedAt: { gte: dayStart, lt: rangeEnd },
           waiterId: userId,
         },
         select: {
@@ -151,11 +140,11 @@ export const meController = {
       }
 
       const days: Array<{ date: string; ordersClosed: number; serviceEarned: string }> = [];
-      const cursor = new Date(dayStart);
-      cursor.setHours(0, 0, 0, 0);
-      const stop = new Date(dayEnd);
-      stop.setHours(0, 0, 0, 0);
-      while (cursor <= stop) {
+      // Walk the [dayStart, rangeEnd) window one Tashkent day at a time. Adding
+      // 24h to a Tashkent-anchored midnight gives the next Tashkent midnight
+      // (no DST in Tashkent, so this is exact).
+      const MS_PER_DAY = 86_400_000;
+      for (let cursor = dayStart; cursor < rangeEnd; cursor = new Date(cursor.getTime() + MS_PER_DAY)) {
         const key = localDayKey(cursor);
         const b = buckets.get(key);
         days.push({
@@ -163,7 +152,6 @@ export const meController = {
           ordersClosed: b?.ordersClosed ?? 0,
           serviceEarned: (b?.serviceEarned ?? new Prisma.Decimal(0)).toFixed(0),
         });
-        cursor.setDate(cursor.getDate() + 1);
       }
 
       let totalOrders = 0;

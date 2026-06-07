@@ -22,12 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { formatDate } from '@/lib/format';
-
-function localDateString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+import { formatDate, tashkentDayKey } from '@/lib/format';
 
 function fmtUzs(value: string | number) {
   return Number(value).toLocaleString('uz-UZ').replace(/,/g, ' ');
@@ -120,7 +115,8 @@ function CollapsibleSection({
 
 export function FinancePage() {
   usePageTitle('Kunlik moliya');
-  const [date, setDate] = useState(localDateString);
+  // Tashkent today key — matches backend bucketing regardless of host TZ.
+  const [date, setDate] = useState(() => tashkentDayKey());
 
   const { data, isLoading } = useQuery({
     queryKey: ['finance', 'daily', date],

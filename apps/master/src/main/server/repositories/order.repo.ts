@@ -96,11 +96,13 @@ export const orderRepo = {
   },
 
   async listByDateRange(from: Date, to: Date, tx?: Tx) {
+    // Half-open [from, to). Caller is expected to pass Tashkent-anchored
+    // bounds (see services/order.service.list).
     return (tx ?? getPrisma()).order.findMany({
       where: {
         createdAt: {
           gte: from,
-          lte: to,
+          lt: to,
         },
       },
       include: LIST_INCLUDE,
@@ -183,6 +185,39 @@ export const orderRepo = {
         serviceChargeWaived,
       },
     });
+  },
+
+  /**
+   * Atomic DRAFT → SENT transition that also stamps `sentAt`. Returns the
+   * updated order or null if the row wasn't in DRAFT (lost race).
+   */
+  async setSent(id: string, sentAt = new Date(), tx?: Tx) {
+    const client = tx ?? getPrisma();
+    const result = await client.order.updateMany({
+      where: { id, status: OrderStatus.DRAFT },
+      data: { status: OrderStatus.SENT, sentAt },
+    });
+    if (result.count === 0) return null;
+    return client.order.findUnique({ where: { id }, include: LIST_INCLUDE });
+  },
+
+  /**
+   * Atomic SENT → WALKOUT transition that stamps `walkoutAt` and `walkoutById`.
+   * Returns the updated order or null if the row wasn't in SENT.
+   */
+  async setWalkout(
+    id: string,
+    walkoutById: string,
+    walkoutAt = new Date(),
+    tx?: Tx,
+  ) {
+    const client = tx ?? getPrisma();
+    const result = await client.order.updateMany({
+      where: { id, status: OrderStatus.SENT },
+      data: { status: OrderStatus.WALKOUT, walkoutAt, walkoutById },
+    });
+    if (result.count === 0) return null;
+    return client.order.findUnique({ where: { id }, include: LIST_INCLUDE });
   },
 
   async setClosed(id: string, closedAt = new Date(), tx?: Tx) {

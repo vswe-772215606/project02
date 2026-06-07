@@ -51,7 +51,10 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
     {
       key: 'by',
       header: 'Kim belgiladi',
-      cell: (row) => <span>{row.markedBy}</span>,
+      // PRD 13: prefer the resolved name (markedByName) — pre-T6 this was
+      // always the literal 'unknown'. Fall back to markedBy for any in-flight
+      // payload from an older backend.
+      cell: (row) => <span>{row.markedByName ?? row.markedBy ?? '—'}</span>,
     },
     {
       key: 'amount',

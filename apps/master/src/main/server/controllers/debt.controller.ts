@@ -2,6 +2,7 @@ import { DebtStatus, PaymentMethod } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { debtService } from '../services/debt.service';
+import { parseLocalDay } from '../lib/time';
 
 const debtListQuery = z.object({
   status: z.nativeEnum(DebtStatus).optional(),
@@ -25,7 +26,7 @@ export const debtController = {
       const query = debtListQuery.parse(req.query);
       res.json(await debtService.list({
         status: query.status,
-        date: query.date ? new Date(`${query.date}T00:00:00`) : undefined,
+        date: query.date ? parseLocalDay(query.date) : undefined,
       }));
     } catch (error) {
       next(error);

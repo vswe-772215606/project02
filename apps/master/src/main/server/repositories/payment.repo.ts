@@ -1,17 +1,8 @@
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
+import { localDayRange } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
-
-function dayRange(date: Date) {
-  const from = new Date(date);
-  from.setHours(0, 0, 0, 0);
-
-  const to = new Date(date);
-  to.setHours(23, 59, 59, 999);
-
-  return { from, to };
-}
 
 export const paymentRepo = {
   async createMany(
@@ -57,13 +48,13 @@ export const paymentRepo = {
   },
 
   async aggregateByMethodForDate(date: Date, tx?: Tx) {
-    const { from, to } = dayRange(date);
+    const { start, end } = localDayRange(date);
     const rows = await (tx ?? getPrisma()).payment.groupBy({
       by: ['method'],
       where: {
         createdAt: {
-          gte: from,
-          lte: to,
+          gte: start,
+          lt: end,
         },
       },
       _sum: {

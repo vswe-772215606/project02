@@ -3,19 +3,15 @@ import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
 import { expenseRepo } from '../repositories/expense.repo';
 import { expenseService } from './expense.service';
+import { reportsService } from './reports.service';
+import { localDayKey, localDayRange } from '../lib/time';
 
 // Ingredient-purchase expenses live in this seeded category; they're shown in
 // the Xaridlar block, NOT counted as operating expenses — otherwise daily P&L
 // would double-count (purchase cash → "chiqim", then COGS when sold = same money twice).
 const INGREDIENT_EXPENSE_CATEGORY_ID = 'seed-cat-ingredients';
 
-function dayRange(date: Date) {
-  const from = new Date(date);
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(date);
-  to.setHours(23, 59, 59, 999);
-  return { from, to };
-}
+const MS_PER_DAY = 86_400_000;
 
 function decStr(value: Prisma.Decimal | null | undefined): string {
   return (value ?? new Prisma.Decimal(0)).toFixed(0);
@@ -28,247 +24,132 @@ function decStr(value: Prisma.Decimal | null | undefined): string {
  * Owner uses /api/reports/daily for the full P&L picture. Admin uses this.
  */
 export const financeService = {
+  /**
+   * Admin daily finance. Now a thin projection over `reportsService.dailyLedger`
+   * plus admin-only detail lists (per-purchase, per-expense, per-closed-order
+   * drill-down, and lifetime outstanding-debt). The canonical numbers — sales,
+   * cashflow, outflow, P&L — come from one place; the legacy shape below is
+   * preserved so FinancePage keeps working until T10 switches to `ledger.*`.
+   *
+   * Renderer hides `pnl.profit` from admin role; we still emit it because
+   * removing it without renderer changes would break the "Yakun" card.
+   */
   async dailyForAdmin(date: Date) {
-    const { from: dayStart, to: dayEnd } = dayRange(date);
+    const localDay = localDayKey(date);
+    const { start: dayStart, end: dayEnd } = localDayRange(date);
     const prisma = getPrisma();
 
-    // ---- Sales side (orders closed today) ----
-    const closedOrders = await prisma.order.findMany({
-      where: {
-        status: OrderStatus.CLOSED,
-        closedAt: { gte: dayStart, lte: dayEnd },
-      },
-      include: {
-        payments: true,
-        waiter: { select: { id: true, fullName: true } },
-        table: { select: { id: true, name: true } },
-      },
-      orderBy: [{ closedAt: 'asc' }],
-    });
+    // Canonical numbers — single source of truth.
+    const ledger = await reportsService.dailyLedger(localDay);
 
-    const walkoutOrders = await prisma.order.findMany({
-      where: {
-        status: OrderStatus.WALKOUT,
-        updatedAt: { gte: dayStart, lte: dayEnd },
-      },
-      select: { id: true, totalSnapshot: true },
-    });
+    // Admin-only extras: per-row drill-downs the canonical DTO doesn't expose,
+    // plus expense item details and lifetime outstanding debts.
+    const [
+      purchases,
+      expenseSummary,
+      operatingExpenseSummary,
+      closedOrderRows,
+      walkoutOrderRows,
+      outstandingDebtsLifetime,
+    ] = await Promise.all([
+      prisma.purchase.findMany({
+        where: { occurredAt: { gte: dayStart, lt: dayEnd } },
+        include: { ingredient: { select: { id: true, name: true, buyUnit: true } } },
+        orderBy: [{ occurredAt: 'asc' }],
+      }),
+      expenseService.listByDate(date),
+      expenseService.listByDate(date, {
+        excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
+      }),
+      prisma.order.findMany({
+        where: { status: OrderStatus.CLOSED, closedAt: { gte: dayStart, lt: dayEnd } },
+        select: {
+          id: true,
+          closedAt: true,
+          totalSnapshot: true,
+          waiter: { select: { fullName: true } },
+          table: { select: { name: true } },
+        },
+        orderBy: [{ closedAt: 'asc' }],
+      }),
+      prisma.order.findMany({
+        where: { status: OrderStatus.WALKOUT, walkoutAt: { gte: dayStart, lt: dayEnd } },
+        select: { id: true, totalSnapshot: true },
+      }),
+      debtRepo.sumOutstanding(),
+    ]);
 
-    let grossSales = new Prisma.Decimal(0);
-    let discounts = new Prisma.Decimal(0);
-    let serviceCharge = new Prisma.Decimal(0);
-    let cashIn = new Prisma.Decimal(0);
-    let cardIn = new Prisma.Decimal(0);
-    let debtOpened = new Prisma.Decimal(0);
+    // Numbers below come from the ledger; expense detail comes from the local
+    // listByDate calls (their items array is admin-only and not in canonical).
+    const grossSales = new Prisma.Decimal(ledger.sales.gross);
+    const discounts = new Prisma.Decimal(ledger.sales.discount);
+    const netSales = new Prisma.Decimal(ledger.sales.netSales);
+    const serviceCharge = new Prisma.Decimal(ledger.sales.serviceCharge);
+    const cashIn = new Prisma.Decimal(ledger.cashflow.orderCash);
+    const cardIn = new Prisma.Decimal(ledger.cashflow.orderCard);
+    const debtOpened = new Prisma.Decimal(ledger.sales.debtSales);
+    const debtRepaidCash = new Prisma.Decimal(ledger.cashflow.debtRepaidCash);
+    const debtRepaidCard = new Prisma.Decimal(ledger.cashflow.debtRepaidCard);
+    const expenseReturnsTotal = new Prisma.Decimal(ledger.cashflow.expenseReturns);
+    const expensesNet = new Prisma.Decimal(ledger.outflow.expenseNet);
+    const operatingExpense = new Prisma.Decimal(ledger.outflow.operatingExpense);
+    const pendingRepayable = new Prisma.Decimal(ledger.outflow.pendingRepayable);
+    const purchasesTotal = new Prisma.Decimal(ledger.outflow.ingredientPurchases);
+    const mealsRevenue = ledger.lines.mealSales.reduce(
+      (sum, row) => sum.plus(row.grossRevenue),
+      new Prisma.Decimal(0),
+    );
+    const mealsCogs = new Prisma.Decimal(ledger.pnl.cogs);
 
-    for (const order of closedOrders) {
-      grossSales = grossSales.plus(order.subtotalSnapshot ?? 0);
-      discounts = discounts.plus(order.discountAmountSnapshot ?? 0);
-      serviceCharge = serviceCharge.plus(order.serviceChargeSnapshot ?? 0);
-      for (const p of order.payments) {
-        if (p.method === PaymentMethod.CASH) cashIn = cashIn.plus(p.amount);
-        else if (p.method === PaymentMethod.CARD) cardIn = cardIn.plus(p.amount);
-        else if (p.method === PaymentMethod.DEBT) debtOpened = debtOpened.plus(p.amount);
-      }
-    }
-
-    const walkoutLoss = walkoutOrders.reduce(
+    const walkoutLoss = walkoutOrderRows.reduce(
       (sum, o) => sum.plus(o.totalSnapshot ?? 0),
       new Prisma.Decimal(0),
     );
 
-    // ---- Debt repayments today ----
-    const debtRepayments = await debtRepo.listRepaymentsForDate(dayStart);
-    let debtRepaidCash = new Prisma.Decimal(0);
-    let debtRepaidCard = new Prisma.Decimal(0);
-    for (const r of debtRepayments) {
-      if (r.method === PaymentMethod.CASH) debtRepaidCash = debtRepaidCash.plus(r.amount);
-      else if (r.method === PaymentMethod.CARD) debtRepaidCard = debtRepaidCard.plus(r.amount);
-    }
-    const outstandingDebts = await debtRepo.sumOutstanding();
-
-    // ---- Outflow side (purchases + expenses) ----
-    const purchases = await prisma.purchase.findMany({
-      where: { occurredAt: { gte: dayStart, lte: dayEnd } },
-      include: { ingredient: { select: { id: true, name: true, buyUnit: true } } },
-      orderBy: [{ occurredAt: 'asc' }],
-    });
-    const purchasesTotal = purchases.reduce(
-      (sum, p) => sum.plus(p.totalCostUzs),
-      new Prisma.Decimal(0),
-    );
-
-    // Use expenseService.listByDate for the operating-expense math (the same
-    // formula PRD 5/6/7 require — excludes pending repayables, only counts
-    // unrecovered written-off ones).
-    const expenseSummary = await expenseService.listByDate(date);
-    const expensesNet = new Prisma.Decimal(expenseSummary.totals.net);
-    const operatingExpense = new Prisma.Decimal(expenseSummary.totals.operating);
-    const pendingRepayable = new Prisma.Decimal(expenseSummary.totals.pendingRepayable);
-
-    // Sum of expense returns today (money came back into the drawer).
-    const expenseReturns = await prisma.expenseReturn.aggregate({
-      where: { receivedAt: { gte: dayStart, lte: dayEnd } },
-      _sum: { amount: true },
-    });
-    const expenseReturnsTotal = expenseReturns._sum.amount ?? new Prisma.Decimal(0);
-
-    // ---- NEW: Per-dish sales breakdown for today (P&L view) ----
-    // Each non-canceled line of a CLOSED order is a real sale. Revenue is
-    // (qty × unitPriceSnapshot); COGS is the snapshotted FIFO cost (null for
-    // pre-FIFO data or untracked items — treated as 0 here, full margin).
-    const todayLines = await prisma.orderLine.findMany({
-      where: {
-        isCanceled: false,
-        order: {
-          status: OrderStatus.CLOSED,
-          closedAt: { gte: dayStart, lte: dayEnd },
-        },
-      },
-      include: {
-        menuItem: {
-          select: {
-            id: true,
-            name: true,
-            kind: true,
-            category: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
-
-    type MealRow = {
-      menuItemId: string;
-      menuItemName: string;
-      categoryId: string;
-      categoryName: string;
-      isService: boolean;
-      qty: number;
-      revenue: Prisma.Decimal;
-      cogs: Prisma.Decimal;
-    };
-    const mealByItem = new Map<string, MealRow>();
-    for (const line of todayLines) {
-      const key = line.menuItem.id;
-      const row = mealByItem.get(key) ?? {
-        menuItemId: line.menuItem.id,
-        menuItemName: line.nameSnapshot, // historically-correct name at sale time
-        categoryId: line.menuItem.category.id,
-        categoryName: line.menuItem.category.name,
-        isService: line.menuItem.kind === 'SERVICE',
-        qty: 0,
-        revenue: new Prisma.Decimal(0),
-        cogs: new Prisma.Decimal(0),
-      };
-      row.qty += line.quantity;
-      row.revenue = row.revenue.plus(line.unitPriceSnapshot.mul(line.quantity));
-      // cogsSnapshot is the running sum from per-portion FIFO peels (see
-      // consumption.service.adjustLineCogs). null when nothing was tracked.
-      row.cogs = row.cogs.plus(line.cogsSnapshot ?? new Prisma.Decimal(0));
-      mealByItem.set(key, row);
-    }
-    const mealSales = Array.from(mealByItem.values())
-      .sort((a, b) => Number(b.revenue) - Number(a.revenue));
-
-    // Per-category subtotals — drives the visual grouping in FinancePage.
-    type CategoryRow = {
-      categoryId: string;
-      categoryName: string;
-      qty: number;
-      revenue: Prisma.Decimal;
-      cogs: Prisma.Decimal;
-    };
-    const categoryMap = new Map<string, CategoryRow>();
-    for (const row of mealSales) {
-      const c = categoryMap.get(row.categoryId) ?? {
-        categoryId: row.categoryId,
-        categoryName: row.categoryName,
-        qty: 0,
-        revenue: new Prisma.Decimal(0),
-        cogs: new Prisma.Decimal(0),
-      };
-      c.qty += row.qty;
-      c.revenue = c.revenue.plus(row.revenue);
-      c.cogs = c.cogs.plus(row.cogs);
-      categoryMap.set(row.categoryId, c);
-    }
-    const mealSalesByCategory = Array.from(categoryMap.values())
-      .sort((a, b) => Number(b.revenue) - Number(a.revenue));
-
-    const mealsRevenue = mealSales.reduce((s, r) => s.plus(r.revenue), new Prisma.Decimal(0));
-    const mealsCogs = mealSales.reduce((s, r) => s.plus(r.cogs), new Prisma.Decimal(0));
-
-    // ---- NEW: Operating expenses (chiqimlar) — excludes ingredient purchases.
-    // Ingredient purchases live in the "Xaridlar" block; counting them here
-    // would double-up against COGS in the P&L.
-    const operatingExpenseSummary = await expenseService.listByDate(date, {
-      excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
-    });
-    const operatingExpensesItems = operatingExpenseSummary.items;
-    const operatingExpenseTotal = new Prisma.Decimal(operatingExpenseSummary.totals.operating);
-
-    // ---- NEW: Debt today rollup (alohida nasiya bloki) ----
-    const debtsOpenedToday = await prisma.debt.aggregate({
-      where: { openedAt: { gte: dayStart, lte: dayEnd } },
-      _count: true,
-      _sum: { originalAmount: true },
-    });
-    const debtsCollectedToday = await prisma.debtRepayment.aggregate({
-      where: { paidAt: { gte: dayStart, lte: dayEnd } },
-      _count: true,
-      _sum: { amount: true },
-    });
-
-    // ---- NEW: Daily P&L ----
-    // Revenue: today's gross sales (already includes service charge & no
-    // discount net — same number staff see on the bill). For accrual purity
-    // we use mealsRevenue from line snapshots (matches per-dish breakdown).
-    // Outflow: COGS + operatingExpense (NOT raw purchases).
-    const pnlProfit = mealsRevenue.minus(mealsCogs).minus(operatingExpenseTotal);
-
-    // ---- Drawer movement (cash drawer balance change today) ----
+    // Drawer math: real cash that crossed the till today.
+    //   totalIn  = sales-cash + sales-card + debt-repaid + expense-returns
+    //   totalOut = expenseNet (cash that actually left through the expense
+    //              register — purchases live inside Expense too, so this
+    //              covers them without double-count)
     const totalIn = cashIn.plus(cardIn).plus(debtRepaidCash).plus(debtRepaidCard).plus(expenseReturnsTotal);
-    // Note: expense gross is the actual cash-out (not operating expense, which
-    // is the P&L number). Drawer cares about actual cash that left.
-    const totalOut = new Prisma.Decimal(expenseSummary.totals.gross).minus(
-      new Prisma.Decimal(expenseSummary.totals.reversal),
-    );
+    const totalOut = expensesNet;
     const drawerMovement = totalIn.minus(totalOut);
 
     return {
-      date: dayStart.toISOString().slice(0, 10),
+      date: ledger.date,
       sales: {
-        closedOrders: closedOrders.length,
-        walkoutOrders: walkoutOrders.length,
-        grossSales: decStr(grossSales),
-        discounts: decStr(discounts),
-        netFood: decStr(grossSales.minus(discounts)),
-        serviceCharge: decStr(serviceCharge),
-        billedTotal: decStr(grossSales.minus(discounts).plus(serviceCharge)),
+        closedOrders: ledger.sales.closedCount,
+        walkoutOrders: ledger.sales.walkoutCount,
+        grossSales: ledger.sales.gross,
+        discounts: ledger.sales.discount,
+        netFood: ledger.sales.netSales,
+        serviceCharge: ledger.sales.serviceCharge,
+        billedTotal: decStr(netSales.plus(serviceCharge)),
         walkoutLoss: decStr(walkoutLoss),
       },
       cashflow: {
-        cashIn: decStr(cashIn),
-        cardIn: decStr(cardIn),
-        debtOpened: decStr(debtOpened),
-        debtRepaidCash: decStr(debtRepaidCash),
-        debtRepaidCard: decStr(debtRepaidCard),
-        expenseReturns: decStr(expenseReturnsTotal),
+        cashIn: ledger.cashflow.orderCash,
+        cardIn: ledger.cashflow.orderCard,
+        debtOpened: ledger.sales.debtSales,
+        debtRepaidCash: ledger.cashflow.debtRepaidCash,
+        debtRepaidCard: ledger.cashflow.debtRepaidCard,
+        expenseReturns: ledger.cashflow.expenseReturns,
         totalIn: decStr(totalIn),
       },
       outflow: {
-        purchasesTotal: decStr(purchasesTotal),
-        purchasesCount: purchases.length,
-        expensesGross: expenseSummary.totals.gross,
-        expensesReversal: expenseSummary.totals.reversal,
-        expensesNet: decStr(expensesNet),
-        operatingExpense: decStr(operatingExpense),
-        pendingRepayable: decStr(pendingRepayable),
-        totalOut: decStr(totalOut),
+        purchasesTotal: ledger.outflow.ingredientPurchases,
+        purchasesCount: ledger.outflow.ingredientPurchasesCount,
+        expensesGross: ledger.outflow.expenseGross,
+        expensesReversal: ledger.outflow.expenseReversal,
+        expensesNet: ledger.outflow.expenseNet,
+        operatingExpense: ledger.outflow.operatingExpense,
+        pendingRepayable: ledger.outflow.pendingRepayable,
+        // Legacy duplicate of expensesNet. T10 removes this from the renderer.
+        totalOut: ledger.outflow.expenseNet,
       },
       drawer: {
         movement: decStr(drawerMovement),
-        outstandingDebts: decStr(outstandingDebts),
+        outstandingDebts: decStr(outstandingDebtsLifetime),
       },
       // Lists for drill-down
       purchases: purchases.map((p) => ({
@@ -291,7 +172,7 @@ export const financeService = {
         purchaseId: e.purchaseId,
         status: e.status,
       })),
-      closedOrders: closedOrders.map((o) => ({
+      closedOrders: closedOrderRows.map((o) => ({
         id: o.id,
         closedAt: o.closedAt?.toISOString() ?? null,
         waiterName: o.waiter.fullName,
@@ -300,34 +181,65 @@ export const financeService = {
       })),
 
       // ─── P&L view (sotuv − COGS − operatsion chiqim = sof foyda) ───
-      mealSales: mealSales.map((r) => ({
+      // Per-dish revenue here is per-line snapshot (gross of any bill-level
+      // discount, since v1 has no per-line discount allocation). Field is
+      // named `revenue` for back-compat with FinancePage; canonical DTO
+      // calls the same value `grossRevenue` to flag this.
+      mealSales: ledger.lines.mealSales.map((r) => ({
         menuItemId: r.menuItemId,
         menuItemName: r.menuItemName,
         categoryId: r.categoryId,
         categoryName: r.categoryName,
         isService: r.isService,
         qty: r.qty,
-        revenue: decStr(r.revenue),
-        cogs: decStr(r.cogs),
-        profit: decStr(r.revenue.minus(r.cogs)),
+        revenue: r.grossRevenue,
+        cogs: r.cogs,
+        profit: r.profit,
       })),
-      mealSalesByCategory: mealSalesByCategory.map((c) => ({
-        categoryId: c.categoryId,
-        categoryName: c.categoryName,
-        qty: c.qty,
-        revenue: decStr(c.revenue),
-        cogs: decStr(c.cogs),
-        profit: decStr(c.revenue.minus(c.cogs)),
-      })),
+      // Category subtotals: rebuild from ledger.mealSales — categoryId+name
+      // are stable across closed orders.
+      mealSalesByCategory: (() => {
+        type Row = {
+          categoryId: string;
+          categoryName: string;
+          qty: number;
+          revenue: Prisma.Decimal;
+          cogs: Prisma.Decimal;
+        };
+        const map = new Map<string, Row>();
+        for (const meal of ledger.lines.mealSales) {
+          const existing = map.get(meal.categoryId) ?? {
+            categoryId: meal.categoryId,
+            categoryName: meal.categoryName,
+            qty: 0,
+            revenue: new Prisma.Decimal(0),
+            cogs: new Prisma.Decimal(0),
+          };
+          existing.qty += meal.qty;
+          existing.revenue = existing.revenue.plus(new Prisma.Decimal(meal.grossRevenue));
+          existing.cogs = existing.cogs.plus(new Prisma.Decimal(meal.cogs));
+          map.set(meal.categoryId, existing);
+        }
+        return Array.from(map.values())
+          .sort((a, b) => Number(b.revenue) - Number(a.revenue))
+          .map((c) => ({
+            categoryId: c.categoryId,
+            categoryName: c.categoryName,
+            qty: c.qty,
+            revenue: decStr(c.revenue),
+            cogs: decStr(c.cogs),
+            profit: decStr(c.revenue.minus(c.cogs)),
+          }));
+      })(),
       mealSalesTotal: {
-        qty: mealSales.reduce((n, r) => n + r.qty, 0),
+        qty: ledger.lines.mealSales.reduce((n, r) => n + r.qty, 0),
         revenue: decStr(mealsRevenue),
         cogs: decStr(mealsCogs),
         profit: decStr(mealsRevenue.minus(mealsCogs)),
       },
 
       // Chiqimlar (operating only — ingredient purchases excluded; see Xaridlar block)
-      operatingExpenses: operatingExpensesItems.map((e) => ({
+      operatingExpenses: operatingExpenseSummary.items.map((e) => ({
         id: e.id,
         occurredAt: e.occurredAt,
         reason: e.reason,
@@ -338,7 +250,7 @@ export const financeService = {
         status: e.status,
       })),
       operatingExpensesTotal: {
-        count: operatingExpensesItems.length,
+        count: operatingExpenseSummary.items.length,
         gross: operatingExpenseSummary.totals.gross,
         operating: operatingExpenseSummary.totals.operating,
       },
@@ -354,26 +266,30 @@ export const financeService = {
         supplierNote: p.supplierNote,
       })),
       ingredientPurchasesTotal: {
-        count: purchases.length,
-        amount: decStr(purchasesTotal),
+        count: ledger.outflow.ingredientPurchasesCount,
+        amount: ledger.outflow.ingredientPurchases,
       },
 
       // Nasiya bloki — bugun ochilgan + bugun olingan + lifetime qoldiq
       debtToday: {
-        openedCount: debtsOpenedToday._count,
-        openedAmount: decStr(debtsOpenedToday._sum.originalAmount ?? new Prisma.Decimal(0)),
-        collectedCount: debtsCollectedToday._count,
-        collectedAmount: decStr(debtsCollectedToday._sum.amount ?? new Prisma.Decimal(0)),
-        lifetimeOutstanding: decStr(outstandingDebts),
+        openedCount: ledger.debt.openedTodayCount,
+        openedAmount: ledger.debt.openedTodayAmount,
+        // collectedCount isn't in canonical DTO; lines.debtRepayments has it
+        collectedCount: ledger.lines.debtRepayments.length,
+        collectedAmount: ledger.debt.repaidTodayAmount,
+        lifetimeOutstanding: decStr(outstandingDebtsLifetime),
       },
 
-      // Daily P&L summary — used by the Yakun block at the bottom of FinancePage.
+      // Daily P&L summary — canonical numbers.
       pnl: {
-        revenue: decStr(mealsRevenue),
-        cogs: decStr(mealsCogs),
-        operatingExpense: decStr(operatingExpenseTotal),
-        profit: decStr(pnlProfit),
+        revenue: ledger.pnl.revenue,
+        cogs: ledger.pnl.cogs,
+        operatingExpense: ledger.pnl.operatingExpense,
+        profit: ledger.pnl.profit,
       },
+
+      // Canonical DTO for renderers ready to switch (T10).
+      ledger,
     };
   },
 
@@ -388,12 +304,13 @@ export const financeService = {
    * grouping respects the staff's local day boundary rather than UTC.
    */
   async serviceChargeMatrix(input: { from: Date; to: Date }) {
-    const from = new Date(input.from);
-    from.setHours(0, 0, 0, 0);
-    const to = new Date(input.to);
-    to.setHours(23, 59, 59, 999);
+    // Controller passes Tashkent-anchored day-start instants for from/to.
+    // We need a Tashkent-day-aligned half-open window for the query and
+    // one slot per Tashkent calendar day for the column list.
+    const from = input.from;
+    const end = localDayRange(input.to).end;
 
-    // Build the column list — one slot per local day in the range.
+    // Build the column list — one slot per Tashkent day in the range.
     const dayKeys: string[] = [];
     const dayLabels: Array<{
       key: string;
@@ -402,26 +319,20 @@ export const financeService = {
       weekday: number;
       isMonthStart: boolean;
     }> = [];
-    {
-      const cursor = new Date(from);
-      cursor.setHours(0, 0, 0, 0);
-      const stop = new Date(to);
-      stop.setHours(0, 0, 0, 0);
-      while (cursor <= stop) {
-        const yyyy = cursor.getFullYear();
-        const mm = String(cursor.getMonth() + 1).padStart(2, '0');
-        const dd = String(cursor.getDate()).padStart(2, '0');
-        const key = `${yyyy}-${mm}-${dd}`;
-        dayKeys.push(key);
-        dayLabels.push({
-          key,
-          day: cursor.getDate(),
-          month: cursor.getMonth() + 1,
-          weekday: cursor.getDay(),
-          isMonthStart: cursor.getDate() === 1,
-        });
-        cursor.setDate(cursor.getDate() + 1);
-      }
+    for (let cursor = from; cursor < end; cursor = new Date(cursor.getTime() + MS_PER_DAY)) {
+      const key = localDayKey(cursor);
+      const [yyyy, mm, dd] = key.split('-');
+      // Tashkent and any other TZ share the same calendar-day weekday, so
+      // we can read weekday by parsing the key in UTC frame.
+      const weekday = new Date(`${key}T00:00:00Z`).getUTCDay();
+      dayKeys.push(key);
+      dayLabels.push({
+        key,
+        day: parseInt(dd!, 10),
+        month: parseInt(mm!, 10),
+        weekday,
+        isMonthStart: dd === '01',
+      });
     }
     const days = dayKeys.length;
     const dayIndexByKey = new Map(dayKeys.map((k, i) => [k, i] as const));
@@ -429,7 +340,7 @@ export const financeService = {
     const closedOrders = await getPrisma().order.findMany({
       where: {
         status: OrderStatus.CLOSED,
-        closedAt: { gte: from, lte: to },
+        closedAt: { gte: from, lt: end },
       },
       select: {
         waiterId: true,
@@ -455,10 +366,8 @@ export const financeService = {
 
     for (const order of closedOrders) {
       if (!order.closedAt) continue;
-      const yyyy = order.closedAt.getFullYear();
-      const mm = String(order.closedAt.getMonth() + 1).padStart(2, '0');
-      const dd = String(order.closedAt.getDate()).padStart(2, '0');
-      const dayIdx = dayIndexByKey.get(`${yyyy}-${mm}-${dd}`);
+      // Bucket by Tashkent calendar day of closedAt, not server-local.
+      const dayIdx = dayIndexByKey.get(localDayKey(order.closedAt));
       if (dayIdx === undefined) continue;
 
       const amount = order.serviceChargeSnapshot ?? new Prisma.Decimal(0);

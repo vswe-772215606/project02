@@ -1,4 +1,7 @@
 import { api } from './client';
+import type { DailyLedger } from './reports';
+
+export type { DailyLedger };
 
 export type FinanceDaily = {
   date: string;
@@ -130,6 +133,9 @@ export type FinanceDaily = {
     operatingExpense: string;
     profit: string;
   };
+  // Canonical ledger — single source of truth for daily numbers (PRD 13).
+  // Prefer reading from here in new components.
+  ledger: DailyLedger;
 };
 
 export type ServiceChargeMatrix = {

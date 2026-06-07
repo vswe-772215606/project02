@@ -164,6 +164,7 @@ model User {
   sessions          Session[]
   ordersAsWaiter    Order[]      @relation("OrderWaiter")
   ordersApproved    Order[]      @relation("OrderApprover")
+  ordersWalkoutMarked Order[]    @relation("OrderWalkoutMarker")
   auditEntries      AuditLog[]   @relation("AuditActor")
   discountsCreated  Discount[]   @relation("DiscountCreator")
   printJobs         PrintJob[]   @relation("PrintJobTrigger")
@@ -225,6 +226,10 @@ model MenuItem {
   description  String?
   price        Decimal
   kind         MenuItemKind @default(FOOD)
+  // Untracked-SIMPLE items (no recipe, no self-ingredient): per-portion cost
+  // used to populate cogsSnapshot at sale time. NULL for tracked items —
+  // their COGS comes from FIFO batch peel via OrderLineBatchConsumption.
+  unitCostSnapshot Decimal?
   isAvailable  Boolean      @default(true)
   displayOrder Int          @default(0)
   isActive     Boolean      @default(true)
@@ -307,11 +312,18 @@ model Order {
   totalSnapshot          Decimal?
   appliedDiscountId      String?
 
+  // Lifecycle timestamps. Each is set exactly once, at the transition that
+  // produces the named state. Reports bucket by these instead of `updatedAt`
+  // so subsequent mutations (reprint, snapshot edits, audit-driven writes)
+  // never shift an order out of its day.
+  sentAt                 DateTime?
   approvedAt             DateTime?
   approvedById           String?
   closedAt               DateTime?
   canceledAt             DateTime?
   cancelReason           String?
+  walkoutAt              DateTime?
+  walkoutById            String?
 
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
@@ -319,6 +331,7 @@ model Order {
   table           Table?          @relation(fields: [tableId], references: [id])
   waiter          User            @relation("OrderWaiter", fields: [waiterId], references: [id])
   approvedBy      User?           @relation("OrderApprover", fields: [approvedById], references: [id])
+  walkoutBy       User?           @relation("OrderWalkoutMarker", fields: [walkoutById], references: [id])
   appliedDiscount Discount?       @relation(fields: [appliedDiscountId], references: [id])
   lines           OrderLine[]
   payments        Payment[]
@@ -329,6 +342,9 @@ model Order {
   @@index([waiterId])
   @@index([tableId])
   @@index([createdAt])
+  @@index([closedAt])
+  @@index([walkoutAt])
+  @@index([sentAt])
 }
 
 model OrderLine {

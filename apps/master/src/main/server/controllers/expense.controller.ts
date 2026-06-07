@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { expenseService } from '../services/expense.service';
+import { localDayRangeFor, parseLocalDay } from '../lib/time';
 
 const createExpenseSchema = z.object({
   categoryId: z.string().min(1).optional(),
@@ -50,7 +51,7 @@ export const expenseController = {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const { date } = listExpensesQuery.parse(req.query);
-      res.json(await expenseService.listByDate(new Date(`${date}T00:00:00`)));
+      res.json(await expenseService.listByDate(parseLocalDay(date)));
     } catch (error) {
       next(error);
     }
@@ -64,8 +65,9 @@ export const expenseController = {
           q: q.q,
           repayable: q.repayable ? q.repayable === 'true' : undefined,
           openRepayable: q.openRepayable === 'true',
-          from: q.from ? new Date(`${q.from}T00:00:00`) : undefined,
-          to: q.to ? new Date(`${q.to}T23:59:59`) : undefined,
+          // search range is half-open: [from-day-start, to-day-end-exclusive)
+          from: q.from ? parseLocalDay(q.from) : undefined,
+          to: q.to ? localDayRangeFor(q.to).end : undefined,
           limit: q.limit,
         }),
       });

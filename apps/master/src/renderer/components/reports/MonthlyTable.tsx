@@ -1,4 +1,4 @@
-import type { DailyReport, MonthlyReport } from '@/api/reports';
+import type { MonthlyDayRow, MonthlyReport } from '@/api/reports';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
 import { MoneyCell } from '@/components/data/MoneyCell';
@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 type Props = {
   report: MonthlyReport;
-  onSelectDay: (day: DailyReport) => void;
+  onSelectDay: (day: MonthlyDayRow) => void;
 };
 
 function dayLabel(dateStr: string): string {
@@ -16,9 +16,12 @@ function dayLabel(dateStr: string): string {
 }
 
 function weekdayLabel(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00`);
+  // Parse the YYYY-MM-DD as a UTC midnight instant so getUTCDay() gives the
+  // calendar weekday of that date, identical in any TZ. Avoids the
+  // server-local getDay() drift.
+  const d = new Date(`${dateStr}T00:00:00Z`);
   const names = ['Yak', 'Du', 'Se', 'Cho', 'Pa', 'Ju', 'Sha'];
-  const dayOfWeek = d.getDay();
+  const dayOfWeek = d.getUTCDay();
   return names[dayOfWeek] ?? '';
 }
 
@@ -27,7 +30,7 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
   // weekends with a slight muted tint to make the table easy to scan.
   const rows = report.daily;
 
-  const columns: DataTableColumn<DailyReport>[] = [
+  const columns: DataTableColumn<MonthlyDayRow>[] = [
     {
       key: 'date',
       header: 'Sana',

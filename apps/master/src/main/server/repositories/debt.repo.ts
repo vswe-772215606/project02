@@ -1,17 +1,8 @@
 import { DebtStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
+import { localDayRange } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
-
-function dayRange(date: Date) {
-  const from = new Date(date);
-  from.setHours(0, 0, 0, 0);
-
-  const to = new Date(date);
-  to.setHours(23, 59, 59, 999);
-
-  return { from, to };
-}
 
 export const debtRepo = {
   async create(data: Prisma.DebtCreateInput, tx?: Tx) {
@@ -60,13 +51,14 @@ export const debtRepo = {
   },
 
   async list(filters: { status?: DebtStatus; date?: Date }, tx?: Tx) {
+    const range = filters.date ? localDayRange(filters.date) : null;
     return (tx ?? getPrisma()).debt.findMany({
       where: {
         status: filters.status,
-        openedAt: filters.date
+        openedAt: range
           ? {
-              gte: dayRange(filters.date).from,
-              lte: dayRange(filters.date).to,
+              gte: range.start,
+              lt: range.end,
             }
           : undefined,
       },
@@ -95,12 +87,12 @@ export const debtRepo = {
   },
 
   async listRepaymentsForDate(date: Date, tx?: Tx) {
-    const { from, to } = dayRange(date);
+    const { start, end } = localDayRange(date);
     return (tx ?? getPrisma()).debtRepayment.findMany({
       where: {
         paidAt: {
-          gte: from,
-          lte: to,
+          gte: start,
+          lt: end,
         },
       },
       include: {
@@ -131,14 +123,14 @@ export const debtRepo = {
 
   async sumOutstandingAsOf(date: Date, tx?: Tx) {
     const client = tx ?? getPrisma();
-    const end = new Date(date);
-    end.setHours(23, 59, 59, 999);
+    // Half-open: "as of end-of-day D" === "events with timestamp < start of D+1".
+    const { end } = localDayRange(date);
 
     const [opened, repaid] = await Promise.all([
       client.debt.aggregate({
         where: {
           openedAt: {
-            lte: end,
+            lt: end,
           },
         },
         _sum: {
@@ -148,7 +140,7 @@ export const debtRepo = {
       client.debtRepayment.aggregate({
         where: {
           paidAt: {
-            lte: end,
+            lt: end,
           },
         },
         _sum: {
@@ -162,21 +154,21 @@ export const debtRepo = {
   },
 
   async openedTodaySummary(date: Date, tx?: Tx) {
-    const { from, to } = dayRange(date);
+    const { start, end } = localDayRange(date);
     const [count, sum] = await Promise.all([
       (tx ?? getPrisma()).debt.count({
         where: {
           openedAt: {
-            gte: from,
-            lte: to,
+            gte: start,
+            lt: end,
           },
         },
       }),
       (tx ?? getPrisma()).debt.aggregate({
         where: {
           openedAt: {
-            gte: from,
-            lte: to,
+            gte: start,
+            lt: end,
           },
         },
         _sum: {
@@ -192,13 +184,13 @@ export const debtRepo = {
   },
 
   async repaymentTotalsForDate(date: Date, tx?: Tx) {
-    const { from, to } = dayRange(date);
+    const { start, end } = localDayRange(date);
     const rows = await (tx ?? getPrisma()).debtRepayment.groupBy({
       by: ['method'],
       where: {
         paidAt: {
-          gte: from,
-          lte: to,
+          gte: start,
+          lt: end,
         },
       },
       _sum: {

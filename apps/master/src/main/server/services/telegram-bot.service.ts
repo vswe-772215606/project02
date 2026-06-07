@@ -3,6 +3,14 @@ import { reportsService } from './reports.service';
 import { debtService } from './debt.service';
 import { expenseService } from './expense.service';
 import { ingredientService } from './ingredient.service';
+import {
+  localDayKey,
+  localDayRangeFor,
+  localMonthRangeFor,
+  parseLocalDay,
+} from '../lib/time';
+
+const MS_PER_DAY = 86_400_000;
 
 function formatMoney(value: string | number) {
   return new Intl.NumberFormat('uz-UZ', {
@@ -10,11 +18,25 @@ function formatMoney(value: string | number) {
   }).format(Number(value));
 }
 
+/**
+ * Render "DD.MM.YYYY" in Tashkent. The previous implementation used
+ * `date.getDate()/getMonth()/getFullYear()` which is server-local and
+ * shifts the label across midnight on non-Tashkent hosts.
+ */
 function formatDateLabel(date: Date) {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${day}.${month}.${year}`;
+  const key = localDayKey(date); // YYYY-MM-DD in Tashkent
+  const [yyyy, mm, dd] = key.split('-');
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+/** Tashkent calendar day anchor for "today" (00:00 +05:00, as a UTC instant). */
+function tashkentTodayAnchor(): Date {
+  return parseLocalDay(localDayKey());
+}
+
+/** Tashkent calendar day N days before today, as a day-anchor instant. */
+function tashkentDaysAgoAnchor(n: number): Date {
+  return new Date(tashkentTodayAnchor().getTime() - n * MS_PER_DAY);
 }
 
 const UZBEK_MONTHS = [
@@ -94,7 +116,7 @@ export const telegramBotService = {
 
       const sendDailyReport = async (ctx: any, date: Date) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           const report = await reportsService.daily(date);
           const message = this.formatReportMessage(date, report);
           await ctx.replyWithHTML(message, mainMenu);
@@ -107,7 +129,7 @@ export const telegramBotService = {
       const sendDailyPdf = async (ctx: any, date: Date) => {
         let tmpPath: string | null = null;
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           await ctx.reply('📄 PDF tayyorlanmoqda, biroz kuting…');
 
           const { generateDailyReportPdf } = await import('../../pdf-report');
@@ -115,10 +137,10 @@ export const telegramBotService = {
           const path = await import('path');
           const fs = await import('fs/promises');
 
-          const dd = String(date.getDate()).padStart(2, '0');
-          const mm = String(date.getMonth() + 1).padStart(2, '0');
-          const yyyy = date.getFullYear();
-          const filename = `chayxana-moliyaviy-${yyyy}-${mm}-${dd}.pdf`;
+          // Filename should match the Tashkent calendar day of the report,
+          // not the server-local one — owner files often archive by day key.
+          const dayKey = localDayKey(date);
+          const filename = `chayxana-moliyaviy-${dayKey}.pdf`;
           tmpPath = path.join(os.tmpdir(), `chayxana-bot-${Date.now()}-${filename}`);
 
           await generateDailyReportPdf({ date, outputPath: tmpPath });
@@ -151,8 +173,10 @@ export const telegramBotService = {
 
       const sendMonthlyReport = async (ctx: any, year: number, month: number) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
-          const monthStart = new Date(year, month - 1, 1);
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
+          // Tashkent-anchored month start regardless of server TZ.
+          const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+          const monthStart = localMonthRangeFor(monthKey).start;
           const report = await reportsService.monthly(monthStart);
           const message = this.formatMonthlyMessage(report);
           await ctx.replyWithHTML(message, mainMenu);
@@ -164,13 +188,13 @@ export const telegramBotService = {
 
       const sendWeekSummary = async (ctx: any) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           await ctx.reply('📋 So\'nggi 7 kun yig\'ilmoqda, biroz kuting…');
+          // Walk the last 7 Tashkent calendar days backwards. Pre-fix this used
+          // server-local setHours+setDate which shifted by 5h on UTC hosts.
           const days: Array<{ date: Date; report: any }> = [];
           for (let offset = 6; offset >= 0; offset--) {
-            const d = new Date();
-            d.setHours(0, 0, 0, 0);
-            d.setDate(d.getDate() - offset);
+            const d = tashkentDaysAgoAnchor(offset);
             try {
               const report = await reportsService.daily(d);
               days.push({ date: d, report });
@@ -188,7 +212,7 @@ export const telegramBotService = {
 
       const sendDebtsSnapshot = async (ctx: any) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           const { items: debts } = await debtService.list({});
           const open = debts.filter((d: any) => d.status === 'OPEN' || d.status === 'PARTIAL');
           const message = this.formatDebtsMessage(open);
@@ -201,9 +225,9 @@ export const telegramBotService = {
 
       const sendExpensesToday = async (ctx: any) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
+          // Tashkent-anchored today; the underlying repo uses localDayRange.
+          const today = tashkentTodayAnchor();
           const summary = await expenseService.listByDate(today);
           const message = this.formatExpensesMessage(today, summary);
           await ctx.replyWithHTML(message, mainMenu);
@@ -215,7 +239,7 @@ export const telegramBotService = {
 
       const sendLowStock = async (ctx: any) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           const ingredients = await ingredientService.list({ isActive: true });
           const message = this.formatStockMessage(ingredients);
           await ctx.replyWithHTML(message, mainMenu);
@@ -226,7 +250,7 @@ export const telegramBotService = {
       };
 
       const sendDateHelp = async (ctx: any) => {
-        await ctx.answerCbQuery().catch(() => {});
+        try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
         await ctx.reply(
           '🗓 <b>Sana bo\'yicha hisobot olish</b>\n\n' +
           '<code>/sana 2026-05-12</code> — kunlik hisobot\n' +
@@ -238,7 +262,7 @@ export const telegramBotService = {
       };
 
       const sendHelp = async (ctx: any) => {
-        await ctx.answerCbQuery().catch(() => {});
+        try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
         await ctx.reply(
           'Chayxana boshqaruv boti — restoran moliyaviy holatini kuzatish.\n\n' +
           '<b>Asosiy hisobotlar:</b>\n' +
@@ -270,29 +294,35 @@ export const telegramBotService = {
         const m = text.match(/(\d{4})-(\d{2})-(\d{2})/);
         if (!m) return null;
         const [, y, mo, d] = m;
-        const date = new Date(`${y}-${mo}-${d}T00:00:00`);
-        if (Number.isNaN(date.getTime())) return null;
-        const tomorrow = new Date();
-        tomorrow.setHours(0, 0, 0, 0);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        let date: Date;
+        try {
+          date = parseLocalDay(`${y}-${mo}-${d}`);
+        } catch {
+          return null;
+        }
+        // Reject "today + 1" in Tashkent frame.
+        const tomorrow = tashkentDaysAgoAnchor(-1);
         if (date >= tomorrow) return null;
         return date;
       };
 
       // Parse two dates out of a command like "/umumiy 2026-05-01 2026-05-23".
       // Missing args → defaults to first-of-current-month → today (matches the
-      // ReportsPage "Umumiy" tab default range).
+      // ReportsPage "Umumiy" tab default range). All anchored in Tashkent.
       const parseRangeArgs = (text: string): { from: Date; to: Date } => {
         const matches = [...text.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)];
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const todayKey = localDayKey();
+        const todayStart = parseLocalDay(todayKey);
+        const monthStart = localMonthRangeFor(todayKey.slice(0, 7)).start;
 
         const parseAt = (idx: number) => {
           const m = matches[idx];
           if (!m) return null;
-          const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
-          return Number.isNaN(d.getTime()) ? null : d;
+          try {
+            return parseLocalDay(`${m[1]}-${m[2]}-${m[3]}`);
+          } catch {
+            return null;
+          }
         };
 
         const from = parseAt(0) ?? monthStart;
@@ -304,7 +334,7 @@ export const telegramBotService = {
       // Compact HTML summary of the Umumiy report.
       const sendSummaryText = async (ctx: any, from: Date, to: Date) => {
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           const report = await reportsService.summary({ from, to });
           const lines: string[] = [];
           lines.push(`📑 <b>Umumiy hisobot</b>  (${formatDateLabel(from)} → ${formatDateLabel(to)})`);
@@ -365,7 +395,7 @@ export const telegramBotService = {
       const sendSummaryExcel = async (ctx: any, from: Date, to: Date) => {
         let tmpPath: string | null = null;
         try {
-          await ctx.answerCbQuery().catch(() => {});
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           await ctx.reply('📊 Excel tayyorlanmoqda, biroz kuting…');
 
           const report = await reportsService.summary({ from, to });
@@ -494,16 +524,16 @@ export const telegramBotService = {
       bot.help(sendHelp);
       bot.command(['yordam', 'help'], sendHelp);
 
-      bot.command(['bugun', 'today'], (ctx) => sendDailyReport(ctx, new Date()));
+      bot.command(['bugun', 'today'], (ctx) => sendDailyReport(ctx, tashkentTodayAnchor()));
       bot.command(['kecha', 'yesterday'], (ctx) => {
-        const d = new Date(); d.setDate(d.getDate() - 1);
-        sendDailyReport(ctx, d);
+        sendDailyReport(ctx, tashkentDaysAgoAnchor(1));
       });
       bot.command(['hafta', 'week'], sendWeekSummary);
 
       bot.command(['oylik', 'month'], (ctx) => {
-        const now = new Date();
-        sendMonthlyReport(ctx, now.getFullYear(), now.getMonth() + 1);
+        // Current Tashkent month.
+        const [yyyy, mm] = localDayKey().split('-');
+        sendMonthlyReport(ctx, parseInt(yyyy!, 10), parseInt(mm!, 10));
       });
       bot.command(['oy'], async (ctx) => {
         const text = (ctx.message as any)?.text ?? '';
@@ -542,10 +572,7 @@ export const telegramBotService = {
           );
           return;
         }
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - n);
-        await sendDailyReport(ctx, d);
+        await sendDailyReport(ctx, tashkentDaysAgoAnchor(n));
       });
 
       bot.command(['qarzlar', 'debts'], sendDebtsSnapshot);
@@ -556,7 +583,7 @@ export const telegramBotService = {
       // /pdf 2026-05-12 — specific date
       bot.command(['pdf'], async (ctx) => {
         const text = (ctx.message as any)?.text ?? '';
-        const date = parseDateArg(text) ?? new Date();
+        const date = parseDateArg(text) ?? tashkentTodayAnchor();
         await sendDailyPdf(ctx, date);
       });
 
@@ -576,24 +603,18 @@ export const telegramBotService = {
       });
 
       // ─── Action buttons ───
-      bot.action('report_today', (ctx) => sendDailyReport(ctx, new Date()));
-      bot.action('report_yesterday', (ctx) => {
-        const d = new Date(); d.setDate(d.getDate() - 1);
-        sendDailyReport(ctx, d);
-      });
+      bot.action('report_today', (ctx) => sendDailyReport(ctx, tashkentTodayAnchor()));
+      bot.action('report_yesterday', (ctx) => sendDailyReport(ctx, tashkentDaysAgoAnchor(1)));
       bot.action('report_week', sendWeekSummary);
       bot.action('report_month', (ctx) => {
-        const now = new Date();
-        sendMonthlyReport(ctx, now.getFullYear(), now.getMonth() + 1);
+        const [yyyy, mm] = localDayKey().split('-');
+        sendMonthlyReport(ctx, parseInt(yyyy!, 10), parseInt(mm!, 10));
       });
       bot.action('debts_now', sendDebtsSnapshot);
       bot.action('expenses_today', sendExpensesToday);
       bot.action('stock_low', sendLowStock);
-      bot.action('pdf_today', (ctx) => sendDailyPdf(ctx, new Date()));
-      bot.action('pdf_yesterday', (ctx) => {
-        const d = new Date(); d.setDate(d.getDate() - 1);
-        return sendDailyPdf(ctx, d);
-      });
+      bot.action('pdf_today', (ctx) => sendDailyPdf(ctx, tashkentTodayAnchor()));
+      bot.action('pdf_yesterday', (ctx) => sendDailyPdf(ctx, tashkentDaysAgoAnchor(1)));
       bot.action('date_help', sendDateHelp);
       bot.action('help_action', sendHelp);
 
@@ -663,56 +684,100 @@ export const telegramBotService = {
     }
   },
 
-  /** Daily P&L message — finance-only, no vanity sections. */
+  /**
+   * Daily P&L message.
+   *
+   * Reads from the canonical `report.ledger` DTO (PRD 13 / T7) where present —
+   * that's the single source of truth across surfaces. Falls back to legacy
+   * field reads so this still works if called with a pre-PRD-13 payload (e.g.
+   * old scheduler in-flight at deploy time).
+   *
+   * The canonical P&L (`ledger.pnl.profit`) is `netSales − cogs − operatingExpense`
+   * — the same number the owner sees in `daily.results.salesBasedProfit`.
+   */
   formatReportMessage(date: Date, report: any): string {
+    // Prefer the canonical ledger projection where available.
+    const L = report.ledger ?? null;
+    const sales = L ? {
+      closedOrders: L.sales.closedCount,
+      canceledOrders: L.sales.canceledCount,
+      walkoutOrders: L.sales.walkoutCount,
+      grossSales: L.sales.gross,
+      discounts: L.sales.discount,
+      netSales: L.sales.netSales,
+      serviceCharge: L.sales.serviceCharge,
+      debtSales: L.sales.debtSales,
+    } : report.sales;
+    const cashflow = L ? {
+      orderCash: L.cashflow.orderCash,
+      orderCard: L.cashflow.orderCard,
+      debtRepaymentsCash: L.cashflow.debtRepaidCash,
+      debtRepaymentsCard: L.cashflow.debtRepaidCard,
+      realCashIn: L.cashflow.realCashIn,
+    } : report.cashflow;
+    const expenses = L ? {
+      gross: L.outflow.expenseGross,
+      reversal: L.outflow.expenseReversal,
+      operating: L.outflow.operatingExpense,
+      pendingRepayable: L.outflow.pendingRepayable,
+      // byCategory only lives on the legacy expense block (admin detail).
+      byCategory: report.expenses?.byCategory ?? [],
+    } : report.expenses;
+    // Canonical P&L profit. The legacy `salesBasedProfit` field is exactly
+    // this value after T8 — single canonical formula.
+    const salesProfit = L ? L.pnl.profit : report.results.salesBasedProfit;
+    const cashflowNet = report.results?.cashflowBasedNet
+      ?? (L ? String(Number(L.cashflow.realCashIn) - Number(L.outflow.expenseNet)) : '0');
+    const outstanding = L ? L.debt.outstandingAsOfEod : report.debtSnapshot.outstandingTotal;
+
     const lines: string[] = [];
     lines.push(`📊 <b>${formatDateLabel(date)} — kunlik moliyaviy hisobot</b>`);
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`🍽 <b>Savdo</b>`);
-    lines.push(`  Yopilgan buyurtmalar: <b>${report.sales.closedOrders}</b> ta`);
-    lines.push(`  Brutto savdo: <b>${formatMoney(report.sales.grossSales)}</b> so'm`);
-    if (Number(report.sales.discounts) > 0) {
-      lines.push(`  Chegirmalar: <b>−${formatMoney(report.sales.discounts)}</b> so'm`);
+    lines.push(`  Yopilgan buyurtmalar: <b>${sales.closedOrders}</b> ta`);
+    lines.push(`  Brutto savdo: <b>${formatMoney(sales.grossSales)}</b> so'm`);
+    if (Number(sales.discounts) > 0) {
+      lines.push(`  Chegirmalar: <b>−${formatMoney(sales.discounts)}</b> so'm`);
     }
-    lines.push(`  Sof ovqat savdosi: <b>${formatMoney(report.sales.netSales)}</b> so'm`);
-    lines.push(`  ✨ Xizmat haqi (ofitsiantlarga): <b>${formatMoney(report.sales.serviceCharge)}</b> so'm`);
-    if (report.sales.walkoutOrders > 0) {
-      lines.push(`  ⚠ Walkout: <b>${report.sales.walkoutOrders}</b> ta`);
+    lines.push(`  Sof ovqat savdosi: <b>${formatMoney(sales.netSales)}</b> so'm`);
+    lines.push(`  ✨ Xizmat haqi (ofitsiantlarga): <b>${formatMoney(sales.serviceCharge)}</b> so'm`);
+    if (sales.walkoutOrders > 0) {
+      lines.push(`  ⚠ Walkout: <b>${sales.walkoutOrders}</b> ta`);
     }
-    if (report.sales.canceledOrders > 0) {
-      lines.push(`  Bekor qilinganlar: <b>${report.sales.canceledOrders}</b> ta`);
+    if (sales.canceledOrders > 0) {
+      lines.push(`  Bekor qilinganlar: <b>${sales.canceledOrders}</b> ta`);
     }
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`💵 <b>Pul oqimi (kassa)</b>`);
-    lines.push(`  Naqd savdolardan: <b>${formatMoney(report.cashflow.orderCash)}</b> so'm`);
-    lines.push(`  Karta savdolardan: <b>${formatMoney(report.cashflow.orderCard)}</b> so'm`);
-    if (Number(report.sales.debtSales) > 0) {
-      lines.push(`  Qarzga sotildi: <b>${formatMoney(report.sales.debtSales)}</b> so'm`);
+    lines.push(`  Naqd savdolardan: <b>${formatMoney(cashflow.orderCash)}</b> so'm`);
+    lines.push(`  Karta savdolardan: <b>${formatMoney(cashflow.orderCard)}</b> so'm`);
+    if (Number(sales.debtSales) > 0) {
+      lines.push(`  Qarzga sotildi: <b>${formatMoney(sales.debtSales)}</b> so'm`);
     }
     const debtRepaidTotal =
-      Number(report.cashflow.debtRepaymentsCash) + Number(report.cashflow.debtRepaymentsCard);
+      Number(cashflow.debtRepaymentsCash) + Number(cashflow.debtRepaymentsCard);
     if (debtRepaidTotal > 0) {
       lines.push(`  Qaytgan qarz: <b>${formatMoney(debtRepaidTotal)}</b> so'm`);
     }
-    lines.push(`  📥 Jami pul tushdi: <b>${formatMoney(report.cashflow.realCashIn)}</b> so'm`);
+    lines.push(`  📥 Jami pul tushdi: <b>${formatMoney(cashflow.realCashIn)}</b> so'm`);
     lines.push('');
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`📤 <b>Xarajatlar</b>`);
-    lines.push(`  Brutto: <b>${formatMoney(report.expenses.gross)}</b> so'm`);
-    if (Number(report.expenses.reversal) > 0) {
-      lines.push(`  Bekor qilingan: <b>−${formatMoney(report.expenses.reversal)}</b> so'm`);
+    lines.push(`  Brutto: <b>${formatMoney(expenses.gross)}</b> so'm`);
+    if (Number(expenses.reversal) > 0) {
+      lines.push(`  Bekor qilingan: <b>−${formatMoney(expenses.reversal)}</b> so'm`);
     }
-    lines.push(`  Operatsion (foyda hisobida): <b>${formatMoney(report.expenses.operating)}</b> so'm`);
-    if (Number(report.expenses.pendingRepayable) > 0) {
-      lines.push(`  ⏳ Kutilayotgan qaytim: <b>${formatMoney(report.expenses.pendingRepayable)}</b> so'm`);
+    lines.push(`  Operatsion (foyda hisobida): <b>${formatMoney(expenses.operating)}</b> so'm`);
+    if (Number(expenses.pendingRepayable) > 0) {
+      lines.push(`  ⏳ Kutilayotgan qaytim: <b>${formatMoney(expenses.pendingRepayable)}</b> so'm`);
     }
-    if (Array.isArray(report.expenses.byCategory) && report.expenses.byCategory.length > 0) {
-      const top = [...report.expenses.byCategory]
+    if (Array.isArray(expenses.byCategory) && expenses.byCategory.length > 0) {
+      const top = [...expenses.byCategory]
         .filter((c: any) => Number(c.amount) > 0)
         .sort((a: any, b: any) => Number(b.amount) - Number(a.amount))
         .slice(0, 3);
@@ -727,11 +792,10 @@ export const telegramBotService = {
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`💰 <b>Foyda hisobi</b>`);
-    const salesProfit = Number(report.results.salesBasedProfit);
-    const profitIcon = salesProfit >= 0 ? '🟢' : '🔴';
-    lines.push(`  ${profitIcon} Savdo asosida: <b>${formatMoney(report.results.salesBasedProfit)}</b> so'm`);
-    lines.push(`  Pul oqimi natijasi: <b>${formatMoney(report.results.cashflowBasedNet)}</b> so'm`);
-    lines.push(`  Ochiq qarz qoldig'i: <b>${formatMoney(report.debtSnapshot.outstandingTotal)}</b> so'm`);
+    const profitIcon = Number(salesProfit) >= 0 ? '🟢' : '🔴';
+    lines.push(`  ${profitIcon} Savdo asosida: <b>${formatMoney(salesProfit)}</b> so'm`);
+    lines.push(`  Pul oqimi natijasi: <b>${formatMoney(cashflowNet)}</b> so'm`);
+    lines.push(`  Ochiq qarz qoldig'i: <b>${formatMoney(outstanding)}</b> so'm`);
 
     return lines.join('\n');
   },
@@ -932,15 +996,23 @@ export const telegramBotService = {
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push('<b>Kun           Savdo · Foyda</b>');
     days.forEach(({ date, report }) => {
-      const sales = Number(report?.sales?.netSales ?? 0) + Number(report?.sales?.serviceCharge ?? 0);
-      const profit = Number(report?.results?.salesBasedProfit ?? 0);
-      const orders = report?.sales?.closedOrders ?? 0;
-      const walkouts = report?.sales?.walkoutOrders ?? 0;
+      // Prefer canonical ledger fields; fall back to legacy shape.
+      const L = report?.ledger;
+      const sales = L
+        ? Number(L.sales.netSales) + Number(L.sales.serviceCharge)
+        : Number(report?.sales?.netSales ?? 0) + Number(report?.sales?.serviceCharge ?? 0);
+      const profit = L ? Number(L.pnl.profit) : Number(report?.results?.salesBasedProfit ?? 0);
+      const orders = L ? L.sales.closedCount : (report?.sales?.closedOrders ?? 0);
+      const walkouts = L ? L.sales.walkoutCount : (report?.sales?.walkoutOrders ?? 0);
+      const cashIn = L ? Number(L.cashflow.realCashIn) : Number(report?.cashflow?.realCashIn ?? 0);
+      const operating = L ? Number(L.outflow.operatingExpense) : Number(report?.expenses?.operating ?? 0);
+      const serviceCharge = L ? Number(L.sales.serviceCharge) : Number(report?.sales?.serviceCharge ?? 0);
+
       totalSales += sales;
-      totalCashIn += Number(report?.cashflow?.realCashIn ?? 0);
-      totalOperating += Number(report?.expenses?.operating ?? 0);
+      totalCashIn += cashIn;
+      totalOperating += operating;
       totalProfit += profit;
-      totalServiceCharge += Number(report?.sales?.serviceCharge ?? 0);
+      totalServiceCharge += serviceCharge;
       totalOrders += orders;
       totalWalkouts += walkouts;
 

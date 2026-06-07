@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 import { toPublicUser } from '../lib/public-user';
 import { userService } from '../services/user.service';
+import { localDayKey, localDayRangeFor } from '../lib/time';
 
 const todayStatsQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -79,14 +80,13 @@ export const usersController = {
   async todayStats(req: Request, res: Response, next: NextFunction) {
     try {
       const { date } = todayStatsQuery.parse(req.query);
-      const dayStart = new Date(`${date ?? new Date().toISOString().slice(0, 10)}T00:00:00`);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setHours(23, 59, 59, 999);
+      const dayKey = date ?? localDayKey();
+      const { start: dayStart, end: dayEnd } = localDayRangeFor(dayKey);
 
       const closedOrders = await getPrisma().order.findMany({
         where: {
           status: OrderStatus.CLOSED,
-          closedAt: { gte: dayStart, lte: dayEnd },
+          closedAt: { gte: dayStart, lt: dayEnd },
         },
         include: {
           waiter: { select: { id: true, fullName: true } },
@@ -117,7 +117,7 @@ export const usersController = {
       }
 
       res.json({
-        date: dayStart.toISOString().slice(0, 10),
+        date: dayKey,
         items: Array.from(map.values())
           .sort((a, b) => Number(b.billedTotal) - Number(a.billedTotal))
           .map((agg) => ({

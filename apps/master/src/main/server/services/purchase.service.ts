@@ -7,12 +7,7 @@ import { ingredientRepo } from '../repositories/ingredient.repo';
 import { ingredientMovementRepo } from '../repositories/ingredientMovement.repo';
 import { purchaseRepo } from '../repositories/purchase.repo';
 import { auditService } from './audit.service';
-
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate();
-}
+import { isSameLocalDay } from '../lib/time';
 
 const INGREDIENT_EXPENSE_CATEGORY_ID = 'seed-cat-ingredients';
 

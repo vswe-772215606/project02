@@ -1,17 +1,8 @@
 import { ExpenseStatus, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
+import { localDayRange } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
-
-function dayRange(date: Date) {
-  const from = new Date(date);
-  from.setHours(0, 0, 0, 0);
-
-  const to = new Date(date);
-  to.setHours(23, 59, 59, 999);
-
-  return { from, to };
-}
 
 export const expenseRepo = {
   async listCategories(tx?: Tx) {
@@ -69,12 +60,12 @@ export const expenseRepo = {
   },
 
   async listForDate(date: Date, tx?: Tx) {
-    const { from, to } = dayRange(date);
+    const { start, end } = localDayRange(date);
     return (tx ?? getPrisma()).expense.findMany({
       where: {
         occurredAt: {
-          gte: from,
-          lte: to,
+          gte: start,
+          lt: end,
         },
       },
       include: {
@@ -164,9 +155,13 @@ export const expenseRepo = {
     }
 
     if (filters.from || filters.to) {
+      // `from` is day-start (inclusive), `to` is the exclusive end-of-range
+      // instant set by the controller (start of the day AFTER the requested
+      // last day). Half-open [from, to) keeps boundary semantics consistent
+      // with listForDate.
       where.occurredAt = {
         gte: filters.from,
-        lte: filters.to,
+        lt: filters.to,
       };
     }
 

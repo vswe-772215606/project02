@@ -45,7 +45,13 @@ export function getPackagedPrismaClientDir(): string {
 }
 
 export function setupPrismaRuntime(): void {
-  if (prismaRuntimeConfigured || !app.isPackaged) {
+  // No-op outside packaged Electron. `app` is undefined when running under
+  // tsx / node (smoke scripts), so the old `!app.isPackaged` check threw a
+  // TypeError. Guard it so any non-Electron entrypoint goes through the
+  // generated client's default resolution.
+  if (prismaRuntimeConfigured) return;
+  if (!app || typeof app.isPackaged === 'undefined' || !app.isPackaged) {
+    prismaRuntimeConfigured = true;
     return;
   }
 

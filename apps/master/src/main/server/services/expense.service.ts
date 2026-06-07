@@ -3,6 +3,7 @@ import { Errors } from '../lib/errors';
 import { getPrisma } from '../lib/prisma';
 import { expenseRepo } from '../repositories/expense.repo';
 import { auditService } from './audit.service';
+import { isSameLocalDay, localDayKey } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
 
@@ -15,16 +16,6 @@ function signedAmount(status: ExpenseStatus, amount: Prisma.Decimal): Prisma.Dec
     return amount.negated();
   }
   return amount;
-}
-
-function startOfLocalDay(date: Date) {
-  const value = new Date(date);
-  value.setHours(0, 0, 0, 0);
-  return value;
-}
-
-function isSameLocalDay(left: Date, right: Date) {
-  return startOfLocalDay(left).getTime() === startOfLocalDay(right).getTime();
 }
 
 type RepayStatus = 'NOT_REPAYABLE' | 'PENDING' | 'PARTIAL' | 'RETURNED' | 'WRITTEN_OFF';
@@ -151,7 +142,7 @@ export const expenseService = {
     }
 
     return {
-      date: date.toISOString().slice(0, 10),
+      date: localDayKey(date),
       items: items.map((item) => mapExpense({
         ...item,
         reversals: [],

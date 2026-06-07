@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer, FileDown, RefreshCw, ChevronDown } from 'lucide-react';
-import { DailyReport, MonthlyReport, SummaryReport, reportsApi } from '../api/reports';
+import { DailyReport, MonthlyDayRow, MonthlyReport, SummaryReport, reportsApi } from '../api/reports';
 import { ForbiddenMessage } from '../components/ForbiddenMessage';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
@@ -38,7 +38,7 @@ import { IncidentsSection } from '@/components/reports/IncidentsSection';
 import { GrandSummarySection } from '@/components/reports/GrandSummarySection';
 import { MonthlyTable } from '@/components/reports/MonthlyTable';
 import { StatTile } from '@/components/reports/report-helpers';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, tashkentDayKey, tashkentMonthKey } from '@/lib/format';
 import { printCurrentView, saveDailyReportPdf, saveFinancePdf } from '@/lib/save-pdf';
 import {
   ArrowDownToLine,
@@ -64,15 +64,10 @@ const UZBEK_MONTHS = [
   'Dekabr',
 ];
 
-function localDateString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function localMonthString() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
+// Default date pickers are anchored to Tashkent so they match the backend's
+// bucketing and the user's wall clock regardless of the host TZ.
+const localDateString = tashkentDayKey;
+const localMonthString = tashkentMonthKey;
 
 function formatMonthLabel(month: string) {
   const parts = month.split('-');
@@ -209,7 +204,7 @@ function MonthlyView({
   onSelectDay,
 }: {
   report: MonthlyReport;
-  onSelectDay: (day: DailyReport) => void;
+  onSelectDay: (day: MonthlyDayRow) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -272,13 +267,12 @@ export function ReportsPage() {
   const [tab, setTab] = useState<'daily' | 'monthly' | 'summary'>('daily');
   const [date, setDate] = useState(localDateString);
   const [month, setMonth] = useState(localMonthString);
-  // Summary tab: default to first-of-month → today.
-  const [summaryFrom, setSummaryFrom] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  });
+  // Summary tab: default to first-of-month → today, all in Tashkent.
+  const [summaryFrom, setSummaryFrom] = useState(() => `${tashkentMonthKey()}-01`);
   const [summaryTo, setSummaryTo] = useState(localDateString);
-  const [selectedDay, setSelectedDay] = useState<DailyReport | null>(null);
+  // Monthly drill-down: user clicks a day row → fetch the FULL daily report
+  // for that date (the per-day rows in MonthlyReport are intentionally slim).
+  const [selectedDayDate, setSelectedDayDate] = useState<string | null>(null);
   const selectedYear = month.slice(0, 4);
   const selectedMonthPart = month.slice(5, 7);
 
@@ -300,6 +294,14 @@ export function ReportsPage() {
     queryKey: ['reports', 'summary', summaryFrom, summaryTo],
     queryFn: () => reportsApi.getSummary(summaryFrom, summaryTo),
     enabled: tab === 'summary',
+    retry: false,
+  });
+
+  // Drill-down query — fires only when the user picks a monthly day row.
+  const selectedDayQuery = useQuery({
+    queryKey: ['reports', 'daily', selectedDayDate],
+    queryFn: () => reportsApi.getDaily(selectedDayDate!),
+    enabled: !!selectedDayDate,
     retry: false,
   });
 
@@ -488,7 +490,10 @@ export function ReportsPage() {
       ) : tab === 'daily' && dailyQuery.data ? (
         <DailyReportSections report={dailyQuery.data} />
       ) : tab === 'monthly' && monthlyQuery.data ? (
-        <MonthlyView report={monthlyQuery.data} onSelectDay={setSelectedDay} />
+        <MonthlyView
+          report={monthlyQuery.data}
+          onSelectDay={(row) => setSelectedDayDate(row.date)}
+        />
       ) : tab === 'summary' && summaryQuery.data ? (
         <SummaryView report={summaryQuery.data} />
       ) : (
@@ -499,14 +504,18 @@ export function ReportsPage() {
         </Card>
       )}
 
-      <Dialog open={!!selectedDay} onOpenChange={(open) => { if (!open) setSelectedDay(null); }}>
+      <Dialog open={!!selectedDayDate} onOpenChange={(open) => { if (!open) setSelectedDayDate(null); }}>
         <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {selectedDay ? `${formatDateLabel(selectedDay.date)} — kunlik hisobot` : ''}
+              {selectedDayDate ? `${formatDateLabel(selectedDayDate)} — kunlik hisobot` : ''}
             </DialogTitle>
           </DialogHeader>
-          {selectedDay ? <DailyReportSections report={selectedDay} /> : null}
+          {selectedDayQuery.data
+            ? <DailyReportSections report={selectedDayQuery.data} />
+            : selectedDayQuery.isLoading
+              ? <div className="py-8 text-center text-sm text-muted-foreground">Yuklanmoqda…</div>
+              : null}
         </DialogContent>
       </Dialog>
     </PageContent>

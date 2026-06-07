@@ -2,6 +2,7 @@ import { OrderStatus, PaymentMethod, UserRole } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { orderService } from '../services/order.service';
+import { parseLocalDay } from '../lib/time';
 
 const createSchema = z.object({
   orderType: z.enum(['DINE_IN', 'TAKEAWAY']),
@@ -11,7 +12,7 @@ const createSchema = z.object({
 const listQuerySchema = z.object({
   status: z.nativeEnum(OrderStatus).optional(),
   mine: z.union([z.literal('true'), z.literal('false')]).optional(),
-  date: z.string().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const addItemSchema = z.object({
@@ -91,7 +92,7 @@ export const ordersController = {
         requestingUser: requester(req),
         status: query.status,
         mine: query.mine === 'true',
-        date: query.date ? new Date(query.date) : undefined,
+        date: query.date ? parseLocalDay(query.date) : undefined,
       });
       res.json(orders);
     } catch (error) {
@@ -112,7 +113,7 @@ export const ordersController = {
       const body = addItemSchema.parse(req.body);
       res.status(201).json(await orderService.addLine({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         menuItemId: body.menuItemId,
         quantity: body.quantity,
         notes: body.notes,
@@ -127,7 +128,7 @@ export const ordersController = {
       const body = addComboSchema.parse(req.body);
       res.status(201).json(await orderService.addCombo({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         comboId: body.comboId,
       }));
     } catch (error) {
@@ -140,7 +141,7 @@ export const ordersController = {
       const body = updateLineQuantitySchema.parse(req.body);
       res.json(await orderService.updateLineQuantity({
         orderId: req.params.id,
-        waiterId: req.user!.id,
+        requestingUser: requester(req),
         lineId: req.params.lineId,
         quantity: body.quantity,
       }));

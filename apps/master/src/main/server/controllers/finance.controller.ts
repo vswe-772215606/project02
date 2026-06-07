@@ -1,6 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { financeService } from '../services/finance.service';
+import {
+  localDayKey,
+  localDayRangeFor,
+  localMonthRangeFor,
+  parseLocalDay,
+} from '../lib/time';
 
 const dailyQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -14,30 +20,11 @@ const serviceChargeQuery = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
 });
 
-function currentMonthRange(): { from: Date; to: Date } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  return { from, to };
-}
-
-function monthKeyToRange(monthStr: string): { from: Date; to: Date } {
-  const [yearStr, monthIdxStr] = monthStr.split('-');
-  const year = Number(yearStr);
-  const monthIdx = Number(monthIdxStr); // 1..12
-  return {
-    from: new Date(year, monthIdx - 1, 1, 0, 0, 0, 0),
-    to: new Date(year, monthIdx, 0, 23, 59, 59, 999),
-  };
-}
-
 export const financeController = {
   async daily(req: Request, res: Response, next: NextFunction) {
     try {
       const q = dailyQuery.parse(req.query);
-      const date = q.date
-        ? new Date(`${q.date}T00:00:00`)
-        : new Date();
+      const date = parseLocalDay(q.date ?? localDayKey());
       res.json(await financeService.dailyForAdmin(date));
     } catch (error) {
       next(error);
@@ -47,23 +34,32 @@ export const financeController = {
   async serviceChargeMatrix(req: Request, res: Response, next: NextFunction) {
     try {
       const q = serviceChargeQuery.parse(req.query);
-      let range: { from: Date; to: Date };
+      let from: Date;
+      let to: Date;
       if (q.from && q.to) {
-        range = {
-          from: new Date(`${q.from}T00:00:00`),
-          to: new Date(`${q.to}T23:59:59.999`),
-        };
+        from = parseLocalDay(q.from);
+        // `to` is the LAST day in the range; service code expects an instant
+        // that lives inside that day so its inclusive-loop logic finds it.
+        // Half-open downstream queries will compute the proper exclusive end.
+        to = parseLocalDay(q.to);
       } else if (q.month) {
-        range = monthKeyToRange(q.month);
+        const range = localMonthRangeFor(q.month);
+        from = range.start;
+        // Last day of the month, expressed as a day-start instant.
+        to = new Date(range.end.getTime() - 24 * 60 * 60 * 1000);
       } else {
-        range = currentMonthRange();
+        const nowKey = localDayKey();
+        const monthKey = nowKey.slice(0, 7);
+        const range = localMonthRangeFor(monthKey);
+        from = range.start;
+        to = new Date(range.end.getTime() - 24 * 60 * 60 * 1000);
       }
-      if (range.from > range.to) {
+      if (from > to) {
         return res.status(400).json({
           error: { code: 'VALIDATION', message: '"to" sanasi "from" sanasidan oldin bo\'lishi mumkin emas' },
         });
       }
-      res.json(await financeService.serviceChargeMatrix(range));
+      res.json(await financeService.serviceChargeMatrix({ from, to }));
     } catch (error) {
       next(error);
     }
