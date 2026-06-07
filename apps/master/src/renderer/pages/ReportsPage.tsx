@@ -210,13 +210,13 @@ function MonthlyView({
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
         <StatTile
-          label="Umumiy tushum"
+          label="Kelgan pul"
           value={formatMoney(report.totals.realCashIn)}
-          hint="Real kassa kirimi"
+          hint="Kassaga jami"
           icon={ArrowDownToLine}
         />
         <StatTile
-          label="Sof savdo"
+          label="Sof sotuv"
           value={formatMoney(report.totals.netSales)}
           hint="Chegirmadan keyin"
           icon={ShoppingBag}
@@ -224,26 +224,25 @@ function MonthlyView({
         <StatTile
           label="Xizmat haqi"
           value={formatMoney(report.totals.serviceCharge)}
-          hint="Ofitsiantlarga jami"
+          hint="Ofitsiantlarga"
           icon={Sparkles}
           tone={Number(report.totals.serviceCharge) > 0 ? 'good' : 'neutral'}
         />
         <StatTile
-          label="Umumiy xarajat"
+          label="Jami chiqim"
           value={formatMoney(report.totals.expensesNet)}
-          hint="Netto chiqim"
           icon={ArrowUpFromLine}
           tone="warning"
         />
         <StatTile
           label="Sof foyda"
           value={formatMoney(report.totals.salesBasedProfit)}
-          hint="Savdo asosida"
+          hint="Sotuv − tan narxi − chiqim"
           icon={TrendingUp}
           tone={Number(report.totals.salesBasedProfit) >= 0 ? 'good' : 'danger'}
         />
         <StatTile
-          label="Nasiya qoldig'i"
+          label="Qarz qoldig'i"
           value={formatMoney(report.totals.outstandingDebtEndOfMonth)}
           hint="Oy oxiriga"
           icon={HandCoins}
@@ -529,14 +528,13 @@ function SummaryView({ report }: { report: SummaryReport }) {
 
   return (
     <div className="space-y-6">
-      {/* Incomes block — shared between both views */}
       <Card>
         <CardHeader>
           <h3 className="text-sm font-semibold uppercase tracking-wide">
             Kirimlar — kategoriyalar bo'yicha
           </h3>
           <p className="text-xs text-muted-foreground">
-            Sotuv revenue menyu kategoriyalari bo'yicha
+            Menyu kategoriyalari bo'yicha sotuv
           </p>
         </CardHeader>
         <CardContent>
@@ -552,7 +550,9 @@ function SummaryView({ report }: { report: SummaryReport }) {
                   <th className="text-right py-2 font-medium">Soni</th>
                   <th className="text-right py-2 font-medium">Sotuv (so'm)</th>
                   <th className="text-right py-2 font-medium">Tan narxi</th>
-                  <th className="text-right py-2 font-medium">Foyda</th>
+                  <th className="text-right py-2 font-medium" title="Sotuv − Tan narxi (operatsion chiqimga bo'lib o'tmagan)">
+                    Yalpi foyda
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -606,12 +606,11 @@ function SummaryView({ report }: { report: SummaryReport }) {
 
       {/* Two side-by-side cards: P&L | Cash basis */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* P&L view */}
         <Card>
           <CardHeader>
-            <h3 className="text-sm font-semibold uppercase tracking-wide">P&L (sof foyda)</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide">Sof foyda</h3>
             <p className="text-xs text-muted-foreground">
-              Accrual — sotilgan ovqatlar tan narxi (COGS) hisobga olinadi, xaridlar emas
+              Sotuv − sotilgan ovqat tan narxi − chiqim
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -637,15 +636,15 @@ function SummaryView({ report }: { report: SummaryReport }) {
 
             <div className="space-y-1 pt-3 border-t border-border">
               <div className="flex justify-between text-sm">
-                <span>Sotuv (kirim)</span>
+                <span>Sotuv</span>
                 <span className="tabular-nums text-success">+{formatMoney(report.pnl.revenue)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span>Tan narxi (COGS)</span>
+                <span>Tan narxi</span>
                 <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.cogs)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span>Operatsion chiqim</span>
+                <span>Chiqim</span>
                 <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.operatingExpense)}</span>
               </div>
               <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
@@ -658,18 +657,17 @@ function SummaryView({ report }: { report: SummaryReport }) {
           </CardContent>
         </Card>
 
-        {/* Cash basis */}
         <Card>
           <CardHeader>
-            <h3 className="text-sm font-semibold uppercase tracking-wide">Naqd pul harakati</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide">Pul harakati</h3>
             <p className="text-xs text-muted-foreground">
-              Cash basis — xaridlar to'g'ridan-to'g'ri chiqim, COGS yo'q
+              Haqiqatda kassaga kelgan/ketgan pul
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
               <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-                Chiqimlar — kategoriyalar bo'yicha (xaridlar bilan)
+                Kategoriyalar bo'yicha chiqimlar (xaridlar bilan)
               </div>
               {report.cash.expensesByCategory.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-1">Chiqim yo'q</p>
@@ -689,7 +687,7 @@ function SummaryView({ report }: { report: SummaryReport }) {
 
             <div className="space-y-1 pt-3 border-t border-border">
               <div className="flex justify-between text-sm">
-                <span>Sotuv (naqd + karta)</span>
+                <span>Sotuv (naqd va karta)</span>
                 <span className="tabular-nums text-success">+{formatMoney(report.cash.salesInflow)}</span>
               </div>
               {Number(report.cash.debtRepaid) > 0 && (
@@ -705,15 +703,15 @@ function SummaryView({ report }: { report: SummaryReport }) {
                 </div>
               )}
               <div className="flex justify-between text-sm font-semibold border-t border-border/40 pt-1">
-                <span>Jami kirim</span>
+                <span>Jami kelgan</span>
                 <span className="tabular-nums text-success">{formatMoney(report.cash.totalIn)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span>Jami chiqim</span>
+                <span>Jami ketgan</span>
                 <span className="tabular-nums text-destructive">−{formatMoney(report.cash.totalOut)}</span>
               </div>
               <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
-                <span className="uppercase tracking-wide">Naqd farq</span>
+                <span className="uppercase tracking-wide">Farq</span>
                 <span className={`tabular-nums ${cashFarq > 0 ? 'text-success' : cashFarq < 0 ? 'text-destructive' : ''}`}>
                   {formatMoney(report.cash.farq)}
                 </span>

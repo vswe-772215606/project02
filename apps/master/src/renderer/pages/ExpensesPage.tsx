@@ -315,10 +315,10 @@ export function ExpensesPage() {
       {!isSearching && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <StatTile
-            label="Netto chiqim"
+            label="Jami chiqim"
             value={Number(data?.totals.net ?? 0).toLocaleString('uz-UZ').replace(/,/g, ' ')}
             icon={Wallet}
-            hint="Bugungi haqiqiy kassa chiqimi"
+            hint="Bugun kassadan ketgan"
           />
           <StatTile
             label="Kutilayotgan qaytim"

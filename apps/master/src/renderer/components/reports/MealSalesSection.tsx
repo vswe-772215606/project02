@@ -42,7 +42,7 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
     },
     {
       key: 'gross',
-      header: 'Brutto savdo',
+      header: 'Sotuv',
       align: 'right',
       cell: (row) => <MoneyCell value={row.grossSales} />,
     },
@@ -57,10 +57,7 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Taomlar bo'yicha sotuv"
-      description="Tanlangan kunda har bir taom necha marta va qancha summaga sotilgan."
-    >
+    <Section title="Taomlar bo'yicha sotuv">
       <DataTable
         columns={columns}
         data={report.mealSales}
@@ -72,7 +69,7 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
           <Totaled label="Taom turlari" value={`${report.mealSales.length} ta`} />
           <Totaled label="Jami sotilgan" value={`${totals.qty} dona`} />
           <Totaled label="Buyurtmalarda" value={`${totals.ordersCount} ta`} />
-          <Totaled label="Jami brutto" value={formatMoney(totals.gross)} bold />
+          <Totaled label="Jami sotuv" value={formatMoney(totals.gross)} bold />
         </div>
       )}
     </Section>

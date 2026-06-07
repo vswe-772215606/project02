@@ -45,6 +45,13 @@ import {
   logProcessContext,
 } from './startup-log';
 
+// Force Chromium's UI locale to ru-RU so `<input type="date">` renders
+// DD.MM.YYYY (matching Tashkent / Uzbek convention) instead of falling back
+// to en-US mm/dd/yyyy on hosts where the system locale is English. Must be
+// called BEFORE app.whenReady(). The page itself is still Uzbek; only the
+// native picker chrome is affected.
+app.commandLine.appendSwitch('lang', 'ru-RU');
+
 const singleInstanceLockAcquired = app.requestSingleInstanceLock();
 const logger = createStartupLogger(app.getPath('userData'));
 const runtimeLogger = createFileLogger(
@@ -232,6 +239,19 @@ async function runStartup(): Promise<void> {
     logger.info('before SQLite bootstrap');
     await bootstrapPackagedWindowsSqlite(logger);
     logger.info('after SQLite bootstrap');
+
+    // Data migrations run after schema is in sync. Idempotent and
+    // non-fatal — failures land in startup.log but don't block boot.
+    logger.info('before data migrations');
+    try {
+      const { runDataMigrations } = await import('./data-migrations');
+      const { getPrisma } = await import('./server/lib/prisma');
+      await runDataMigrations(getPrisma(), logger);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`data-migrations import failed: ${msg}`);
+    }
+    logger.info('after data migrations');
 
     logger.info('before startServer');
     await startServer();

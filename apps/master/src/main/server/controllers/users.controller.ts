@@ -97,6 +97,12 @@ export const usersController = {
         waiterId: string;
         waiterName: string;
         orders: number;
+        // Sof savdo = subtotal − discount (xizmat haqisiz). Same definition
+        // owner's perWaiter.revenue uses, so the admin's "Savdo" column and
+        // the owner's "Daromad" column show identical numbers per waiter.
+        revenue: Prisma.Decimal;
+        // billedTotal = totalSnapshot — full bill the customer paid (revenue
+        // + service charge). Kept for any UI that wants the cheque total.
         billedTotal: Prisma.Decimal;
         serviceEarned: Prisma.Decimal;
       };
@@ -107,10 +113,14 @@ export const usersController = {
           waiterId: order.waiterId,
           waiterName: order.waiter.fullName,
           orders: 0,
+          revenue: new Prisma.Decimal(0),
           billedTotal: new Prisma.Decimal(0),
           serviceEarned: new Prisma.Decimal(0),
         };
         agg.orders += 1;
+        const subtotal = order.subtotalSnapshot ?? new Prisma.Decimal(0);
+        const discount = order.discountAmountSnapshot ?? new Prisma.Decimal(0);
+        agg.revenue = agg.revenue.plus(subtotal.minus(discount));
         agg.billedTotal = agg.billedTotal.plus(order.totalSnapshot ?? new Prisma.Decimal(0));
         agg.serviceEarned = agg.serviceEarned.plus(order.serviceChargeSnapshot ?? new Prisma.Decimal(0));
         map.set(order.waiterId, agg);
@@ -119,11 +129,12 @@ export const usersController = {
       res.json({
         date: dayKey,
         items: Array.from(map.values())
-          .sort((a, b) => Number(b.billedTotal) - Number(a.billedTotal))
+          .sort((a, b) => Number(b.revenue) - Number(a.revenue))
           .map((agg) => ({
             waiterId: agg.waiterId,
             waiterName: agg.waiterName,
             orders: agg.orders,
+            revenue: agg.revenue.toFixed(0),
             billedTotal: agg.billedTotal.toFixed(0),
             serviceEarned: agg.serviceEarned.toFixed(0),
           })),

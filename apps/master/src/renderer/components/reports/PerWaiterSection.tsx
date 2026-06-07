@@ -31,7 +31,7 @@ export function PerWaiterSection({ report }: { report: DailyReport }) {
     },
     {
       key: 'revenue',
-      header: 'Daromad (sof savdo)',
+      header: 'Sotuv',
       align: 'right',
       cell: (row) => <MoneyCell value={row.revenue} />,
     },
@@ -58,10 +58,7 @@ export function PerWaiterSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Ofitsiantlar bo'yicha"
-      description="Tanlangan kun uchun har bir ofitsiantning yopilgan buyurtmalari va daromadi."
-    >
+    <Section title="Ofitsiantlar bo'yicha">
       <DataTable
         columns={columns}
         data={report.perWaiter}
@@ -72,7 +69,7 @@ export function PerWaiterSection({ report }: { report: DailyReport }) {
         <div className="mt-3 grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/30 px-4 py-2 text-sm sm:grid-cols-4">
           <Totaled label="Ofitsiantlar" value={`${report.perWaiter.length} ta`} />
           <Totaled label="Buyurtmalar" value={`${totals.orders} ta`} />
-          <Totaled label="Jami daromad" value={formatMoney(totals.revenue)} bold />
+          <Totaled label="Jami sotuv" value={formatMoney(totals.revenue)} bold />
           <Totaled label="Jami xizmat haqi" value={formatMoney(totals.service)} />
         </div>
       )}

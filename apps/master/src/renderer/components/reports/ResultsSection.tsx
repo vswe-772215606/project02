@@ -56,25 +56,25 @@ function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { promi
 }
 
 export function ResultsSection({ report }: { report: DailyReport }) {
-  const salesProfit = Number(report.results.salesBasedProfit);
-
+  const pnl = report.ledger.pnl;
+  const salesProfit = Number(pnl.profit);
   const salesTone = salesProfit > 0 ? 'good' : salesProfit < 0 ? 'danger' : 'neutral';
 
   const paymentDiff = Number(report.checks.salesVsPayments.difference);
 
   return (
-    <Section title="Sof natija" description="Bugungi kun bo'yicha foyda va pul oqimi natijasi.">
+    <Section title="Bugungi natija">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <ProfitHeadline
-          label="Sof foyda (savdo)"
-          value={report.results.salesBasedProfit}
-          hint="Sof savdo − netto chiqim"
+          label="Sof foyda"
+          value={pnl.profit}
+          hint="Sotuv − tan narxi − chiqim"
           prominent
         />
         <ProfitHeadline
-          label="Pul oqimi natijasi"
+          label="Kassa o'zgarishi"
           value={report.results.cashflowBasedNet}
-          hint="Real tushum − netto chiqim"
+          hint="Kelgan pul − ketgan pul"
         />
       </div>
 
@@ -83,17 +83,18 @@ export function ResultsSection({ report }: { report: DailyReport }) {
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
             Foyda hisobi
           </div>
-          <Row label="Sof savdo" value={formatMoney(report.sales.netSales)} />
-          <Row label="Netto chiqim" value={`-${formatMoney(report.expenses.net)}`} tone="muted" />
-          <Row label="Sof foyda" value={formatMoney(report.results.salesBasedProfit)} bold tone={salesTone} />
-          <Row label="Xizmat haqi (alohida)" value={formatMoney(report.sales.serviceCharge)} tone="muted" />
+          <Row label="Sotuv" value={formatMoney(pnl.revenue)} />
+          <Row label="− Tan narxi" value={`-${formatMoney(pnl.cogs)}`} tone="muted" />
+          <Row label="− Chiqim" value={`-${formatMoney(pnl.operatingExpense)}`} tone="muted" />
+          <Row label="Sof foyda" value={formatMoney(pnl.profit)} bold tone={salesTone} />
+          <Row label="Xizmat haqi (ofitsiantlarga)" value={formatMoney(report.sales.serviceCharge)} tone="muted" />
         </div>
 
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
             To'lov tekshiruvi
           </div>
-          <Row label="Yakuniy chek summasi" value={formatMoney(report.checks.salesVsPayments.billedTotal)} />
+          <Row label="Chek summasi" value={formatMoney(report.checks.salesVsPayments.billedTotal)} />
           <Row label="To'lovlar yig'indisi" value={formatMoney(report.checks.salesVsPayments.paymentTotal)} />
           <Row
             label="Farq"

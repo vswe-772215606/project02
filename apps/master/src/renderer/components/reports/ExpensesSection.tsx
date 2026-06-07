@@ -28,7 +28,7 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
     },
     {
       key: 'amount',
-      header: 'Imzoli summa',
+      header: 'Summa',
       align: 'right',
       cell: (row) => (
         <MoneyCell
@@ -40,10 +40,7 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Xarajatlar"
-      description="Kiritilgan chiqimlar, qaytarilgan satrlar va turkumlar bo'yicha yig'indi."
-    >
+    <Section title="Xarajatlar">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(260px,1fr)]">
         <DataTable
           columns={columns}
@@ -57,13 +54,13 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
               Qisqa hisob
             </div>
-            <Row label="Kiritilgan chiqim" value={formatMoney(report.checks.expenses.recordedExpense)} />
+            <Row label="Kiritilgan" value={formatMoney(report.checks.expenses.recordedExpense)} />
             <Row
               label="Bekor qilingan"
               value={formatMoney(report.checks.expenses.reversalAmount)}
               tone={Number(report.checks.expenses.reversalAmount) > 0 ? 'warning' : 'muted'}
             />
-            <Row label="Netto chiqim" value={formatMoney(report.expenses.net)} bold />
+            <Row label="Jami chiqim" value={formatMoney(report.expenses.net)} bold />
           </div>
 
           <div>

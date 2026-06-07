@@ -69,7 +69,7 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
     },
     {
       key: 'net',
-      header: 'Sof tushum',
+      header: 'Sof sotuv',
       align: 'right',
       cell: (row) => <MoneyCell value={row.sales.netSales} />,
     },
@@ -106,7 +106,7 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
     },
     {
       key: 'outstanding',
-      header: "Qoldiq nasiya",
+      header: "Qarz qoldig'i",
       align: 'right',
       cell: (row) => {
         const v = Number(row.debtSnapshot.outstandingTotal);
@@ -123,7 +123,7 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
   return (
     <Card data-print-keep>
       <CardHeader>
-        <CardTitle>Kunlik kesim</CardTitle>
+        <CardTitle>Kunlik ko'rsatkichlar</CardTitle>
         <p className="text-sm text-muted-foreground">
           Qatorni bossangiz o'sha kunning to'liq hisoboti ochiladi.
         </p>

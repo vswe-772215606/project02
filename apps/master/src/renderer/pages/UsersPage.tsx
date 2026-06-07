@@ -207,7 +207,9 @@ export function UsersPage() {
                   <td className="px-6 py-2.5 text-sm font-semibold text-slate-800">{row.waiterName}</td>
                   <td className="px-6 py-2.5 text-sm tabular-nums text-right">{row.orders}</td>
                   <td className="px-6 py-2.5 text-sm font-bold tabular-nums text-right">
-                    {Number(row.billedTotal).toLocaleString('uz-UZ').replace(/,/g, ' ')}
+                    {/* Sof savdo (subtotal − chegirma, xizmat haqisiz) — owner's
+                        perWaiter.revenue bilan bir xil raqam. */}
+                    {Number(row.revenue).toLocaleString('uz-UZ').replace(/,/g, ' ')}
                   </td>
                   <td className="px-6 py-2.5 text-sm font-bold tabular-nums text-right text-amber-700">
                     {Number(row.serviceEarned).toLocaleString('uz-UZ').replace(/,/g, ' ')}

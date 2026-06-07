@@ -153,6 +153,11 @@ function buildMealSales(closedOrders: ReportOrder[]) {
   for (const order of closedOrders) {
     for (const line of order.lines) {
       if (line.isCanceled) continue;
+      // Exclude SERVICE-kind lines (xizmat haqi). Otherwise the section's
+      // "Jami brutto" total includes service charges and disagrees with the
+      // page's "Brutto savdo" stat tile (which is FOOD only via
+      // billingService.subtotal).
+      if (line.menuItem.kind !== 'FOOD') continue;
 
       const key = `${line.nameSnapshot}::${line.menuItem.category.name}`;
       const existing = mealMap.get(key) ?? {
@@ -438,11 +443,6 @@ export const reportsService = {
       expenseReturns,
       expenses,
       outstandingAtMonthEnd,
-      // For per-day outstanding-as-of-EOD: every debt opened on or before the
-      // month end, and every repayment paid on or before the month end. We
-      // sort and sweep these in-memory rather than running 31 SUM queries.
-      allDebtsThroughMonth,
-      allRepaymentsThroughMonth,
     ] = await Promise.all([
       prisma.order.findMany({
         where: { status: OrderStatus.CLOSED, closedAt: { gte: monthStartUtc, lt: monthEnd } },
@@ -480,17 +480,21 @@ export const reportsService = {
       }),
       // Outstanding-as-of-end-of-month: use the proper aggregate primitive.
       debtRepo.sumOutstandingAsOf(new Date(monthEnd.getTime() - MS_PER_DAY)),
-      prisma.debt.findMany({
-        where: { openedAt: { lt: monthEnd } },
-        select: { openedAt: true, originalAmount: true },
-        orderBy: { openedAt: 'asc' },
-      }),
-      prisma.debtRepayment.findMany({
-        where: { paidAt: { lt: monthEnd } },
-        select: { paidAt: true, amount: true },
-        orderBy: { paidAt: 'asc' },
-      }),
     ]);
+
+    // Per-day outstanding-as-of-EOD: parallel SQL aggregates, one per day.
+    // The previous in-memory cursor sweep didn't handle write-offs correctly
+    // (a debt's principal kept contributing after writeOff). Reusing the
+    // debt.repo primitive keeps the canonical write-off semantics in one
+    // place. Cost: ~D parallel aggregates (≤31 for a month), well under the
+    // monthly() budget — see smoke-prd13-monthly-perf.ts.
+    const eodPerDay: Date[] = [];
+    for (let cursor = monthStartUtc; cursor < monthEnd; cursor = new Date(cursor.getTime() + MS_PER_DAY)) {
+      eodPerDay.push(cursor);
+    }
+    const outstandingByDay = await Promise.all(
+      eodPerDay.map((cursor) => debtRepo.sumOutstandingAsOf(cursor)),
+    );
 
     // ─── Per-day aggregation buckets ───────────────────────────────────
     type DayAgg = {
@@ -659,38 +663,20 @@ export const reportsService = {
     let totalProfit = new Prisma.Decimal(0);
     let totalCashflowNet = new Prisma.Decimal(0);
 
-    // Sweep cursors over the sorted debt-open / repayment-paid lists so the
-    // per-day outstanding figure is O(N) total instead of N×lookup per day.
-    let debtIdx = 0;
-    let cumulativeOpened = new Prisma.Decimal(0);
-    let repaymentIdx = 0;
-    let cumulativeRepaid = new Prisma.Decimal(0);
-
-    for (let cursor = monthStartUtc; cursor < monthEnd; cursor = new Date(cursor.getTime() + MS_PER_DAY)) {
+    for (let i = 0; i < eodPerDay.length; i += 1) {
+      const cursor = eodPerDay[i]!;
       const key = localDayKey(cursor);
       const agg = dayMap.get(key) ?? emptyAgg();
-      // End-of-Tashkent-day = start of next Tashkent day.
-      const eod = new Date(cursor.getTime() + MS_PER_DAY);
-
-      while (debtIdx < allDebtsThroughMonth.length && allDebtsThroughMonth[debtIdx]!.openedAt < eod) {
-        cumulativeOpened = cumulativeOpened.plus(allDebtsThroughMonth[debtIdx]!.originalAmount);
-        debtIdx += 1;
-      }
-      while (
-        repaymentIdx < allRepaymentsThroughMonth.length
-        && allRepaymentsThroughMonth[repaymentIdx]!.paidAt < eod
-      ) {
-        cumulativeRepaid = cumulativeRepaid.plus(allRepaymentsThroughMonth[repaymentIdx]!.amount);
-        repaymentIdx += 1;
-      }
-      const outstandingAsOfEod = cumulativeOpened.minus(cumulativeRepaid);
+      const outstandingAsOfEod = outstandingByDay[i]!;
 
       const netSales = agg.gross.minus(agg.discount);
       const expenseNet = agg.expenseGross.minus(agg.expenseReversal);
+      // realCashIn includes expense returns — see dailyLedger() for rationale.
       const realCashIn = agg.orderCash
         .plus(agg.orderCard)
         .plus(agg.debtRepaidCash)
-        .plus(agg.debtRepaidCard);
+        .plus(agg.debtRepaidCard)
+        .plus(agg.expenseReturns);
       // Canonical P&L: revenue − cogs − operatingExpense.
       const profit = netSales.minus(agg.cogs).minus(agg.operatingExpense);
       const cashflowNet = realCashIn.minus(expenseNet);
@@ -759,10 +745,12 @@ export const reportsService = {
 
     const totalNetSales = totals.gross.minus(totals.discount);
     const totalExpenseNet = totals.expenseGross.minus(totals.expenseReversal);
+    // Mirror dailyLedger: monthly total includes expense returns in real cash.
     const totalRealCashIn = totals.orderCash
       .plus(totals.orderCard)
       .plus(totals.debtRepaidCash)
-      .plus(totals.debtRepaidCard);
+      .plus(totals.debtRepaidCard)
+      .plus(totals.expenseReturns);
 
     return {
       month: monthKey,
@@ -1205,7 +1193,16 @@ export const reportsService = {
       }
     }
     const expenseReturnsTotal = expenseReturnsAgg._sum.amount ?? new Prisma.Decimal(0);
-    const realCashIn = orderCash.plus(orderCard).plus(debtRepaidCash).plus(debtRepaidCard);
+    // realCashIn covers ALL real cash that crossed the till today: sales,
+    // historical debt repayments, AND money returned from advances/zalogs.
+    // Pre-fix this excluded returns, which made owner's cashflowBasedNet
+    // disagree with admin's drawer.movement (admin included returns) on any
+    // day with an expense return.
+    const realCashIn = orderCash
+      .plus(orderCard)
+      .plus(debtRepaidCash)
+      .plus(debtRepaidCard)
+      .plus(expenseReturnsTotal);
 
     // ─── Outflow / P&L ─────────────────────────────────────────────────
     const expenseGross = new Prisma.Decimal(expenseSummary.totals.gross);

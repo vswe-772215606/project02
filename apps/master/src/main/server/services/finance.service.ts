@@ -50,10 +50,17 @@ export const financeService = {
       operatingExpenseSummary,
       closedOrderRows,
       walkoutOrderRows,
-      outstandingDebtsLifetime,
+      outstandingDebtsAsOfDay,
     ] = await Promise.all([
       prisma.purchase.findMany({
-        where: { occurredAt: { gte: dayStart, lt: dayEnd } },
+        // Drill-down list and totals must only count ACTIVE purchases. A
+        // reversed/deleted batch would otherwise show in the "Xaridlar (ombor)"
+        // block AND inflate purchasesTotal, while its Expense row already nets
+        // to 0 — admin would see a mismatch (xaridlar > expensesNet).
+        where: {
+          occurredAt: { gte: dayStart, lt: dayEnd },
+          status: 'ACTIVE',
+        },
         include: { ingredient: { select: { id: true, name: true, buyUnit: true } } },
         orderBy: [{ occurredAt: 'asc' }],
       }),
@@ -76,7 +83,11 @@ export const financeService = {
         where: { status: OrderStatus.WALKOUT, walkoutAt: { gte: dayStart, lt: dayEnd } },
         select: { id: true, totalSnapshot: true },
       }),
-      debtRepo.sumOutstanding(),
+      // Outstanding-as-of-EOD for the *selected* day, not the current lifetime.
+      // Pre-fix this used sumOutstanding() (current snapshot), so admin viewing
+      // a past day saw "today's" outstanding instead of "that day's" — and
+      // it disagreed with owner's number.
+      debtRepo.sumOutstandingAsOf(date),
     ]);
 
     // Numbers below come from the ledger; expense detail comes from the local
@@ -149,7 +160,7 @@ export const financeService = {
       },
       drawer: {
         movement: decStr(drawerMovement),
-        outstandingDebts: decStr(outstandingDebtsLifetime),
+        outstandingDebts: decStr(outstandingDebtsAsOfDay),
       },
       // Lists for drill-down
       purchases: purchases.map((p) => ({
@@ -277,7 +288,7 @@ export const financeService = {
         // collectedCount isn't in canonical DTO; lines.debtRepayments has it
         collectedCount: ledger.lines.debtRepayments.length,
         collectedAmount: ledger.debt.repaidTodayAmount,
-        lifetimeOutstanding: decStr(outstandingDebtsLifetime),
+        lifetimeOutstanding: decStr(outstandingDebtsAsOfDay),
       },
 
       // Daily P&L summary — canonical numbers.

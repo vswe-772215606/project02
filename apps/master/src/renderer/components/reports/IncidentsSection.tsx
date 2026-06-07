@@ -70,10 +70,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Bekor qilingan va to'lamay ketgan buyurtmalar"
-      description="Tanlangan kunda yopilmagan buyurtmalar va ularning sabablari."
-    >
+    <Section title="Bekor va to'lamay ketgan">
       <div className="space-y-5">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -92,7 +89,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
             <span>To&apos;lamay ketgan ({report.walkouts.length} ta)</span>
             {report.walkouts.length > 0 && (
               <span className="text-xs font-normal text-destructive tabular-nums normal-case tracking-normal">
-                Yo&apos;qotilgan summa: {formatMoney(walkoutTotal)}
+                Jami: {formatMoney(walkoutTotal)}
               </span>
             )}
           </div>

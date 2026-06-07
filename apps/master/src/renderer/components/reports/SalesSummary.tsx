@@ -17,28 +17,28 @@ export function SalesSummary({ report }: { report: DailyReport }) {
         icon={ShoppingBag}
       />
       <StatTile
-        label="Brutto savdo"
+        label="Yalpi sotuv"
         value={formatMoney(report.sales.grossSales)}
         hint={`Chegirma: ${formatMoney(report.sales.discounts)}`}
         icon={Receipt}
       />
       <StatTile
-        label="Sof savdo"
+        label="Sof sotuv"
         value={formatMoney(report.sales.netSales)}
-        hint="Taom savdosi (xizmat haqisiz)"
+        hint="Xizmat haqisiz"
         icon={Banknote}
       />
       <StatTile
         label="Xizmat haqi"
         value={formatMoney(report.sales.serviceCharge)}
-        hint="Ofitsiantlar uchun (kishi boshi)"
+        hint="Ofitsiantlarga"
         icon={Sparkles}
         tone={Number(report.sales.serviceCharge) > 0 ? 'good' : 'neutral'}
       />
       <StatTile
         label="Qarzga sotildi"
         value={formatMoney(report.sales.debtSales)}
-        hint={`Yakuniy chek: ${formatMoney(report.checks.salesVsPayments.billedTotal)}`}
+        hint={`Chek: ${formatMoney(report.checks.salesVsPayments.billedTotal)}`}
         icon={HandCoins}
         tone={Number(report.sales.debtSales) > 0 ? 'warning' : 'neutral'}
       />

@@ -126,12 +126,22 @@ export const debtRepo = {
     // Half-open: "as of end-of-day D" === "events with timestamp < start of D+1".
     const { end } = localDayRange(date);
 
+    // A debt written off before `end` is no longer outstanding — its principal
+    // was recognized as a loss, not as a still-collectible receivable. Filter
+    // those out on BOTH sides so the original AND its repayments stop
+    // contributing once the write-off date passes.
+    const stillOutstandingFilter = {
+      OR: [
+        { writtenOffAt: null },
+        { writtenOffAt: { gte: end } },
+      ],
+    };
+
     const [opened, repaid] = await Promise.all([
       client.debt.aggregate({
         where: {
-          openedAt: {
-            lt: end,
-          },
+          openedAt: { lt: end },
+          ...stillOutstandingFilter,
         },
         _sum: {
           originalAmount: true,
@@ -139,9 +149,8 @@ export const debtRepo = {
       }),
       client.debtRepayment.aggregate({
         where: {
-          paidAt: {
-            lt: end,
-          },
+          paidAt: { lt: end },
+          debt: stillOutstandingFilter,
         },
         _sum: {
           amount: true,

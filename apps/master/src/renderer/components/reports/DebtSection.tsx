@@ -80,12 +80,12 @@ export function DebtSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section title="Nasiyalar" description="Bugungi nasiya harakati va kunni yopgan qarz qoldig'i.">
+    <Section title="Qarzlar">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-4">
         <StatTile
           label="Bugun ochilgan"
           value={formatMoney(report.debtSnapshot.openedTodayAmount)}
-          hint={`${report.debtSnapshot.openedTodayCount} ta yangi nasiya`}
+          hint={`${report.debtSnapshot.openedTodayCount} ta yangi`}
           icon={ArrowUpFromLine}
           tone={Number(report.debtSnapshot.openedTodayAmount) > 0 ? 'warning' : 'neutral'}
         />
@@ -99,14 +99,14 @@ export function DebtSection({ report }: { report: DailyReport }) {
         <StatTile
           label="Qarz qoldig'i"
           value={formatMoney(report.debtSnapshot.outstandingTotal)}
-          hint="Jami kutilayotgan qarz"
+          hint="Kun oxiriga"
           icon={HandCoins}
           tone={Number(report.debtSnapshot.outstandingTotal) > 0 ? 'danger' : 'good'}
         />
         <StatTile
-          label="Jadval bo'yicha jami"
+          label="Ro'yxatda jami"
           value={formatMoney(debtTotals.remaining)}
-          hint={`${report.debtLedger.length} ta nasiya ko'rsatilgan`}
+          hint={`${report.debtLedger.length} ta qarz`}
           icon={Users}
         />
       </div>

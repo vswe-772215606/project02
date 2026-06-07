@@ -50,7 +50,7 @@ export function OrdersSection({ report }: { report: DailyReport }) {
     },
     {
       key: 'gross',
-      header: 'Brutto',
+      header: 'Yalpi',
       align: 'right',
       cell: (row) => <MoneyCell value={row.gross} />,
     },
@@ -92,10 +92,7 @@ export function OrdersSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Buyurtmalar registri"
-      description="Tanlangan kun bo'yicha barcha yopilgan, bekor qilingan va to'lamagan buyurtmalar."
-    >
+    <Section title="Buyurtmalar ro'yxati">
       <DataTable
         columns={columns}
         data={report.ordersTable}
@@ -104,7 +101,7 @@ export function OrdersSection({ report }: { report: DailyReport }) {
       />
       {report.ordersTable.length > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/30 px-4 py-2 text-sm sm:grid-cols-6">
-          <Totaled label="Brutto" value={formatMoney(totals.gross)} />
+          <Totaled label="Yalpi" value={formatMoney(totals.gross)} />
           <Totaled label="Chegirma" value={formatMoney(totals.discount)} />
           <Totaled label="Sof" value={formatMoney(totals.net)} bold />
           <Totaled label="Naqd" value={formatMoney(totals.cash)} />

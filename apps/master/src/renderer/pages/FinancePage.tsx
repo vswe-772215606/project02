@@ -267,7 +267,6 @@ export function FinancePage() {
         }
       />
 
-      {/* Top tiles — at-a-glance P&L */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <StatTile
           label="Sotuv"
@@ -277,14 +276,14 @@ export function FinancePage() {
           tone="neutral"
         />
         <StatTile
-          label="Tan narxi (COGS)"
+          label="Tan narxi"
           value={data ? fmtUzs(data.pnl.cogs) : '—'}
-          hint="Sotilgan ovqat masalliqlari"
+          hint="Sotilgan ovqat tannarxi"
           icon={Package}
           tone="warning"
         />
         <StatTile
-          label="Operatsion chiqim"
+          label="Chiqim"
           value={data ? fmtUzs(data.pnl.operatingExpense) : '—'}
           hint="Xaridlardan tashqari"
           icon={ArrowUpFromLine}
@@ -293,7 +292,7 @@ export function FinancePage() {
         <StatTile
           label="Sof foyda"
           value={data ? fmtUzs(data.pnl.profit) : '—'}
-          hint={profit < 0 ? 'Zarar' : 'Sotuv − COGS − chiqim'}
+          hint={profit < 0 ? 'Zarar' : 'Sotuv − tan narxi − chiqim'}
           icon={profit >= 0 ? TrendingUp : TrendingDown}
           tone={profitTone}
         />
@@ -302,7 +301,7 @@ export function FinancePage() {
       {/* ─── 1. Sotilgan ovqatlar ─── */}
       <Section
         title="Sotilgan ovqatlar"
-        description="Ovqat va kategoriya bo'yicha: tan narxi, sotuv narxi va foyda"
+        description="Kategoriya va ovqat bo'yicha"
       >
         {data && data.mealSales.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">Bugun sotuv yo'q</p>
@@ -332,8 +331,7 @@ export function FinancePage() {
       </Section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {/* ─── 2. Nasiya ─── */}
-        <Section title="Nasiya (qarz)" description="Bugun ochilgan va yopilgan">
+        <Section title="Qarz" description="Bugun ochilgan va yopilgan">
           <div className="space-y-2">
             <div className="flex items-start justify-between py-1 border-b border-border/40">
               <div>
@@ -360,8 +358,7 @@ export function FinancePage() {
           </div>
         </Section>
 
-        {/* ─── 3. Chiqimlar (operatsion, xaridlarsiz) ─── */}
-        <Section title="Chiqimlar" description="Operatsion (ijara, maosh, kommunal — xaridlarsiz)">
+        <Section title="Chiqimlar" description="Ijara, maosh, kommunal va h.k. (xaridlarsiz)">
           <div className="space-y-2">
             <div className="flex items-start justify-between py-1 border-b border-border/40">
               <div>
@@ -380,8 +377,7 @@ export function FinancePage() {
           </div>
         </Section>
 
-        {/* ─── 4. Xaridlar (info) ─── */}
-        <Section title="Xaridlar (ombor)" description="Bugun ombor uchun ketgan pul">
+        <Section title="Xaridlar" description="Ombor uchun ketgan pul">
           <div className="space-y-2">
             <div className="flex items-start justify-between py-1 border-b border-border/40">
               <div>
@@ -393,25 +389,24 @@ export function FinancePage() {
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground leading-snug pt-1">
-              Bu summa zaxiraga kirdi. Sof foyda hisobiga sotilgandan keyin tan narx sifatida kiradi.
+              Bu summa omborga kirdi. Foydaga sotilgandan keyin tan narxi sifatida kiradi.
             </p>
           </div>
         </Section>
       </div>
 
-      {/* ─── Yakuniy P&L ─── */}
-      <Section title="Bugungi yakun (P&L)" description="Sotuv − Tan narxi − Operatsion chiqim = Sof foyda">
+      <Section title="Bugungi yakun" description="Sotuv − tan narxi − chiqim = sof foyda">
         <div className="space-y-2 max-w-md mx-auto">
           <div className="flex items-center justify-between py-1.5 border-b border-border/40">
-            <span className="text-sm">Sotuv (kirim)</span>
+            <span className="text-sm">Sotuv</span>
             <span className="text-base font-semibold tabular-nums text-success">+{fmtUzs(data?.pnl.revenue ?? 0)}</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b border-border/40">
-            <span className="text-sm">Tan narxi (COGS)</span>
+            <span className="text-sm">Tan narxi</span>
             <span className="text-base font-semibold tabular-nums text-destructive">−{fmtUzs(data?.pnl.cogs ?? 0)}</span>
           </div>
           <div className="flex items-center justify-between py-1.5 border-b border-border/40">
-            <span className="text-sm">Operatsion chiqim</span>
+            <span className="text-sm">Chiqim</span>
             <span className="text-base font-semibold tabular-nums text-destructive">−{fmtUzs(data?.pnl.operatingExpense ?? 0)}</span>
           </div>
           <div className="flex items-center justify-between pt-3">
@@ -423,9 +418,8 @@ export function FinancePage() {
         </div>
       </Section>
 
-      {/* Drill-down: today's operating expenses */}
       {data && data.operatingExpenses.length > 0 && (
-        <Section title="Bugungi chiqimlar — batafsil" description="Operatsion xarajatlarning to'liq ro'yxati">
+        <Section title="Bugungi chiqimlar" description="To'liq ro'yxat">
           <DataTable
             columns={opExpenseColumns}
             data={data.operatingExpenses}
@@ -435,11 +429,10 @@ export function FinancePage() {
         </Section>
       )}
 
-      {/* Drill-down: today's ingredient purchases (collapsible) */}
       {data && data.ingredientPurchases.length > 0 && (
         <CollapsibleSection
-          title="Bugungi xaridlar — batafsil"
-          description="Ombor uchun olingan mahsulotlar"
+          title="Bugungi xaridlar"
+          description="Olingan mahsulotlar"
           badge={`${data.ingredientPurchases.length} ta`}
           defaultOpen={false}
         >
@@ -453,33 +446,33 @@ export function FinancePage() {
       )}
 
       {/* Pul oqimi (cash drawer) — secondary view, kept for cash reconciliation.
-          Math: data.outflow.expensesNet ALREADY includes ingredient-purchase
-          expense rows (since record-purchase auto-creates an Expense). So if we
-          showed "Xaridlar + Operatsion = Jami" using expensesNet, the xaridlar
-          would be double-counted. Split it instead:
-            opsXaridsiz = expensesNet − purchasesTotal
-          and totalOut == expensesNet keeps the drawer identity intact. */}
+          Math: every Purchase auto-creates an Expense, so expensesNet already
+          covers both. We display Xaridlar and Operatsion as two cash deltas:
+            Xaridlar     = data.outflow.purchasesTotal (ACTIVE only)
+            Operatsion   = expensesNet − purchasesTotal (the operating delta)
+          and Jami chiqim = expensesNet keeps the drawer identity intact.
+          Backend now filters Purchase by status=ACTIVE, so on a reversal day
+          the difference is ≥ 0 and the breakdown sums to Jami chiqim. */}
       {data && (() => {
         const expensesNet = Number(data.outflow.expensesNet);
         const purchasesTotal = Number(data.outflow.purchasesTotal);
-        const opExclPurchases = Math.max(0, expensesNet - purchasesTotal);
+        const opExclPurchases = expensesNet - purchasesTotal;
         const totalIn = Number(data.cashflow.totalIn);
         const totalOut = Number(data.outflow.totalOut);
         const drawer = Number(data.drawer.movement);
         const drawerTone = drawer > 0 ? 'text-success' : drawer < 0 ? 'text-destructive' : '';
         return (
-          <Section title="Pul oqimi (kassa)" description="Bugun kassaga tushgan va chiqqan haqiqiy pul (P&L emas, naqd pul harakati)">
+          <Section title="Pul oqimi" description="Bugun kassaga kelgan va undan ketgan pul">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Kirim */}
               <div className="space-y-2">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Kirim</div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Kelgan</div>
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Naqd (savdo)</span>
+                    <span className="text-muted-foreground">Naqd (sotuv)</span>
                     <span className="tabular-nums">{fmtUzs(data.cashflow.cashIn)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Karta (savdo)</span>
+                    <span className="text-muted-foreground">Karta (sotuv)</span>
                     <span className="tabular-nums">{fmtUzs(data.cashflow.cardIn)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -494,31 +487,29 @@ export function FinancePage() {
                   )}
                 </div>
                 <div className="flex justify-between text-sm font-bold border-t border-border pt-2">
-                  <span>Jami kirim</span>
+                  <span>Jami kelgan</span>
                   <span className="tabular-nums text-success">+{fmtUzs(totalIn)}</span>
                 </div>
               </div>
 
-              {/* Chiqim */}
               <div className="space-y-2">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Chiqim</div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Ketgan</div>
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Xaridlar</span>
                     <span className="tabular-nums">{fmtUzs(purchasesTotal)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Operatsion</span>
+                    <span className="text-muted-foreground">Chiqimlar</span>
                     <span className="tabular-nums">{fmtUzs(opExclPurchases)}</span>
                   </div>
                 </div>
                 <div className="flex justify-between text-sm font-bold border-t border-border pt-2">
-                  <span>Jami chiqim</span>
+                  <span>Jami ketgan</span>
                   <span className="tabular-nums text-destructive">−{fmtUzs(totalOut)}</span>
                 </div>
               </div>
 
-              {/* Kassa o'zgarishi — full-height centered, fixed via flex container */}
               <div className="flex flex-col">
                 <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Kassa o'zgarishi</div>
                 <div className="flex-1 flex items-center justify-center py-4">

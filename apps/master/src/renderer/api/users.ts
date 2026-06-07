@@ -5,6 +5,13 @@ export type WaiterTodayStat = {
   waiterId: string;
   waiterName: string;
   orders: number;
+  /**
+   * Sof savdo per waiter — `subtotal − discount` (xizmat haqisiz). Same
+   * definition as owner's `perWaiter.revenue` so the two views agree on
+   * what a waiter's daromad is. UI primary column.
+   */
+  revenue: string;
+  /** Full bill (revenue + service charge). Kept for back-compat. */
   billedTotal: string;
   serviceEarned: string;
 };

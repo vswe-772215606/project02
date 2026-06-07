@@ -12,37 +12,34 @@ type RowSpec = {
 };
 
 /**
- * One consolidated P&L block at the bottom of the daily report. Designed to
- * be the single page a chayxana owner can hand to their accountant: every
- * income/expense flow + the final net result, with no exceptions.
- *
- * Numbers come from the same /api/reports/daily payload everything else
- * uses — no client-side recomputation that could drift from the master.
+ * Kun yakuniy hisoboti — barcha raqamlar bir joyda. Mijozning kirim/chiqim,
+ * pul oqimi va sof foydasini ko'rsatadi.
  */
 export function GrandSummarySection({ report }: { report: DailyReport }) {
   const walkoutTotal = sumMoney(report.walkouts.map((w) => w.amount));
+  const pnl = report.ledger.pnl;
 
   const incomeRows: RowSpec[] = [
-    { label: 'Brutto savdo', value: report.sales.grossSales, tone: 'income' },
-    { label: 'Chegirmalar', value: `-${report.sales.discounts}`, tone: 'muted', hint: 'Faol chegirmalar bo\'yicha kamaytirilgan summa' },
+    { label: 'Yalpi sotuv', value: report.sales.grossSales, tone: 'income' },
+    { label: 'Chegirmalar', value: `-${report.sales.discounts}`, tone: 'muted' },
     { label: 'Sof ovqat savdosi', value: report.sales.netSales, emphasis: 'subtotal' },
-    { label: 'Xizmat haqi (ofitsiantlarga)', value: report.sales.serviceCharge, tone: 'muted', hint: 'Buyurtmaga qo\'shilgan, mijoz to\'lagan' },
-    { label: 'Yakuniy chek summasi', value: report.checks.salesVsPayments.billedTotal, emphasis: 'bold', hint: 'Sof savdo + xizmat haqi' },
+    { label: 'Xizmat haqi (ofitsiantlarga)', value: report.sales.serviceCharge, tone: 'muted' },
+    { label: 'Chek summasi', value: report.checks.salesVsPayments.billedTotal, emphasis: 'bold' },
   ];
 
   const cashflowInRows: RowSpec[] = [
     { label: 'Naqd (buyurtmalardan)', value: report.cashflow.orderCash },
     { label: 'Karta (buyurtmalardan)', value: report.cashflow.orderCard },
-    { label: 'Nasiya qaytimi (naqd)', value: report.cashflow.debtRepaymentsCash, tone: 'good' },
-    { label: 'Nasiya qaytimi (karta)', value: report.cashflow.debtRepaymentsCard, tone: 'good' },
-    { label: 'Real kassa kirimi', value: report.cashflow.realCashIn, emphasis: 'bold' },
-    { label: 'Qarzga sotildi (kelajakka)', value: report.sales.debtSales, tone: 'warn', hint: 'Bugun kelishilgan, lekin hali to\'lanmagan' },
+    { label: 'Qarz qaytimi (naqd)', value: report.cashflow.debtRepaymentsCash, tone: 'good' },
+    { label: 'Qarz qaytimi (karta)', value: report.cashflow.debtRepaymentsCard, tone: 'good' },
+    { label: 'Jami kelgan pul', value: report.cashflow.realCashIn, emphasis: 'bold' },
+    { label: 'Qarzga sotildi', value: report.sales.debtSales, tone: 'warn', hint: 'Bugun kelishilgan, hali to\'lanmagan' },
   ];
 
   const expenseRows: RowSpec[] = [
-    { label: 'Kiritilgan chiqim (brutto)', value: report.expenses.gross, tone: 'expense' },
-    { label: 'Bekor qilingan chiqim', value: `-${report.checks.expenses.reversalAmount}`, tone: 'muted' },
-    { label: 'Netto chiqim', value: report.expenses.net, emphasis: 'bold', tone: 'expense' },
+    { label: 'Kiritilgan chiqim', value: report.expenses.gross, tone: 'expense' },
+    { label: 'Bekor qilingan', value: `-${report.checks.expenses.reversalAmount}`, tone: 'muted' },
+    { label: 'Jami chiqim (kassadan ketgan)', value: report.expenses.net, emphasis: 'bold', tone: 'expense' },
   ];
 
   if (report.expenses.byCategory.length > 0) {
@@ -56,19 +53,22 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
   }
 
   const resultRows: RowSpec[] = [
+    // Sof foyda = sotuv − tan narxi − chiqim. Hammasi alohida ko'rsatilgan
+    // bo'lsa, pastdagi raqam ravshan to'g'ri kelishi.
+    { label: 'Sotuv', value: pnl.revenue, tone: 'income' },
+    { label: '− Tan narxi', value: `-${pnl.cogs}`, tone: 'muted' },
+    { label: '− Chiqim', value: `-${pnl.operatingExpense}`, tone: 'muted' },
     {
-      label: 'Sof foyda (savdo asosida)',
-      value: report.results.salesBasedProfit,
+      label: 'Sof foyda',
+      value: pnl.profit,
       emphasis: 'total',
-      tone: Number(report.results.salesBasedProfit) >= 0 ? 'good' : 'danger',
-      hint: 'Sof savdo − netto chiqim',
+      tone: Number(pnl.profit) >= 0 ? 'good' : 'danger',
     },
     {
-      label: 'Kassa harakati (real)',
+      label: 'Kassa o\'zgarishi',
       value: report.results.cashflowBasedNet,
       emphasis: 'total',
       tone: Number(report.results.cashflowBasedNet) >= 0 ? 'good' : 'danger',
-      hint: 'Real tushum − netto chiqim',
     },
   ];
 
@@ -85,10 +85,7 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section
-      title="Yakuniy hisobot — barcha raqamlar bir joyda"
-      description="Bugungi kun bo'yicha to'liq pul oqimi va P&L. Buxgalterga topshirish uchun yetarli."
-    >
+    <Section title="Yakuniy hisobot">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
         <Group title="Savdo / Daromad" rows={incomeRows} />
         <Group title="Kassa kirimi" rows={cashflowInRows} />
@@ -106,11 +103,11 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
         <div
           className={cn(
             'text-3xl font-bold tabular-nums leading-none',
-            Number(report.results.salesBasedProfit) > 0 && 'text-success',
-            Number(report.results.salesBasedProfit) < 0 && 'text-destructive',
+            Number(pnl.profit) > 0 && 'text-success',
+            Number(pnl.profit) < 0 && 'text-destructive',
           )}
         >
-          {formatMoney(report.results.salesBasedProfit)} <span className="text-base text-muted-foreground font-normal">so&apos;m</span>
+          {formatMoney(pnl.profit)} <span className="text-base text-muted-foreground font-normal">so&apos;m</span>
         </div>
       </div>
     </Section>
