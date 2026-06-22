@@ -637,8 +637,14 @@ function SummaryView({ report }: { report: SummaryReport }) {
             <div className="space-y-1 pt-3 border-t border-border">
               <div className="flex justify-between text-sm">
                 <span>Sotuv</span>
-                <span className="tabular-nums text-success">+{formatMoney(report.pnl.revenue)}</span>
+                <span className="tabular-nums text-success">+{formatMoney(report.pnl.grossRevenue)}</span>
               </div>
+              {Number(report.pnl.discount) > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Chegirma</span>
+                  <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.discount)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span>Tan narxi</span>
                 <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.cogs)}</span>

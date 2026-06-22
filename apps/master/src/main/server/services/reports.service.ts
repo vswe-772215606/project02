@@ -311,6 +311,11 @@ export const reportsService = {
     const debtRepaidCard = new Prisma.Decimal(ledger.cashflow.debtRepaidCard);
     const realCashIn = new Prisma.Decimal(ledger.cashflow.realCashIn);
     const expenseNet = new Prisma.Decimal(ledger.outflow.expenseNet);
+    // Cash drawer uses cashOut (gross − same-day reversals), NOT expenseNet
+    // (gross − all reversals), so a prior-day purchase reversed today doesn't
+    // create a phantom inflow. See docs/MOLIYA_KASSA_HISOBLASH_XATOSI.md.
+    const cashOut = new Prisma.Decimal(ledger.cashflow.cashOut);
+    const expenseSameDayReversal = new Prisma.Decimal(ledger.outflow.expenseSameDayReversal);
 
     const billedTotal = netSales.plus(serviceCharge);
     const paymentTotal = orderCash.plus(orderCard).plus(debtSales);
@@ -319,7 +324,7 @@ export const reportsService = {
     // Legacy "salesBasedProfit" excluded COGS and used opex including
     // ingredient purchases. Now reconciles to the canonical P&L exactly.
     const salesBasedProfit = new Prisma.Decimal(ledger.pnl.profit);
-    const cashflowBasedNet = realCashIn.minus(expenseNet);
+    const cashflowBasedNet = realCashIn.minus(cashOut);
 
     // ordersTable joined view: closed + canceled + walkout, sorted by terminal
     // moment (closedAt / canceledAt / walkoutAt) so the renderer can show a
@@ -347,11 +352,16 @@ export const reportsService = {
         orderCard: ledger.cashflow.orderCard,
         debtRepaymentsCash: ledger.cashflow.debtRepaidCash,
         debtRepaymentsCard: ledger.cashflow.debtRepaidCard,
+        expenseReturns: ledger.cashflow.expenseReturns,
         realCashIn: ledger.cashflow.realCashIn,
+        // Canonical cash that left the till (same-day-reversal aware).
+        cashOut: ledger.cashflow.cashOut,
       },
       expenses: {
         gross: expenseSummary.totals.gross,
         reversal: expenseSummary.totals.reversal,
+        // Same-day reversals only — what genuinely offsets today's cash-out.
+        sameDayReversal: expenseSummary.totals.sameDayReversal,
         net: expenseSummary.totals.net,
         operating: expenseSummary.totals.operating,
         pendingRepayable: expenseSummary.totals.pendingRepayable,
@@ -378,6 +388,7 @@ export const reportsService = {
         expenses: {
           recordedExpense: expenseSummary.totals.gross,
           reversalAmount: expenseSummary.totals.reversal,
+          sameDayReversalAmount: expenseSummary.totals.sameDayReversal,
           netExpense: expenseSummary.totals.net,
         },
         debts: {
@@ -512,6 +523,7 @@ export const reportsService = {
       expenseReturns: Prisma.Decimal;
       expenseGross: Prisma.Decimal;
       expenseReversal: Prisma.Decimal;
+      expenseSameDayReversal: Prisma.Decimal;
       operatingExpense: Prisma.Decimal;
       cogs: Prisma.Decimal;
     };
@@ -530,6 +542,7 @@ export const reportsService = {
       expenseReturns: new Prisma.Decimal(0),
       expenseGross: new Prisma.Decimal(0),
       expenseReversal: new Prisma.Decimal(0),
+      expenseSameDayReversal: new Prisma.Decimal(0),
       operatingExpense: new Prisma.Decimal(0),
       cogs: new Prisma.Decimal(0),
     });
@@ -590,8 +603,16 @@ export const reportsService = {
     // per Tashkent day of occurredAt. Ingredient-purchase category is split
     // off so it doesn't get counted as operating expense (it's already in
     // COGS via the FIFO peel — double-count guard).
+    //
+    // For the cash drawer we also track same-day reversals: a REVERSAL whose
+    // original Expense occurred on the SAME Tashkent day. Cross-day reversals
+    // (e.g. a prior-day purchase deleted this month) unwind via a REVERSAL
+    // stamped today but their cash left earlier, so they must not reduce the
+    // reversal day's cash-out. See docs/MOLIYA_KASSA_HISOBLASH_XATOSI.md.
+    const expenseDayById = new Map(expenses.map((e) => [e.id, localDayKey(e.occurredAt)]));
     for (const expense of expenses) {
-      const agg = getDay(localDayKey(expense.occurredAt));
+      const dayKey = localDayKey(expense.occurredAt);
+      const agg = getDay(dayKey);
       const isIngredientPurchase = expense.category.id === INGREDIENT_EXPENSE_CATEGORY_ID;
       if (expense.status === ExpenseStatus.ACTIVE || expense.status === ExpenseStatus.REVERSED) {
         agg.expenseGross = agg.expenseGross.plus(expense.amount);
@@ -608,6 +629,12 @@ export const reportsService = {
         }
       } else if (expense.status === ExpenseStatus.REVERSAL) {
         agg.expenseReversal = agg.expenseReversal.plus(expense.amount);
+        const originalDay = expense.reversedExpenseId
+          ? expenseDayById.get(expense.reversedExpenseId)
+          : undefined;
+        if (originalDay === dayKey) {
+          agg.expenseSameDayReversal = agg.expenseSameDayReversal.plus(expense.amount);
+        }
         if (!isIngredientPurchase) {
           agg.operatingExpense = agg.operatingExpense.minus(expense.amount);
         }
@@ -671,6 +698,9 @@ export const reportsService = {
 
       const netSales = agg.gross.minus(agg.discount);
       const expenseNet = agg.expenseGross.minus(agg.expenseReversal);
+      // Cash that left the till = gross − same-day reversals only. Cross-day
+      // reversals (prior-day purchase deleted this month) don't return cash today.
+      const cashOut = agg.expenseGross.minus(agg.expenseSameDayReversal);
       // realCashIn includes expense returns — see dailyLedger() for rationale.
       const realCashIn = agg.orderCash
         .plus(agg.orderCard)
@@ -679,7 +709,7 @@ export const reportsService = {
         .plus(agg.expenseReturns);
       // Canonical P&L: revenue − cogs − operatingExpense.
       const profit = netSales.minus(agg.cogs).minus(agg.operatingExpense);
-      const cashflowNet = realCashIn.minus(expenseNet);
+      const cashflowNet = realCashIn.minus(cashOut);
 
       daily.push({
         date: key,
@@ -737,6 +767,7 @@ export const reportsService = {
       totals.expenseReturns = totals.expenseReturns.plus(agg.expenseReturns);
       totals.expenseGross = totals.expenseGross.plus(agg.expenseGross);
       totals.expenseReversal = totals.expenseReversal.plus(agg.expenseReversal);
+      totals.expenseSameDayReversal = totals.expenseSameDayReversal.plus(agg.expenseSameDayReversal);
       totals.operatingExpense = totals.operatingExpense.plus(agg.operatingExpense);
       totals.cogs = totals.cogs.plus(agg.cogs);
       totalProfit = totalProfit.plus(profit);
@@ -829,7 +860,13 @@ export const reportsService = {
     const menuCatMap = new Map<string, MenuCatRow>();
     let totalRevenue = new Prisma.Decimal(0);
     let totalCogs = new Prisma.Decimal(0);
+    let foodQty = 0;
     for (const line of lines) {
+      // P&L revenue is FOOD only — SERVICE-kind lines (xizmat haqi) are waiter
+      // income, not restaurant revenue, and are excluded everywhere else
+      // (daily netSales, owner meal table). Including them here was inflating
+      // the Umumiy "Sof foyda" with zero-cost service charge.
+      if (line.menuItem.kind !== 'FOOD') continue;
       const cid = line.menuItem.category.id;
       const row = menuCatMap.get(cid) ?? {
         categoryId: cid,
@@ -840,6 +877,7 @@ export const reportsService = {
       };
       const rev = line.unitPriceSnapshot.mul(line.quantity);
       row.qty += line.quantity;
+      foodQty += line.quantity;
       row.revenue = row.revenue.plus(rev);
       row.cogs = row.cogs.plus(line.cogsSnapshot ?? new Prisma.Decimal(0));
       menuCatMap.set(cid, row);
@@ -860,7 +898,12 @@ export const reportsService = {
     let salesCash = new Prisma.Decimal(0);
     let salesCard = new Prisma.Decimal(0);
     let salesDebt = new Prisma.Decimal(0);
+    // Bill-level discount over the range — subtracted from P&L revenue so the
+    // Umumiy "Sof foyda" matches the daily/monthly basis (netSales = gross −
+    // discount), instead of ignoring discounts entirely.
+    let rangeDiscount = new Prisma.Decimal(0);
     for (const o of closedOrders) {
+      rangeDiscount = rangeDiscount.plus(dec(o.discountAmountSnapshot));
       for (const p of o.payments) {
         if (p.method === PaymentMethod.CASH) salesCash = salesCash.plus(p.amount);
         else if (p.method === PaymentMethod.CARD) salesCard = salesCard.plus(p.amount);
@@ -910,6 +953,13 @@ export const reportsService = {
     let cashOutTotal = new Prisma.Decimal(0);
     let operatingTotalAll = new Prisma.Decimal(0);
 
+    // A REVERSAL only offsets cash-out if its ORIGINAL also occurred inside this
+    // range. A prior-range purchase reversed/deleted inside the range unwinds
+    // via a REVERSAL stamped today, but its cash left earlier — counting it as a
+    // negative cash-out here would inflate the cash "Farq". Same-day rule as the
+    // daily ledger, widened to the range. See docs/MOLIYA_KASSA_HISOBLASH_XATOSI.md.
+    const idsInRange = new Set(expenses.map((e) => e.id));
+
     for (const e of expenses) {
       const row = expCatMap.get(e.categoryId) ?? {
         categoryId: e.categoryId,
@@ -923,7 +973,8 @@ export const reportsService = {
       if (e.status === ExpenseStatus.ACTIVE || e.status === ExpenseStatus.REVERSED) {
         cashDelta = e.amount;
       } else if (e.status === ExpenseStatus.REVERSAL) {
-        cashDelta = e.amount.neg();
+        const originalInRange = !!e.reversedExpenseId && idsInRange.has(e.reversedExpenseId);
+        cashDelta = originalInRange ? e.amount.neg() : new Prisma.Decimal(0);
       }
       row.cashGross = row.cashGross.plus(cashDelta);
       cashOutTotal = cashOutTotal.plus(cashDelta);
@@ -972,8 +1023,10 @@ export const reportsService = {
     const operatingForPnl = operatingTotalAll.minus(operatingExclIngredients);
 
     // ─── Identity sums ───────────────────────────────────────────────────
-    // P&L profit = revenue − COGS − operating (ingredient excluded)
-    const pnlProfit = totalRevenue.minus(totalCogs).minus(operatingForPnl);
+    // P&L revenue is net food (gross food − bill discount), matching daily
+    // netSales. P&L profit = netRevenue − COGS − operating (ingredient excluded).
+    const netFoodRevenue = totalRevenue.minus(rangeDiscount);
+    const pnlProfit = netFoodRevenue.minus(totalCogs).minus(operatingForPnl);
 
     // Cash basis:
     //   totalIn  = cash sales + card sales + debt collections + expense returns
@@ -997,7 +1050,7 @@ export const reportsService = {
           profit: r.revenue.minus(r.cogs).toFixed(0),
         })),
         totals: {
-          qty: lines.reduce((n, l) => n + l.quantity, 0),
+          qty: foodQty,
           revenue: totalRevenue.toFixed(0),
           cogs: totalCogs.toFixed(0),
         },
@@ -1014,10 +1067,14 @@ export const reportsService = {
         },
       },
 
-      // P&L (accrual) — sof foyda
+      // P&L (accrual) — sof foyda. `revenue` is NET food (gross − discount) to
+      // match daily/monthly; `grossRevenue` + `discount` are surfaced so the UI
+      // can show the "− Chegirma" line.
       pnl: {
         expensesByCategory: expensesByCategoryPnl,
-        revenue: totalRevenue.toFixed(0),
+        revenue: netFoodRevenue.toFixed(0),
+        grossRevenue: totalRevenue.toFixed(0),
+        discount: rangeDiscount.toFixed(0),
         cogs: totalCogs.toFixed(0),
         operatingExpense: operatingForPnl.toFixed(0),
         profit: pnlProfit.toFixed(0),
@@ -1120,11 +1177,14 @@ export const reportsService = {
         excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
       }),
       prisma.purchase.aggregate({
-        where: { occurredAt: { gte: dayStart, lt: dayEnd } },
+        // ACTIVE only — a reversed/deleted batch's cash is unwound via its
+        // Expense REVERSAL row, so counting it here too would double-show it in
+        // the "Xaridlar" block and disagree with the ACTIVE-only drill-down list.
+        where: { occurredAt: { gte: dayStart, lt: dayEnd }, status: 'ACTIVE' },
         _sum: { totalCostUzs: true },
       }),
       prisma.purchase.count({
-        where: { occurredAt: { gte: dayStart, lt: dayEnd } },
+        where: { occurredAt: { gte: dayStart, lt: dayEnd }, status: 'ACTIVE' },
       }),
       prisma.debt.aggregate({
         where: { openedAt: { gte: dayStart, lt: dayEnd } },
@@ -1208,6 +1268,13 @@ export const reportsService = {
     const expenseGross = new Prisma.Decimal(expenseSummary.totals.gross);
     const expenseReversal = new Prisma.Decimal(expenseSummary.totals.reversal);
     const expenseNet = new Prisma.Decimal(expenseSummary.totals.net);
+    // Cash that actually left the till today = gross minus ONLY same-day
+    // reversals. A prior-day purchase reversed/deleted today unwinds via a
+    // REVERSAL row stamped today, but its cash left on an earlier day — so it
+    // must not reduce today's cash-out (that was the "+5 473 000" phantom).
+    const expenseSameDayReversal = new Prisma.Decimal(expenseSummary.totals.sameDayReversal);
+    const cashOut = new Prisma.Decimal(expenseSummary.totals.cashOut);
+    const drawerMovement = realCashIn.minus(cashOut);
     const operatingExpense = new Prisma.Decimal(operatingExpenseSummary.totals.operating);
     const pendingRepayable = new Prisma.Decimal(expenseSummary.totals.pendingRepayable);
     const ingredientPurchases = purchasesTotalAgg._sum.totalCostUzs ?? new Prisma.Decimal(0);
@@ -1293,10 +1360,15 @@ export const reportsService = {
         debtRepaidCard: decStr(debtRepaidCard),
         expenseReturns: decStr(expenseReturnsTotal),
         realCashIn: decStr(realCashIn),
+        // Canonical cash-out + drawer movement — the single correct numbers all
+        // cash surfaces (admin drawer, owner Kassa o'zgarishi, Telegram, PDF) use.
+        cashOut: decStr(cashOut),
+        drawerMovement: decStr(drawerMovement),
       },
       outflow: {
         expenseGross: decStr(expenseGross),
         expenseReversal: decStr(expenseReversal),
+        expenseSameDayReversal: decStr(expenseSameDayReversal),
         expenseNet: decStr(expenseNet),
         operatingExpense: decStr(operatingExpense),
         pendingRepayable: decStr(pendingRepayable),

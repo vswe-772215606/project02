@@ -28,10 +28,16 @@ export interface DailyLedger {
     debtRepaidCard: string;
     expenseReturns: string;
     realCashIn: string;
+    // Real cash that left the till (gross − same-day reversals). Cross-day
+    // purchase reversals do NOT count here. drawerMovement = realCashIn − cashOut.
+    cashOut: string;
+    drawerMovement: string;
   };
   outflow: {
     expenseGross: string;
     expenseReversal: string;
+    // Reversals whose original was also today — the only ones that offset cash.
+    expenseSameDayReversal: string;
     expenseNet: string;
     operatingExpense: string;
     pendingRepayable: string;
@@ -144,11 +150,16 @@ export interface DailyReport {
     orderCard: string;
     debtRepaymentsCash: string;
     debtRepaymentsCard: string;
+    expenseReturns: string;
     realCashIn: string;
+    // Cash that genuinely left the till (same-day-reversal aware).
+    cashOut: string;
   };
   expenses: {
     gross: string;
     reversal: string;
+    // Same-day reversals only — what offsets today's cash-out.
+    sameDayReversal: string;
     net: string;
     byCategory: Array<{
       categoryId: string;
@@ -174,6 +185,7 @@ export interface DailyReport {
     expenses: {
       recordedExpense: string;
       reversalAmount: string;
+      sameDayReversalAmount: string;
       netExpense: string;
     };
     debts: {
@@ -368,7 +380,9 @@ export interface SummaryReport {
       categoryName: string;
       amount: string;
     }>;
-    revenue: string;
+    revenue: string;        // NET food (gross − discount)
+    grossRevenue: string;   // gross food, before discount
+    discount: string;       // bill-level discount over the range
     cogs: string;
     operatingExpense: string;
     profit: string;

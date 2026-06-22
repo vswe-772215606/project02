@@ -68,13 +68,13 @@ export function ResultsSection({ report }: { report: DailyReport }) {
         <ProfitHeadline
           label="Sof foyda"
           value={pnl.profit}
-          hint="Sotuv − tan narxi − chiqim"
+          hint="Biznes foydasi: sotuv − tan narxi − chiqim. Xaridlar faqat sotilganda hisobga olinadi."
           prominent
         />
         <ProfitHeadline
           label="Kassa o'zgarishi"
           value={report.results.cashflowBasedNet}
-          hint="Kelgan pul − ketgan pul"
+          hint="Bugun kassada real ko'paygan/kamaygan pul: kelgan − ketgan. Foydadan farq qiladi."
         />
       </div>
 

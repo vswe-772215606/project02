@@ -94,6 +94,15 @@ export const expenseService = {
     let gross = new Prisma.Decimal(0);
     let reversal = new Prisma.Decimal(0);
 
+    // Same-day reversal: only REVERSAL rows whose ORIGINAL expense also occurred
+    // on this day. Cross-day reversals (e.g. deleting a prior-day ingredient
+    // purchase — the REVERSAL row is stamped today but the original cash left on
+    // an earlier day) must NOT reduce today's cash-out, otherwise the drawer
+    // shows a phantom inflow. The original is "same-day" iff it appears in this
+    // day's fetched list. See docs/MOLIYA_KASSA_HISOBLASH_XATOSI.md.
+    const idsInDay = new Set(items.map((item) => item.id));
+    let sameDayReversal = new Prisma.Decimal(0);
+
     // Operating expense for P&L: excludes pending-repayable rows; for written-off
     // repayables, includes only the loss (amount − returned). Non-repayable rows
     // contribute their full amount.
@@ -103,10 +112,18 @@ export const expenseService = {
     const byCategoryMap = new Map<string, { categoryId: string; categoryName: string; amount: Prisma.Decimal }>();
 
     for (const item of items) {
+      const isSameDayReversal =
+        item.status === ExpenseStatus.REVERSAL &&
+        !!item.reversedExpenseId &&
+        idsInDay.has(item.reversedExpenseId);
+
       if (item.status === ExpenseStatus.ACTIVE || item.status === ExpenseStatus.REVERSED) {
         gross = gross.plus(item.amount);
       } else if (item.status === ExpenseStatus.REVERSAL) {
         reversal = reversal.plus(item.amount);
+        if (isSameDayReversal) {
+          sameDayReversal = sameDayReversal.plus(item.amount);
+        }
       }
 
       // Operating expense math (per CURRENT_WORKFLOW.md money-flow rules).
@@ -131,7 +148,12 @@ export const expenseService = {
         operating = operating.minus(item.amount);
       }
 
-      const sign = signedAmount(item.status, item.amount);
+      // Cash "where money went" breakdown: cross-day reversals contribute 0
+      // (their original cash belongs to an earlier day), so the per-category
+      // sum reconciles to cashOut instead of producing phantom negatives.
+      const sign = item.status === ExpenseStatus.REVERSAL
+        ? (isSameDayReversal ? item.amount.negated() : new Prisma.Decimal(0))
+        : item.amount;
       const existing = byCategoryMap.get(item.categoryId) ?? {
         categoryId: item.categoryId,
         categoryName: item.category.name,
@@ -151,6 +173,10 @@ export const expenseService = {
         gross: decimalToString(gross),
         reversal: decimalToString(reversal),
         net: decimalToString(gross.minus(reversal)),
+        // Real cash that left the till today: gross minus only the reversals
+        // whose original was also today. Cross-day reversals excluded.
+        sameDayReversal: decimalToString(sameDayReversal),
+        cashOut: decimalToString(gross.minus(sameDayReversal)),
         operating: decimalToString(operating),
         pendingRepayable: decimalToString(pendingRepayable),
       },

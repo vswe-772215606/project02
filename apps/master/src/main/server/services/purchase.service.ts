@@ -472,9 +472,10 @@ export const purchaseService = {
             );
           } else {
             // Partial — leave original ACTIVE (it covered the consumed portion),
-            // add a standalone REVERSAL-typed row for the unused refund. We
-            // don't link reversedExpense because the original isn't being
-            // fully unwound; the link is for full reverses only.
+            // add a REVERSAL-typed row for the unused refund. Link reversedExpense
+            // to the original so the cash-flow same-day check can tell whether this
+            // refund offsets a same-day purchase (subtract from cash-out) or a
+            // prior-day one (inventory write-off — must NOT inflate today's drawer).
             await expenseRepo.create(
               {
                 category: { connect: { id: existing.expense.categoryId } },
@@ -483,6 +484,7 @@ export const purchaseService = {
                 note: `Partiyadan ${remaining.toFixed(3)} ${ingredient.recipeUnit} ishlatilmagan. ${note}`,
                 occurredAt: new Date(),
                 status: ExpenseStatus.REVERSAL,
+                reversedExpense: { connect: { id: existing.expense.id } },
                 createdBy: { connect: { id: input.actorUserId } },
               },
               tx,
