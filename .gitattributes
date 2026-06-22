@@ -1,0 +1,7 @@
+# Prisma migration SQL is checksum-verified at startup by the in-process
+# SQLite runner (apps/master/src/main/sqlite-bootstrap.ts). Force LF on every
+# platform so a Windows-built installer hashes the files identically to a
+# mac/Linux build — otherwise git autocrlf flips line endings and the app
+# refuses to boot with "Migration checksum mismatch" on an existing database.
+*.sql text eol=lf
+prisma/migrations/** text eol=lf

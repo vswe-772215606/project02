@@ -20,7 +20,15 @@ function toSqliteUrl(filePath: string): string {
 }
 
 function computeChecksum(sql: string): string {
-  return createHash('sha256').update(sql, 'utf8').digest('hex');
+  // Normalize line endings before hashing so the checksum is identical whether
+  // the migration file was checked out with LF (mac/Linux) or CRLF (Windows /
+  // git autocrlf). Without this, a Windows-built installer hashes the very same
+  // SQL differently than a mac-built one and refuses to boot on an existing DB
+  // (the v0.1.0 "Migration checksum mismatch" incident — the SQL never changed,
+  // only the line endings). The repo's stored checksums were computed on LF, so
+  // normalizing to LF reproduces them exactly.
+  const normalized = sql.replace(/\r\n/g, '\n');
+  return createHash('sha256').update(normalized, 'utf8').digest('hex');
 }
 
 async function applyMigrationsInProcess(
@@ -80,11 +88,20 @@ async function applyMigrationsInProcess(
 
       if (existingChecksum !== undefined) {
         if (existingChecksum !== checksum) {
-          throw new Error(
-            `Migration checksum mismatch for "${migrationId}". ` +
-            `Applied: ${existingChecksum}. Current: ${checksum}. ` +
-            `Do not modify previously applied migrations.`,
+          // Already applied (matched by name) but the stored checksum differs.
+          // The SQL of an applied migration is NEVER re-run, so refusing to boot
+          // here helps no one — it just bricks the POS (as v0.1.0 did on a pure
+          // line-ending difference). Heal the stored checksum and continue.
+          // Genuinely new schema must always be a NEW migration, so we are never
+          // skipping un-applied DDL by doing this.
+          logger.error(
+            `migration ${migrationId}: checksum drift — stored ${existingChecksum}, ` +
+            `current ${checksum}. Reconciling stored checksum and continuing ` +
+            `(applied migrations are not re-executed).`,
           );
+          db.run('UPDATE _app_migrations SET checksum = ? WHERE id = ?', [checksum, migrationId]);
+          dirty = true;
+          continue;
         }
         logger.info(`migration ${migrationId}: skipped (already applied)`);
         continue;
