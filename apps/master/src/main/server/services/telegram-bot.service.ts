@@ -367,7 +367,10 @@ export const telegramBotService = {
               lines.push(`  − ${r.categoryName}: ${formatMoney(r.amount)} so'm`);
             }
           }
-          lines.push(`  Sotuv:       ${formatMoney(report.pnl.revenue)} so'm`);
+          lines.push(`  Sotuv:       ${formatMoney(report.pnl.grossRevenue)} so'm`);
+          if (Number(report.pnl.discount) > 0) {
+            lines.push(`  Chegirma:    − ${formatMoney(report.pnl.discount)} so'm`);
+          }
           lines.push(`  Tan narxi:   − ${formatMoney(report.pnl.cogs)} so'm`);
           lines.push(`  Chiqim:      − ${formatMoney(report.pnl.operatingExpense)} so'm`);
           lines.push(`  <b>Sof foyda:  ${formatMoney(report.pnl.profit)} so'm</b>`);
@@ -450,7 +453,10 @@ export const telegramBotService = {
             pnlSheet.addRow({ cat: r.categoryName, amount: Number(r.amount) });
           }
           pnlSheet.addRow({});
-          pnlSheet.addRow({ cat: 'Sotuv', amount: Number(report.pnl.revenue) }).font = { bold: true };
+          pnlSheet.addRow({ cat: 'Sotuv', amount: Number(report.pnl.grossRevenue) }).font = { bold: true };
+          if (Number(report.pnl.discount) > 0) {
+            pnlSheet.addRow({ cat: 'Chegirma', amount: -Number(report.pnl.discount) });
+          }
           pnlSheet.addRow({ cat: 'Tan narxi', amount: -Number(report.pnl.cogs) });
           pnlSheet.addRow({ cat: 'Chiqim', amount: -Number(report.pnl.operatingExpense) });
           const pnlRow = pnlSheet.addRow({ cat: 'SOF FOYDA', amount: Number(report.pnl.profit) });
@@ -718,6 +724,7 @@ export const telegramBotService = {
     const expenses = L ? {
       gross: L.outflow.expenseGross,
       reversal: L.outflow.expenseReversal,
+      sameDayReversal: L.outflow.expenseSameDayReversal,
       operating: L.outflow.operatingExpense,
       pendingRepayable: L.outflow.pendingRepayable,
       // byCategory only lives on the legacy expense block (admin detail).
@@ -726,8 +733,10 @@ export const telegramBotService = {
     // Canonical P&L profit. The legacy `salesBasedProfit` field is exactly
     // this value after T8 — single canonical formula.
     const salesProfit = L ? L.pnl.profit : report.results.salesBasedProfit;
+    // Cash drawer uses cashOut (gross − same-day reversals), not expenseNet, so a
+    // prior-day purchase reversed today doesn't inflate "Kassa o'zgarishi".
     const cashflowNet = report.results?.cashflowBasedNet
-      ?? (L ? String(Number(L.cashflow.realCashIn) - Number(L.outflow.expenseNet)) : '0');
+      ?? (L ? String(Number(L.cashflow.realCashIn) - Number(L.cashflow.cashOut)) : '0');
     const outstanding = L ? L.debt.outstandingAsOfEod : report.debtSnapshot.outstandingTotal;
 
     const lines: string[] = [];
@@ -769,8 +778,8 @@ export const telegramBotService = {
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`📤 <b>Chiqimlar</b>`);
     lines.push(`  Kiritilgan: <b>${formatMoney(expenses.gross)}</b> so'm`);
-    if (Number(expenses.reversal) > 0) {
-      lines.push(`  Bekor qilingan: <b>−${formatMoney(expenses.reversal)}</b> so'm`);
+    if (Number(expenses.sameDayReversal ?? '0') > 0) {
+      lines.push(`  Bekor qilingan: <b>−${formatMoney(expenses.sameDayReversal)}</b> so'm`);
     }
     lines.push(`  Foyda hisobida: <b>${formatMoney(expenses.operating)}</b> so'm`);
     if (Number(expenses.pendingRepayable) > 0) {

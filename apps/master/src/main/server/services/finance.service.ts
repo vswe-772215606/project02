@@ -103,6 +103,10 @@ export const financeService = {
     const debtRepaidCard = new Prisma.Decimal(ledger.cashflow.debtRepaidCard);
     const expenseReturnsTotal = new Prisma.Decimal(ledger.cashflow.expenseReturns);
     const expensesNet = new Prisma.Decimal(ledger.outflow.expenseNet);
+    // Cash that actually left the till = gross − same-day reversals. Using
+    // expenseNet (gross − ALL reversals) here was the bug: a prior-day purchase
+    // reversed today made cashOut go negative and inflated the drawer.
+    const cashOut = new Prisma.Decimal(ledger.cashflow.cashOut);
     const operatingExpense = new Prisma.Decimal(ledger.outflow.operatingExpense);
     const pendingRepayable = new Prisma.Decimal(ledger.outflow.pendingRepayable);
     const purchasesTotal = new Prisma.Decimal(ledger.outflow.ingredientPurchases);
@@ -119,11 +123,11 @@ export const financeService = {
 
     // Drawer math: real cash that crossed the till today.
     //   totalIn  = sales-cash + sales-card + debt-repaid + expense-returns
-    //   totalOut = expenseNet (cash that actually left through the expense
-    //              register — purchases live inside Expense too, so this
-    //              covers them without double-count)
+    //   totalOut = cashOut (gross − same-day reversals). Purchases live inside
+    //              Expense too, so this covers them without double-count; a
+    //              cross-day reversal does NOT count as cash returning today.
     const totalIn = cashIn.plus(cardIn).plus(debtRepaidCash).plus(debtRepaidCard).plus(expenseReturnsTotal);
-    const totalOut = expensesNet;
+    const totalOut = cashOut;
     const drawerMovement = totalIn.minus(totalOut);
 
     return {
@@ -152,11 +156,14 @@ export const financeService = {
         purchasesCount: ledger.outflow.ingredientPurchasesCount,
         expensesGross: ledger.outflow.expenseGross,
         expensesReversal: ledger.outflow.expenseReversal,
+        // Same-day reversals only — what genuinely offsets today's cash-out.
+        expensesSameDayReversal: ledger.outflow.expenseSameDayReversal,
         expensesNet: ledger.outflow.expenseNet,
         operatingExpense: ledger.outflow.operatingExpense,
         pendingRepayable: ledger.outflow.pendingRepayable,
-        // Legacy duplicate of expensesNet. T10 removes this from the renderer.
-        totalOut: ledger.outflow.expenseNet,
+        // Cash that actually left the till today (drives "Jami ketgan" + drawer).
+        cashOut: ledger.cashflow.cashOut,
+        totalOut: ledger.cashflow.cashOut,
       },
       drawer: {
         movement: decStr(drawerMovement),

@@ -301,7 +301,7 @@ export function FinancePage() {
       {/* ─── 1. Sotilgan ovqatlar ─── */}
       <Section
         title="Sotilgan ovqatlar"
-        description="Kategoriya va ovqat bo'yicha"
+        description="Har bir taom o'z narxida — JAMI sotuv xizmat haqi bilan va chegirmagacha (yuqoridagi sof Sotuvdan farq qiladi)"
       >
         {data && data.mealSales.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">Bugun sotuv yo'q</p>
@@ -446,19 +446,18 @@ export function FinancePage() {
       )}
 
       {/* Pul oqimi (cash drawer) — secondary view, kept for cash reconciliation.
-          Math: every Purchase auto-creates an Expense, so expensesNet already
+          Math: every Purchase auto-creates an Expense, so cashOut already
           covers both. We display Xaridlar and Operatsion as two cash deltas:
             Xaridlar     = data.outflow.purchasesTotal (ACTIVE only)
-            Operatsion   = expensesNet − purchasesTotal (the operating delta)
-          and Jami chiqim = expensesNet keeps the drawer identity intact.
-          Backend now filters Purchase by status=ACTIVE, so on a reversal day
-          the difference is ≥ 0 and the breakdown sums to Jami chiqim. */}
+            Operatsion   = cashOut − purchasesTotal (the operating delta)
+          and Jami ketgan = cashOut keeps the drawer identity intact.
+          cashOut = gross − same-day reversals, so a prior-day purchase reversed
+          today no longer drives Operatsion negative / inflates the drawer. */}
       {data && (() => {
-        const expensesNet = Number(data.outflow.expensesNet);
         const purchasesTotal = Number(data.outflow.purchasesTotal);
-        const opExclPurchases = expensesNet - purchasesTotal;
         const totalIn = Number(data.cashflow.totalIn);
         const totalOut = Number(data.outflow.totalOut);
+        const opExclPurchases = totalOut - purchasesTotal;
         const drawer = Number(data.drawer.movement);
         const drawerTone = drawer > 0 ? 'text-success' : drawer < 0 ? 'text-destructive' : '';
         return (

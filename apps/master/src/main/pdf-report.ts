@@ -446,8 +446,8 @@ export async function generateDailyReportPdf(opts: {
   ]);
   kvBlock(doc, 'Ketgan', [
     { label: 'Kiritilgan chiqim', value: fmtUZSDecimal(data.checks.expenses.recordedExpense) + ' so\'m' },
-    { label: 'Bekor qilingan', value: fmtUZSDecimal(data.checks.expenses.reversalAmount) + ' so\'m', tone: Number(data.checks.expenses.reversalAmount) > 0 ? 'warn' : 'muted' },
-    { label: 'Jami ketgan', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true },
+    { label: 'Bekor qilingan', value: fmtUZSDecimal(data.checks.expenses.sameDayReversalAmount) + ' so\'m', tone: Number(data.checks.expenses.sameDayReversalAmount) > 0 ? 'warn' : 'muted' },
+    { label: 'Jami ketgan', value: fmtUZSDecimal(data.cashflow.cashOut) + ' so\'m', bold: true },
   ]);
 
   // ─── 4. Xarajatlar — turkumlar + items ────────────────────────────
@@ -765,8 +765,8 @@ export async function generateDailyReportPdf(opts: {
 
   kvBlock(doc, 'Chiqimlar', [
     { label: 'Kiritilgan', value: fmtUZSDecimal(data.expenses.gross) + ' so\'m' },
-    { label: 'Bekor qilingan', value: '-' + fmtUZSDecimal(data.checks.expenses.reversalAmount) + ' so\'m', tone: 'muted' },
-    { label: 'Jami chiqim', value: fmtUZSDecimal(data.expenses.net) + ' so\'m', bold: true, tone: 'warn' },
+    { label: 'Bekor qilingan', value: '-' + fmtUZSDecimal(data.checks.expenses.sameDayReversalAmount) + ' so\'m', tone: 'muted' },
+    { label: 'Jami chiqim', value: fmtUZSDecimal(data.cashflow.cashOut) + ' so\'m', bold: true, tone: 'warn' },
   ]);
 
   kvBlock(doc, 'Qarz holati', [

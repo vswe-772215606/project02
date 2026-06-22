@@ -5,13 +5,10 @@ import { Row, Section, toneClass } from './report-helpers';
 import { cn } from '@/lib/utils';
 
 export function CashflowSection({ report }: { report: DailyReport }) {
-  const moneyIn =
-    BigInt(report.cashflow.orderCash || '0') +
-    BigInt(report.cashflow.orderCard || '0') +
-    BigInt(report.cashflow.debtRepaymentsCash || '0') +
-    BigInt(report.cashflow.debtRepaymentsCard || '0');
-  const moneyOut = BigInt(report.expenses.net || '0');
-  const drawerDelta = moneyIn - moneyOut;
+  // Canonical drawer movement = realCashIn − cashOut (cashOut excludes cross-day
+  // reversals). Using report.expenses.net (gross − ALL reversals) here was the
+  // bug that inflated the drawer. See docs/MOLIYA_KASSA_HISOBLASH_XATOSI.md.
+  const drawerDelta = BigInt(report.results.cashflowBasedNet || '0');
   const drawerTone = drawerDelta > 0n ? 'good' : drawerDelta < 0n ? 'danger' : 'neutral';
 
   return (
@@ -33,6 +30,13 @@ export function CashflowSection({ report }: { report: DailyReport }) {
             value={formatMoney(report.cashflow.debtRepaymentsCard)}
             tone={Number(report.cashflow.debtRepaymentsCard) > 0 ? 'good' : 'muted'}
           />
+          {Number(report.cashflow.expenseReturns) > 0 && (
+            <Row
+              label="Avans qaytimi"
+              value={formatMoney(report.cashflow.expenseReturns)}
+              tone="good"
+            />
+          )}
           <Row
             label="Jami kelgan pul"
             value={formatMoney(report.cashflow.realCashIn)}
@@ -45,11 +49,12 @@ export function CashflowSection({ report }: { report: DailyReport }) {
           </div>
           <Row label="Kiritilgan chiqim" value={formatMoney(report.checks.expenses.recordedExpense)} />
           <Row
-            label="Bekor qilingan"
-            value={formatMoney(report.checks.expenses.reversalAmount)}
-            tone={Number(report.checks.expenses.reversalAmount) > 0 ? 'warning' : 'muted'}
+            label="Bekor qilingan (shu kun)"
+            value={formatMoney(report.checks.expenses.sameDayReversalAmount)}
+            tone={Number(report.checks.expenses.sameDayReversalAmount) > 0 ? 'warning' : 'muted'}
+            hint="Faqat shu kuni kiritilib, shu kuni bekor qilingan chiqimlar kassadan ayriladi"
           />
-          <Row label="Jami ketgan pul" value={formatMoney(report.expenses.net)} bold />
+          <Row label="Jami ketgan pul" value={formatMoney(report.cashflow.cashOut)} bold />
         </div>
       </div>
 

@@ -38,8 +38,10 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
 
   const expenseRows: RowSpec[] = [
     { label: 'Kiritilgan chiqim', value: report.expenses.gross, tone: 'expense' },
-    { label: 'Bekor qilingan', value: `-${report.checks.expenses.reversalAmount}`, tone: 'muted' },
-    { label: 'Jami chiqim (kassadan ketgan)', value: report.expenses.net, emphasis: 'bold', tone: 'expense' },
+    // Same-day reversals only — cross-day reversals (prior-day purchase deleted
+    // today) don't return cash today, so they're excluded from the cash-out.
+    { label: 'Bekor qilingan (shu kun)', value: `-${report.checks.expenses.sameDayReversalAmount}`, tone: 'muted' },
+    { label: 'Jami chiqim (kassadan ketgan)', value: report.cashflow.cashOut, emphasis: 'bold', tone: 'expense' },
   ];
 
   if (report.expenses.byCategory.length > 0) {

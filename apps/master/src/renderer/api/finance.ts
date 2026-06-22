@@ -29,9 +29,12 @@ export type FinanceDaily = {
     purchasesCount: number;
     expensesGross: string;
     expensesReversal: string;
+    expensesSameDayReversal: string;
     expensesNet: string;
     operatingExpense: string;
     pendingRepayable: string;
+    // Cash that actually left the till today (drives "Jami ketgan" + drawer).
+    cashOut: string;
     totalOut: string;
   };
   drawer: {
