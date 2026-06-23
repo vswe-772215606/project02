@@ -91,6 +91,8 @@ export const ordersApi = {
     api.post<OrderLine[]>(`/api/orders/${id}/combos`, data),
   updateLineNotes: (id: string, lineId: string, notes: string) =>
     api.patch<OrderLine>(`/api/orders/${id}/lines/${lineId}/notes`, { notes }),
+  updateLineQuantity: (id: string, lineId: string, quantity: number) =>
+    api.patch<OrderLine>(`/api/orders/${id}/lines/${lineId}/quantity`, { quantity }),
   cancelLine: (id: string, lineId: string, reason?: string) =>
     api.post<OrderLine>(`/api/orders/${id}/lines/${lineId}/cancel`, { reason }),
   send: (id: string) => api.post<Order>(`/api/orders/${id}/send`),

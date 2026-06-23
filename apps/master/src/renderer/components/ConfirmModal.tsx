@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
   Plus,
+  Minus,
   Trash2,
+  Loader2,
   ReceiptText,
   User as UserIcon,
   Armchair,
@@ -46,6 +48,21 @@ interface ConfirmModalProps {
 export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
   const queryClient = useQueryClient();
 
+  // Buyurtmani jonli kuzatamiz: admin pozitsiyani o'chirsa yoki sonini
+  // kamaytirsa, qatorlar va yakuniy summa darhol qayta hisoblanadi.
+  const { data: liveOrder } = useQuery({
+    queryKey: ['orders', order.id],
+    queryFn: () => ordersApi.getById(order.id),
+    initialData: order,
+    enabled: open,
+  });
+  const o = liveOrder ?? order;
+
+  // Qaysi qator ustida amal ketayotgani (spinner uchun) va qaysi qator
+  // o'chirish tasdig'ini kutayotgani.
+  const [lineActionId, setLineActionId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+
   // Direct discount input in so'm — admin types whatever was agreed at the
   // till. Replaces the old "pick a preset percent/amount" dropdown.
   const [discountInput, setDiscountInput] = useState<string>('');
@@ -58,26 +75,26 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
   // Food subtotal = sum of FOOD lines only. SERVICE lines tracked separately.
   const subtotal = useMemo(
     () =>
-      order.lines?.reduce(
+      o.lines?.reduce(
         (sum, line) =>
           line.isCanceled || line.menuItemKind === 'SERVICE'
             ? sum
             : sum + line.price * line.quantity,
         0,
       ) ?? 0,
-    [order.lines],
+    [o.lines],
   );
 
   const serviceFromLines = useMemo(
     () =>
-      order.lines?.reduce(
+      o.lines?.reduce(
         (sum, line) =>
           line.isCanceled || line.menuItemKind !== 'SERVICE'
             ? sum
             : sum + line.price * line.quantity,
         0,
       ) ?? 0,
-    [order.lines],
+    [o.lines],
   );
 
   // Live discount preview — what the admin typed, clamped to the food subtotal
@@ -142,6 +159,32 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
     },
   });
 
+  // Admin pozitsiya sonini bittaga kamaytiradi (updateLineQuantity) yoki uni
+  // butunlay o'chiradi (cancelLine). Har amaldan keyin buyurtma qayta yuklanib,
+  // oraliq summa va to'lov avtomatik qayta hisoblanadi.
+  const decrementMutation = useMutation({
+    mutationFn: ({ lineId, quantity }: { lineId: string; quantity: number }) =>
+      ordersApi.updateLineQuantity(order.id, lineId, quantity),
+    onMutate: ({ lineId }) => setLineActionId(lineId),
+    onSettled: () => setLineActionId(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orders'] }),
+    onError: (error: unknown) => setSubmitError(extractErrorMessage(error)),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (lineId: string) => ordersApi.cancelLine(order.id, lineId),
+    onMutate: (lineId) => setLineActionId(lineId),
+    onSettled: () => {
+      setLineActionId(null);
+      setConfirmRemoveId(null);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orders'] }),
+    onError: (error: unknown) => setSubmitError(extractErrorMessage(error)),
+  });
+
+  const lineActionPending = decrementMutation.isPending || removeMutation.isPending;
+  const busy = lineActionPending || confirmMutation.isPending;
+
   const addPayment = () => {
     const remaining = Math.max(0, previewTotal - totalPaid);
     setPayments((current) => [
@@ -177,14 +220,14 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
               <Armchair size={14} className="text-slate-500" />
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Joy / Stol</span>
             </div>
-            <div className="text-base font-black truncate">{locationLabel(order)}</div>
+            <div className="text-base font-black truncate">{locationLabel(o)}</div>
           </div>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <UserIcon size={14} className="text-slate-500" />
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ofitsiant</span>
             </div>
-            <div className="text-sm font-bold text-slate-200 truncate">{order.waiter?.fullName || '—'}</div>
+            <div className="text-sm font-bold text-slate-200 truncate">{o.waiter?.fullName || '—'}</div>
           </div>
           <div className="p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -192,7 +235,7 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Turi</span>
             </div>
             <div className="text-sm font-bold text-slate-200">
-              {order.orderType === 'DINE_IN' ? 'Zalda' : 'Olib ketish'}
+              {o.orderType === 'DINE_IN' ? 'Zalda' : 'Olib ketish'}
             </div>
           </div>
           <div className="p-4 bg-blue-600/10">
@@ -200,7 +243,7 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
               <ReceiptText size={14} className="text-blue-400" />
               <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Pozitsiyalar</span>
             </div>
-            <div className="text-lg font-black text-blue-400">{order.itemCount} ta</div>
+            <div className="text-lg font-black text-blue-400">{o.itemCount} ta</div>
           </div>
         </div>
 
@@ -218,46 +261,104 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
                 </span>
               </div>
               <div className="max-h-[350px] overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
-                {order.lines?.map((line) => (
-                  <div
-                    key={line.id}
-                    className={`grid grid-cols-12 gap-3 p-3 items-start transition-colors ${
-                      line.isCanceled ? 'bg-red-50/30' : 'hover:bg-slate-50/50'
-                    }`}
-                  >
+                {o.lines?.filter((line) => !line.isCanceled).length === 0 && (
+                  <div className="p-6 text-center text-xs font-black uppercase tracking-widest text-slate-400">
+                    Barcha pozitsiyalar o&apos;chirildi
+                  </div>
+                )}
+                {o.lines?.map((line) => {
+                  if (line.isCanceled) return null;
+                  const isService = line.menuItemKind === 'SERVICE';
+                  const rowBusy = lineActionId === line.id;
+                  const confirming = confirmRemoveId === line.id;
+                  return (
                     <div
-                      className={`col-span-1 text-xs font-black ${
-                        line.isCanceled ? 'text-red-300' : 'text-slate-400'
-                      }`}
+                      key={line.id}
+                      className="flex items-start gap-3 p-3 transition-colors hover:bg-slate-50/50"
                     >
-                      {line.quantity}×
-                    </div>
-                    <div className="col-span-8">
-                      <div
-                        className={`text-sm font-bold ${
-                          line.isCanceled ? 'text-slate-400 line-through' : 'text-slate-800'
-                        }`}
-                      >
-                        {line.nameSnapshot}
+                      <div className="w-7 shrink-0 pt-1 text-xs font-black tabular-nums text-slate-400">
+                        {line.quantity}×
                       </div>
-                      {line.notes && (
-                        <div className="mt-1 flex items-center gap-1">
-                          <Info size={10} className="text-blue-500" />
-                          <span className="text-[10px] text-blue-600 font-bold uppercase tracking-tighter">
-                            Qayd: {line.notes}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold text-slate-800">{line.nameSnapshot}</div>
+                        {isService && (
+                          <span className="mt-1 inline-block rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-violet-600">
+                            Xizmat haqi
                           </span>
+                        )}
+                        {line.notes && (
+                          <div className="mt-1 flex items-center gap-1">
+                            <Info size={10} className="text-blue-500" />
+                            <span className="text-[10px] font-bold uppercase tracking-tighter text-blue-600">
+                              Qayd: {line.notes}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="shrink-0 pt-0.5 text-right text-sm font-black tabular-nums text-slate-700">
+                        {formatUZS(line.price * line.quantity)}
+                      </div>
+                      {!isService && (
+                        <div className="flex shrink-0 items-center">
+                          {confirming ? (
+                            <div className="flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150">
+                              <span className="text-[10px] font-black uppercase tracking-tight text-red-600">
+                                O&apos;chirilsinmi?
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="O'chirishni tasdiqlash"
+                                disabled={busy}
+                                onClick={() => removeMutation.mutate(line.id)}
+                                className="inline-flex h-9 min-w-[44px] items-center justify-center rounded-md bg-red-600 px-2 text-[10px] font-black uppercase tracking-wide text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
+                              >
+                                {rowBusy ? <Loader2 size={14} className="animate-spin" /> : 'Ha'}
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="O'chirishni bekor qilish"
+                                disabled={busy}
+                                onClick={() => setConfirmRemoveId(null)}
+                                className="inline-flex h-9 min-w-[44px] items-center justify-center rounded-md border border-slate-200 px-2 text-[10px] font-black uppercase tracking-wide text-slate-500 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:opacity-50"
+                              >
+                                Yo&apos;q
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                aria-label="Sonini kamaytirish"
+                                title="Sonini kamaytirish"
+                                disabled={busy || line.quantity <= 1}
+                                onClick={() =>
+                                  decrementMutation.mutate({ lineId: line.id, quantity: line.quantity - 1 })
+                                }
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {rowBusy && decrementMutation.isPending ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Minus size={14} strokeWidth={2.5} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="Pozitsiyani o'chirish"
+                                title="Pozitsiyani o'chirish"
+                                disabled={busy}
+                                onClick={() => setConfirmRemoveId(line.id)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-400 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                    <div
-                      className={`col-span-3 text-right text-sm font-black ${
-                        line.isCanceled ? 'text-slate-300 line-through' : 'text-slate-700'
-                      }`}
-                    >
-                      {formatUZS(line.price * line.quantity)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -492,13 +593,13 @@ export function ConfirmModal({ order, open, onClose }: ConfirmModalProps) {
             BEKOR QILISH
           </button>
           <button
-            disabled={!canSubmit || confirmMutation.isPending}
+            disabled={!canSubmit || busy}
             onClick={() => {
               setSubmitError(null);
               confirmMutation.mutate();
             }}
             className={`flex-1 flex items-center justify-center gap-3 rounded py-4 font-black text-white shadow-sm transition-all ${
-              canSubmit && !confirmMutation.isPending
+              canSubmit && !busy
                 ? 'bg-blue-600 hover:bg-blue-700 active:translate-y-px'
                 : 'bg-slate-300 cursor-not-allowed text-slate-400'
             }`}
