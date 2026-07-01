@@ -579,7 +579,7 @@ function ItemEditModal({
 }
 
 // ─── Create new item: three-mode form ────────────────────────────────────────
-type Mode = 'SIMPLE' | 'COMPOSITE' | 'SERVICE';
+type Mode = 'SIMPLE' | 'COMPOSITE' | 'UNTRACKED' | 'SERVICE';
 
 type IngRow = {
   name: string;
@@ -670,6 +670,12 @@ function ItemCreateModal({
       return;
     }
 
+    // Untracked FOOD — nothing to collect beyond name/category/price.
+    if (mode === 'UNTRACKED') {
+      onSave({ ...base, mode: 'UNTRACKED' });
+      return;
+    }
+
     if (mode === 'SIMPLE') {
       const costNum = Number(simpleCost);
       if (!Number.isFinite(costNum) || costNum <= 0) return setFormError('Tan narxi 0 dan katta bo\'lsin');
@@ -730,11 +736,12 @@ function ItemCreateModal({
   return (
     <Modal title="Yangi mahsulot" onClose={onClose} maxWidth="max-w-2xl">
       <form onSubmit={submit} className="space-y-5">
-        {/* Mode picker — three radio cards */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Mode picker — four radio cards (2×2) */}
+        <div className="grid grid-cols-2 gap-2">
           {([
             { id: 'SIMPLE', label: 'Oddiy', hint: "O'z zaxirasi va tan narxi (Pepsi, baklava)" },
             { id: 'COMPOSITE', label: 'Mahsulotlardan tayyorlanadi', hint: 'Retsept asosida (plov, lag\'mon)' },
+            { id: 'UNTRACKED', label: 'Sanoqsiz (doim mavjud)', hint: "Zaxira sanalmaydi, doim sotuvda (choy)" },
             { id: 'SERVICE', label: 'Xizmat haqi', hint: "Zaxira yo'q, retsept yo'q" },
           ] as const).map((opt) => (
             <button
@@ -942,6 +949,14 @@ function ItemCreateModal({
                 {compositePortionCost > 0 ? `${compositePortionCost.toLocaleString('uz-UZ')} so'm` : '—'}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* UNTRACKED block */}
+        {mode === 'UNTRACKED' && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            Sanoqsiz mahsulot — zaxira hisoblanmaydi, boshlang'ich son kiritilmaydi va doim
+            sotuvda bo'ladi (masalan choy). Tan narxi kuzatilmaydi.
           </div>
         )}
 

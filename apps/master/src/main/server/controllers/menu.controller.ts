@@ -70,7 +70,7 @@ const itemCreateSchema = z.object({
   price: z.union([z.number().int(), z.string().min(1)]),
   description: z.string().optional(),
   displayOrder: z.number().int().optional(),
-  mode: z.enum(['SERVICE', 'SIMPLE', 'COMPOSITE']).default('SERVICE'),
+  mode: z.enum(['SERVICE', 'SIMPLE', 'COMPOSITE', 'UNTRACKED']).default('SERVICE'),
   simple: simpleModeSchema.optional(),
   composite: compositeModeSchema.optional(),
 }).superRefine((val, ctx) => {
