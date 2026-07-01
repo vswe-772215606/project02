@@ -110,7 +110,7 @@ function unitPreset(key: string) {
   return preset;
 }
 
-export type CreateItemMode = 'SERVICE' | 'SIMPLE' | 'COMPOSITE';
+export type CreateItemMode = 'SERVICE' | 'SIMPLE' | 'COMPOSITE' | 'UNTRACKED';
 
 export type CreateItemInput = {
   categoryId: string;
@@ -201,10 +201,17 @@ export const menuService = {
   },
 
   /**
-   * Create a menu item in one of three modes. All sub-rows (self-ingredient,
+   * Create a menu item in one of four modes. All sub-rows (self-ingredient,
    * recipe ingredients, initial purchases) are written in a single
    * transaction — a failure anywhere rolls back the whole creation, so the
    * admin never sees a half-built item.
+   *
+   * - SIMPLE:    FOOD with its own stock (self-ingredient + optional batch).
+   * - COMPOSITE: FOOD made of ingredients (recipe + per-ingredient batch).
+   * - UNTRACKED: FOOD with NO recipe and NO self-ingredient — not counted,
+   *              always available, no starting number (e.g. choy). Falls
+   *              through both blocks below, so only the bare item is created.
+   * - SERVICE:   a service-charge line (kind=SERVICE), not food.
    */
   async createItem(data: CreateItemInput, actorUserId: string) {
     return withEmitContext(async () => {

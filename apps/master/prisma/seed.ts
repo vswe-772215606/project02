@@ -131,6 +131,10 @@ async function main() {
     { key: 'variance_alert_threshold', value: '50000' },
     { key: 'monthly_kitchen_overhead_uzs', value: '0' },
     { key: 'system_costing_active_since', value: '' },
+    { key: 'alerts_telegram_enabled', value: 'true' },
+    { key: 'alert_discount_threshold', value: '50000' },
+    { key: 'alert_expense_threshold', value: '500000' },
+    { key: 'alert_low_stock_enabled', value: 'true' },
   ]) {
     await prisma.setting.upsert({
       where: { key: setting.key },

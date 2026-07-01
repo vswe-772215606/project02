@@ -110,6 +110,9 @@ export const telegramBotService = {
         ],
         [
           Markup.button.callback('📦 Omborxona', 'stock_low'),
+          Markup.button.callback('👥 Ofitsiantlar', 'waiters_today'),
+        ],
+        [
           Markup.button.callback('❓ Yordam', 'help_action'),
         ],
       ]);
@@ -249,6 +252,18 @@ export const telegramBotService = {
         }
       };
 
+      const sendWaitersToday = async (ctx: any, date: Date) => {
+        try {
+          try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
+          const report = await reportsService.daily(date);
+          const message = this.formatWaitersMessage(date, report.perWaiter ?? []);
+          await ctx.replyWithHTML(message, mainMenu);
+        } catch (error) {
+          console.error('[TelegramBot] Ofitsiantlar hisobotida xatolik:', error);
+          await ctx.reply('❌ Ofitsiantlar hisobotini olishda xatolik yuz berdi.');
+        }
+      };
+
       const sendDateHelp = async (ctx: any) => {
         try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
         await ctx.reply(
@@ -276,7 +291,8 @@ export const telegramBotService = {
           '<b>Tezkor ma\'lumotlar:</b>\n' +
           '/qarzlar — Hozirgi ochiq qarzlar ro\'yxati\n' +
           '/xarajatlar — Bugungi xarajatlar va turkumlari\n' +
-          '/omborxona — Mahsulotlar qoldig\'i (eng kam yetadiganlari)\n\n' +
+          '/omborxona — Mahsulotlar qoldig\'i (eng kam yetadiganlari)\n' +
+          '/ofitsiantlar — Ofitsiantlar bo\'yicha bugungi ko\'rsatkich\n\n' +
           '<b>PDF hisobot:</b>\n' +
           '/pdf — Bugungi kun PDF hisoboti\n' +
           '/pdf <i>YIL-OY-KUN</i> — Tanlangan kun PDF\'i (masalan <code>/pdf 2026-05-12</code>)\n\n' +
@@ -584,6 +600,7 @@ export const telegramBotService = {
       bot.command(['qarzlar', 'debts'], sendDebtsSnapshot);
       bot.command(['xarajatlar', 'expenses'], sendExpensesToday);
       bot.command(['omborxona', 'stock'], sendLowStock);
+      bot.command(['ofitsiantlar', 'waiters'], (ctx) => sendWaitersToday(ctx, tashkentTodayAnchor()));
 
       // /pdf — today's daily report as a PDF
       // /pdf 2026-05-12 — specific date
@@ -619,6 +636,7 @@ export const telegramBotService = {
       bot.action('debts_now', sendDebtsSnapshot);
       bot.action('expenses_today', sendExpensesToday);
       bot.action('stock_low', sendLowStock);
+      bot.action('waiters_today', (ctx) => sendWaitersToday(ctx, tashkentTodayAnchor()));
       bot.action('pdf_today', (ctx) => sendDailyPdf(ctx, tashkentTodayAnchor()));
       bot.action('pdf_yesterday', (ctx) => sendDailyPdf(ctx, tashkentDaysAgoAnchor(1)));
       bot.action('date_help', sendDateHelp);
@@ -636,6 +654,7 @@ export const telegramBotService = {
           { command: 'qarzlar', description: 'Ochiq qarzlar ro\'yxati' },
           { command: 'xarajatlar', description: 'Bugungi xarajatlar' },
           { command: 'omborxona', description: 'Eng kam yetadigan mahsulotlar' },
+          { command: 'ofitsiantlar', description: 'Bugungi ofitsiantlar ko\'rsatkichi' },
           { command: 'pdf', description: 'Kunlik PDF hisobot (yoki /pdf YIL-OY-KUN)' },
           { command: 'umumiy', description: 'Umumiy hisobot (yoki /umumiy FROM TO)' },
           { command: 'excel', description: 'Umumiy hisobot Excel formatida' },
@@ -977,6 +996,41 @@ export const telegramBotService = {
     });
     lines.push('');
     lines.push(`Jami faol mahsulotlar: <b>${ingredients.length}</b> ta`);
+    return lines.join('\n');
+  },
+
+  /**
+   * Per-waiter daily breakdown (owner). Reads reportsService.daily().perWaiter,
+   * sorted by revenue. `revenue` here is net food (subtotal − discount);
+   * `serviceEarned` is the waiter's ✨ service-charge share.
+   */
+  formatWaitersMessage(date: Date, rows: Array<any>): string {
+    const lines: string[] = [];
+    lines.push(`👥 <b>${formatDateLabel(date)} — ofitsiantlar</b>`);
+    lines.push('');
+    if (!Array.isArray(rows) || rows.length === 0) {
+      lines.push('Bugun yopilgan buyurtma yo\'q.');
+      return lines.join('\n');
+    }
+    const sorted = [...rows].sort((a: any, b: any) => Number(b.revenue) - Number(a.revenue));
+    let totalOrders = 0;
+    let totalRevenue = 0;
+    let totalService = 0;
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    sorted.forEach((r: any, idx: number) => {
+      const orders = Number(r.orders ?? 0);
+      const revenue = Number(r.revenue ?? 0);
+      const service = Number(r.serviceEarned ?? 0);
+      totalOrders += orders;
+      totalRevenue += revenue;
+      totalService += service;
+      lines.push(`  ${idx + 1}. <b>${r.waiterName}</b>`);
+      lines.push(`     ${orders} buyurtma · ${formatMoney(revenue)} so'm · ✨ ${formatMoney(service)} so'm`);
+    });
+    lines.push('');
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+    lines.push(`  Jami: <b>${totalOrders}</b> buyurtma · ${formatMoney(totalRevenue)} so'm`);
+    lines.push(`  ✨ Xizmat haqi (jami): <b>${formatMoney(totalService)}</b> so'm`);
     return lines.join('\n');
   },
 

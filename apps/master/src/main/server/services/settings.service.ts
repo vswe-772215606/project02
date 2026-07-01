@@ -29,6 +29,10 @@ export const settingsService = {
         'monthly_report_telegram_time',
         'telegram_bot_token',
         'owner_telegram_chat_id',
+        'alerts_telegram_enabled',
+        'alert_discount_threshold',
+        'alert_expense_threshold',
+        'alert_low_stock_enabled',
       ].includes(key);
     });
 
@@ -45,6 +49,10 @@ export const settingsService = {
       'monthly_report_telegram_time',
       'telegram_bot_token',
       'owner_telegram_chat_id',
+      'alerts_telegram_enabled',
+      'alert_discount_threshold',
+      'alert_expense_threshold',
+      'alert_low_stock_enabled',
     ].includes(key)) {
       return role === 'OWNER';
     }
