@@ -10,6 +10,9 @@ export interface MenuItem {
   kind: 'FOOD' | 'SERVICE';
   isAvailable: boolean;
   isActive: boolean;
+  // Present on the GET /api/menu client payload: isAvailable AND in stock
+  // (or untracked). Absent on the flat /items admin list.
+  effectivelyAvailable?: boolean;
 }
 
 export interface Category {
@@ -49,6 +52,9 @@ export type CreateItemPayload = {
   displayOrder?: number;
 } & (
   | { mode: 'SERVICE' }
+  // Untracked FOOD: no recipe, no self-ingredient, no starting number —
+  // always available (e.g. choy). Same payload shape as SERVICE (name/price only).
+  | { mode: 'UNTRACKED' }
   | {
       mode: 'SIMPLE';
       simple: {

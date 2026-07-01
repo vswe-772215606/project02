@@ -1,15 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   Ban,
   History,
+  Loader2,
+  Minus,
+  Plus,
   Printer,
   ReceiptText,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Order, ordersApi } from '@/api/orders';
+import { menuApi } from '@/api/menu';
 import { OrderStatus, StatusBadge } from '@/components/StatusBadge';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { PageContent } from '@/components/feedback/PageContent';
@@ -275,11 +281,46 @@ function OrderDetailDialog({
   onClose: () => void;
   onCancel: (order: Order) => void;
 }) {
+  const queryClient = useQueryClient();
   const [reprintSuccess, setReprintSuccess] = useState(false);
+  const [lineActionId, setLineActionId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<'items' | 'combos'>('items');
+  const [pickerSearch, setPickerSearch] = useState('');
+
+  const orderId = order?.id ?? null;
+  // Server allows line edits only while DRAFT or SENT. In this list only SENT
+  // is reachable (DRAFT isn't a tab), but we key off both defensively.
+  const isEditable = order?.status === 'SENT' || order?.status === 'DRAFT';
+
+  // Live order — reflects line edits immediately (mirrors ConfirmModal).
+  const { data: liveOrder } = useQuery({
+    queryKey: ['orders', orderId],
+    queryFn: () => ordersApi.getById(orderId as string),
+    initialData: order ?? undefined,
+    enabled: open && orderId !== null,
+  });
+  const o = liveOrder ?? order;
+
+  // Menu + combos for the "add item" picker — only fetched while editing.
+  const { data: menu } = useQuery({
+    queryKey: ['menu'],
+    queryFn: () => menuApi.getMenu(),
+    enabled: open && isEditable,
+  });
+  const { data: combos = [] } = useQuery({
+    queryKey: ['menu', 'combos'],
+    queryFn: () => menuApi.listCombos(),
+    enabled: open && isEditable,
+  });
+
+  const invalidateOrders = () => queryClient.invalidateQueries({ queryKey: ['orders'] });
+
   const reprintMutation = useMutation({
     mutationFn: (reason: string) => {
-      if (!order) throw new Error('No order');
-      return ordersApi.reprintBill(order.id, reason);
+      if (!orderId) throw new Error('No order');
+      return ordersApi.reprintBill(orderId, reason);
     },
     onSuccess: () => {
       setReprintSuccess(true);
@@ -287,39 +328,114 @@ function OrderDetailDialog({
     },
   });
 
-  if (!order) {
+  const quantityMutation = useMutation({
+    mutationFn: ({ lineId, quantity }: { lineId: string; quantity: number }) =>
+      ordersApi.updateLineQuantity(orderId as string, lineId, quantity),
+    onMutate: ({ lineId }) => setLineActionId(lineId),
+    onSettled: () => setLineActionId(null),
+    onSuccess: invalidateOrders,
+    onError: (error) => toast.error(extractEditError(error)),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (lineId: string) => ordersApi.cancelLine(orderId as string, lineId),
+    onMutate: (lineId) => setLineActionId(lineId),
+    onSettled: () => {
+      setLineActionId(null);
+      setConfirmRemoveId(null);
+    },
+    onSuccess: invalidateOrders,
+    onError: (error) => toast.error(extractEditError(error)),
+  });
+
+  const addItemMutation = useMutation({
+    mutationFn: (menuItemId: string) =>
+      ordersApi.addItem(orderId as string, { menuItemId, quantity: 1 }),
+    onMutate: (menuItemId) => setLineActionId(`add:${menuItemId}`),
+    onSettled: () => setLineActionId(null),
+    onSuccess: invalidateOrders,
+    onError: (error) => toast.error(extractEditError(error)),
+  });
+
+  const addComboMutation = useMutation({
+    mutationFn: (comboId: string) => ordersApi.addCombo(orderId as string, { comboId }),
+    onMutate: (comboId) => setLineActionId(`combo:${comboId}`),
+    onSettled: () => setLineActionId(null),
+    onSuccess: invalidateOrders,
+    onError: (error) => toast.error(extractEditError(error)),
+  });
+
+  const busy =
+    quantityMutation.isPending ||
+    removeMutation.isPending ||
+    addItemMutation.isPending ||
+    addComboMutation.isPending;
+
+  const pickerItems = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    return (menu?.categories ?? [])
+      .map((category) => ({
+        id: category.id,
+        name: category.name,
+        items: (category.items ?? []).filter(
+          (item) => item.kind !== 'SERVICE' && (!q || item.name.toLowerCase().includes(q)),
+        ),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [menu, pickerSearch]);
+
+  const pickerCombos = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    return combos.filter((combo) => combo.isActive && (!q || combo.name.toLowerCase().includes(q)));
+  }, [combos, pickerSearch]);
+
+  const closeAndReset = () => {
+    setReprintSuccess(false);
+    setPickerOpen(false);
+    setPickerSearch('');
+    setConfirmRemoveId(null);
+    setLineActionId(null);
+    onClose();
+  };
+
+  if (!o) {
     return (
-      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <Dialog open={open} onOpenChange={(x) => !x && onClose()}>
         <DialogContent />
       </Dialog>
     );
   }
 
-  const subtotal = order.subtotalSnapshot ?? order.totalAmount ?? 0;
-  const discount = order.discountAmountSnapshot ?? 0;
-  const service = order.serviceChargeSnapshot ?? 0;
-  const total = order.totalSnapshot ?? order.totalAmount ?? 0;
+  const activeLines = (o.lines ?? []).filter((line) => !line.isCanceled);
+  const liveSubtotal = activeLines
+    .filter((line) => line.menuItemKind !== 'SERVICE')
+    .reduce((sum, line) => sum + (line.price || 0) * line.quantity, 0);
+  const liveService = activeLines
+    .filter((line) => line.menuItemKind === 'SERVICE')
+    .reduce((sum, line) => sum + (line.price || 0) * line.quantity, 0);
+
+  // Editable orders aren't snapshotted yet — show the live running numbers.
+  const subtotal = isEditable ? liveSubtotal : o.subtotalSnapshot ?? o.totalAmount ?? 0;
+  const discount = isEditable ? 0 : o.discountAmountSnapshot ?? 0;
+  const service = isEditable ? liveService : o.serviceChargeSnapshot ?? 0;
+  const total = isEditable ? liveSubtotal + liveService : o.totalSnapshot ?? o.totalAmount ?? 0;
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) {
-          setReprintSuccess(false);
-          onClose();
-        }
+      onOpenChange={(x) => {
+        if (!x) closeAndReset();
       }}
     >
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ReceiptText className="h-5 w-5 text-muted-foreground" strokeWidth={1.75} />
-            <span className="font-mono">#{shortOrderNumber(order.orderNumber)}</span>
-            <StatusBadge status={order.status} />
+            <span className="font-mono">#{shortOrderNumber(o.orderNumber)}</span>
+            <StatusBadge status={o.status} />
           </DialogTitle>
           <DialogDescription>
-            {locationLabel(order)} · {order.waiter?.fullName ?? '—'} ·{' '}
-            {formatDateTime(order.createdAt)}
+            {locationLabel(o)} · {o.waiter?.fullName ?? '—'} · {formatDateTime(o.createdAt)}
           </DialogDescription>
         </DialogHeader>
 
@@ -331,53 +447,282 @@ function OrderDetailDialog({
                 Buyurtma tarkibi
               </span>
               <span className="text-xs text-muted-foreground tabular-nums">
-                {order.itemCount} pozitsiya
+                {o.itemCount} pozitsiya
               </span>
             </div>
             <div className="space-y-1 max-h-[360px] overflow-y-auto pr-1">
-              {(order.lines ?? []).map((line) => (
-                <div
-                  key={line.id}
-                  className={cn(
-                    'grid grid-cols-12 gap-2 py-1.5 px-2 rounded-md text-sm',
-                    line.isCanceled ? 'bg-destructive/5' : 'hover:bg-muted/40',
-                  )}
-                >
-                  <div className="col-span-1 tabular-nums text-muted-foreground font-medium">
-                    {line.quantity}×
-                  </div>
-                  <div className="col-span-8 min-w-0">
-                    <div
-                      className={cn(
-                        'font-medium truncate',
-                        line.isCanceled && 'text-muted-foreground line-through',
-                      )}
-                    >
-                      {line.nameSnapshot}
+              {(o.lines ?? []).map((line) => {
+                const isService = line.menuItemKind === 'SERVICE';
+                const rowBusy = lineActionId === line.id;
+                const confirming = confirmRemoveId === line.id;
+                const showControls = isEditable && !line.isCanceled && !isService;
+                return (
+                  <div
+                    key={line.id}
+                    className={cn(
+                      'flex items-center gap-2 py-1.5 px-2 rounded-md text-sm',
+                      line.isCanceled ? 'bg-destructive/5' : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <div className="w-8 shrink-0 tabular-nums text-muted-foreground font-medium">
+                      {line.quantity}×
                     </div>
-                    {line.notes && (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <AlertCircle className="h-3 w-3 text-info" strokeWidth={1.75} />
-                        <span className="text-xs text-info">{line.notes}</span>
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className={cn(
+                          'font-medium truncate',
+                          line.isCanceled && 'text-muted-foreground line-through',
+                        )}
+                      >
+                        {line.nameSnapshot}
+                        {isService && (
+                          <span className="ml-1.5 inline-block rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-600 align-middle">
+                            Xizmat
+                          </span>
+                        )}
+                      </div>
+                      {line.notes && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <AlertCircle className="h-3 w-3 text-info" strokeWidth={1.75} />
+                          <span className="text-xs text-info">{line.notes}</span>
+                        </div>
+                      )}
+                      {showControls && (
+                        <div className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
+                          {formatMoney((line.price || 0) * line.quantity)}
+                        </div>
+                      )}
+                    </div>
+                    {showControls ? (
+                      confirming ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] font-semibold uppercase tracking-tight text-destructive">
+                            O'chirilsinmi?
+                          </span>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            disabled={busy}
+                            onClick={() => removeMutation.mutate(line.id)}
+                          >
+                            {rowBusy && removeMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              'Ha'
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            disabled={busy}
+                            onClick={() => setConfirmRemoveId(null)}
+                          >
+                            Yo'q
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Sonini kamaytirish"
+                            disabled={busy || line.quantity <= 1}
+                            onClick={() =>
+                              quantityMutation.mutate({
+                                lineId: line.id,
+                                quantity: line.quantity - 1,
+                              })
+                            }
+                          >
+                            {rowBusy && quantityMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Minus className="h-3.5 w-3.5" strokeWidth={2.25} />
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Sonini oshirish"
+                            disabled={busy}
+                            onClick={() =>
+                              quantityMutation.mutate({
+                                lineId: line.id,
+                                quantity: line.quantity + 1,
+                              })
+                            }
+                          >
+                            <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+                            title="Pozitsiyani o'chirish"
+                            disabled={busy}
+                            onClick={() => setConfirmRemoveId(line.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )
+                    ) : (
+                      <div
+                        className={cn(
+                          'w-24 shrink-0 text-right tabular-nums font-medium',
+                          line.isCanceled && 'text-muted-foreground line-through',
+                        )}
+                      >
+                        {formatMoney((line.price || 0) * line.quantity)}
                       </div>
                     )}
                   </div>
-                  <div
-                    className={cn(
-                      'col-span-3 text-right tabular-nums font-medium',
-                      line.isCanceled && 'text-muted-foreground line-through',
-                    )}
-                  >
-                    {formatMoney((line.price || 0) * line.quantity)}
-                  </div>
-                </div>
-              ))}
-              {(order.lines ?? []).length === 0 && (
+                );
+              })}
+              {(o.lines ?? []).length === 0 && (
                 <div className="text-sm text-muted-foreground text-center py-6">
                   Pozitsiyalar yo'q
                 </div>
               )}
             </div>
+
+            {isEditable && (
+              <div className="pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setPickerOpen((v) => !v)}
+                >
+                  <Plus className="h-4 w-4" />
+                  {pickerOpen ? 'Qo‘shishni yopish' : "Mahsulot qo'shish"}
+                </Button>
+
+                {pickerOpen && (
+                  <div className="mt-2 rounded-md border border-border">
+                    <div className="flex items-center gap-2 p-2 border-b border-border">
+                      <div className="flex gap-1">
+                        <Button
+                          variant={pickerTab === 'items' ? 'default' : 'ghost'}
+                          size="sm"
+                          className="h-8"
+                          onClick={() => setPickerTab('items')}
+                        >
+                          Mahsulotlar
+                        </Button>
+                        <Button
+                          variant={pickerTab === 'combos' ? 'default' : 'ghost'}
+                          size="sm"
+                          className="h-8"
+                          onClick={() => setPickerTab('combos')}
+                        >
+                          Kombolar
+                        </Button>
+                      </div>
+                      <div className="relative flex-1">
+                        <Search
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"
+                          strokeWidth={1.75}
+                        />
+                        <Input
+                          type="text"
+                          placeholder="Qidirish..."
+                          className="pl-8 h-8"
+                          value={pickerSearch}
+                          onChange={(e) => setPickerSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="max-h-[240px] overflow-y-auto p-2 space-y-3">
+                      {pickerTab === 'items' ? (
+                        pickerItems.length === 0 ? (
+                          <div className="text-xs text-muted-foreground text-center py-4">
+                            Mahsulot topilmadi
+                          </div>
+                        ) : (
+                          pickerItems.map((category) => (
+                            <div key={category.id}>
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1 mb-1">
+                                {category.name}
+                              </div>
+                              <div className="grid grid-cols-2 gap-1">
+                                {category.items.map((item) => {
+                                  const unavailable =
+                                    item.effectivelyAvailable === false || !item.isAvailable;
+                                  const adding = lineActionId === `add:${item.id}`;
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      disabled={busy || unavailable}
+                                      onClick={() => addItemMutation.mutate(item.id)}
+                                      title={unavailable ? 'Mavjud emas' : undefined}
+                                      className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <span className="truncate font-medium">{item.name}</span>
+                                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                                        {adding ? (
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                          formatMoney(item.price)
+                                        )}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )
+                      ) : pickerCombos.length === 0 ? (
+                        <div className="text-xs text-muted-foreground text-center py-4">
+                          Kombo topilmadi
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {pickerCombos.map((combo) => {
+                            const adding = lineActionId === `combo:${combo.id}`;
+                            const summary =
+                              combo.components
+                                .map((component) => component.menuItem?.name)
+                                .filter(Boolean)
+                                .join(', ') || `${combo.components.length} ta mahsulot`;
+                            return (
+                              <button
+                                key={combo.id}
+                                type="button"
+                                disabled={busy}
+                                onClick={() => addComboMutation.mutate(combo.id)}
+                                className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">{combo.name}</div>
+                                  <div className="text-[10px] text-muted-foreground truncate">
+                                    {summary}
+                                  </div>
+                                </div>
+                                <span className="shrink-0 text-muted-foreground">
+                                  {adding ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Plus className="h-4 w-4" />
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Totals + actions */}
@@ -405,7 +750,7 @@ function OrderDetailDialog({
                 </div>
                 <div className="flex justify-between items-baseline pt-2 mt-2 border-t border-border">
                   <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-                    Yakuniy summa
+                    {isEditable ? 'Joriy jami' : 'Yakuniy summa'}
                   </span>
                   <span className="text-lg font-semibold tabular-nums">
                     {formatMoney(total)}
@@ -414,20 +759,27 @@ function OrderDetailDialog({
               </CardContent>
             </Card>
 
+            {isEditable && (
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                O'zgarishlar darhol saqlanadi. Chegirma va yakuniy hisob to'lov
+                (Tasdiqlash) vaqtida shakllanadi.
+              </p>
+            )}
+
             <div className="space-y-2">
-              {order.status === 'SENT' && (
+              {o.status === 'SENT' && (
                 <Button
                   variant="destructive"
                   size="sm"
                   className="w-full"
-                  onClick={() => onCancel(order)}
+                  onClick={() => onCancel(o)}
                 >
                   <Ban className="h-4 w-4" />
                   Buyurtmani bekor qilish
                 </Button>
               )}
 
-              {(order.status === 'CLOSED' || order.status === 'WALKOUT') &&
+              {(o.status === 'CLOSED' || o.status === 'WALKOUT') &&
                 (reprintSuccess ? (
                   <Button variant="outline" size="sm" className="w-full" disabled>
                     <Printer className="h-4 w-4" />
@@ -449,16 +801,16 @@ function OrderDetailDialog({
                 ))}
             </div>
 
-            {order.status === 'CLOSED' && order.closedAt && (
+            {o.status === 'CLOSED' && o.closedAt && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <History className="h-3.5 w-3.5" strokeWidth={1.75} />
-                <span>Yopildi: {formatDateTime(order.closedAt)}</span>
+                <span>Yopildi: {formatDateTime(o.closedAt)}</span>
               </div>
             )}
-            {order.status === 'CANCELED' && order.cancelReason && (
+            {o.status === 'CANCELED' && o.cancelReason && (
               <div className="p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-xs text-destructive">
                 <span className="font-semibold">Sabab: </span>
-                {order.cancelReason}
+                {o.cancelReason}
               </div>
             )}
           </div>
@@ -466,6 +818,19 @@ function OrderDetailDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function extractEditError(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const maybe = error as { code?: unknown; message?: unknown };
+    const code = typeof maybe.code === 'string' ? maybe.code : undefined;
+    const message = typeof maybe.message === 'string' ? maybe.message : undefined;
+    if (code === 'OUT_OF_STOCK') return message || 'Mahsulot yetarli emas';
+    if (code === 'ITEM_UNAVAILABLE') return message || 'Mahsulot mavjud emas';
+    if (code === 'ILLEGAL_STATE') return "Buyurtma holati o'zgargan — sahifani yangilang";
+    if (message) return message;
+  }
+  return "Amalni bajarib bo'lmadi";
 }
 
 function CancelOrderDialog({
