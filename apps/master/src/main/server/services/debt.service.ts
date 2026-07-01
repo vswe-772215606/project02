@@ -3,6 +3,7 @@ import { Errors } from '../lib/errors';
 import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
 import { auditService } from './audit.service';
+import { alertService } from './alert.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -244,6 +245,14 @@ export const debtService = {
           writtenOffAt: writtenOffAt.toISOString(),
         },
       }, tx);
+    });
+
+    // Owner alert (post-commit, fire-and-forget) — a written-off debt is a
+    // real loss worth surfacing immediately.
+    void alertService.debtWriteOff({
+      debtorName: debt.debtorName,
+      amount: debt.remainingAmount.toFixed(0),
+      reason: input.reason.trim(),
     });
 
     return this.getById(debt.id);

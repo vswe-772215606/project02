@@ -1,6 +1,7 @@
 import { IngredientMovementType, MenuItemKind, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
-import { deferEmit } from '../lib/socket-events';
+import { deferAfterCommit, deferEmit } from '../lib/socket-events';
+import { alertService } from './alert.service';
 import { ingredientRepo } from '../repositories/ingredient.repo';
 import { ingredientMovementRepo } from '../repositories/ingredientMovement.repo';
 import { menuRepo } from '../repositories/menu.repo';
@@ -89,6 +90,7 @@ async function peelFifo(
   // when a single sale spills across many batches.
   const ingFresh = await ingredientRepo.findById(target.ingredientId, tx);
   let runningStock = ingFresh?.currentStock ?? new Prisma.Decimal(0);
+  const preStock = runningStock;
   const runningAvg = ingFresh?.weightedAvgCost ?? new Prisma.Decimal(0);
 
   for (const batch of batches) {
@@ -142,6 +144,18 @@ async function peelFifo(
 
   if (remaining.gt(0)) {
     throw Errors.OutOfStock(target.ingredientName, target.parentDishName);
+  }
+
+  // Owner alert: this sale drove the ingredient to zero. deferAfterCommit ties
+  // it to the surrounding order transaction, so a rolled-back sale never sends
+  // a false "tugadi".
+  if (preStock.gt(0) && runningStock.lte(0)) {
+    const ingredientName = target.ingredientName;
+    const dishName = target.parentDishName;
+    const unit = ingFresh?.recipeUnit ?? '';
+    deferAfterCommit(() =>
+      alertService.ingredientStockOut({ ingredientName, dishName, unit }),
+    );
   }
 
   return cogsDelta;

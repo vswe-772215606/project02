@@ -189,6 +189,98 @@ export function SettingsPage() {
           </SettingItem>
         </SettingsGroup>
 
+        <SettingsGroup title="Tezkor ogohlantirishlar (Telegram)" icon={AlertCircle}>
+          <SettingItem
+            label="Ogohlantirishlar"
+            description="Muhim hodisalarda darhol xabar: to'lamay ketish, katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
+            readonly={!isOwner}
+          >
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <button
+                type="button"
+                role="switch"
+                disabled={!isOwner}
+                aria-checked={getVal('alerts_telegram_enabled') !== 'false'}
+                onClick={() => handleChange('alerts_telegram_enabled', getVal('alerts_telegram_enabled') !== 'false' ? 'false' : 'true')}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none ${
+                  getVal('alerts_telegram_enabled') !== 'false' ? 'bg-blue-600' : 'bg-slate-200'
+                } disabled:opacity-50`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform ${
+                    getVal('alerts_telegram_enabled') !== 'false' ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <span className="text-sm font-semibold text-slate-700">
+                {getVal('alerts_telegram_enabled') !== 'false' ? 'Yoqilgan' : 'O\'chirilgan'}
+              </span>
+            </label>
+          </SettingItem>
+
+          <SettingItem
+            label="Katta chegirma chegarasi (so'm)"
+            description="Shu summadan katta chegirma qo'llanilsa xabar keladi"
+            readonly={!isOwner}
+          >
+            <input
+              type="number"
+              min="0"
+              step="10000"
+              value={getVal('alert_discount_threshold')}
+              onChange={(e) => handleChange('alert_discount_threshold', e.target.value)}
+              disabled={!isOwner}
+              placeholder="50000"
+              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
+            />
+          </SettingItem>
+
+          <SettingItem
+            label="Katta chiqim chegarasi (so'm)"
+            description="Shu summadan katta chiqim kiritilsa xabar keladi"
+            readonly={!isOwner}
+          >
+            <input
+              type="number"
+              min="0"
+              step="10000"
+              value={getVal('alert_expense_threshold')}
+              onChange={(e) => handleChange('alert_expense_threshold', e.target.value)}
+              disabled={!isOwner}
+              placeholder="500000"
+              className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-500"
+            />
+          </SettingItem>
+
+          <SettingItem
+            label="Mahsulot tugashi haqida xabar"
+            description="Sotuvda biror mahsulot zaxirasi 0 ga tushsa xabar"
+            readonly={!isOwner}
+          >
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <button
+                type="button"
+                role="switch"
+                disabled={!isOwner}
+                aria-checked={getVal('alert_low_stock_enabled') !== 'false'}
+                onClick={() => handleChange('alert_low_stock_enabled', getVal('alert_low_stock_enabled') !== 'false' ? 'false' : 'true')}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none ${
+                  getVal('alert_low_stock_enabled') !== 'false' ? 'bg-blue-600' : 'bg-slate-200'
+                } disabled:opacity-50`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform ${
+                    getVal('alert_low_stock_enabled') !== 'false' ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <span className="text-sm font-semibold text-slate-700">
+                {getVal('alert_low_stock_enabled') !== 'false' ? 'Yoqilgan' : 'O\'chirilgan'}
+              </span>
+            </label>
+          </SettingItem>
+        </SettingsGroup>
+
         <SettingsGroup title="Do'kon ma'lumotlari" icon={Store}>
           <SettingItem
             label="Muassasa nomi"

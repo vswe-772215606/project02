@@ -3,6 +3,7 @@ import { Errors } from '../lib/errors';
 import { getPrisma } from '../lib/prisma';
 import { expenseRepo } from '../repositories/expense.repo';
 import { auditService } from './audit.service';
+import { alertService } from './alert.service';
 import { isSameLocalDay, localDayKey } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
@@ -273,6 +274,15 @@ export const expenseService = {
       }, tx);
 
       return created;
+    });
+
+    // Owner alert (post-commit, fire-and-forget). Only manual expenses go
+    // through here; ingredient purchases create their expense via
+    // purchaseService and are intentionally excluded from this alert.
+    void alertService.largeExpense({
+      reason: input.reason.trim(),
+      amount: amount.toNumber(),
+      categoryName: category.name,
     });
 
     return mapExpense(await expenseRepo.findById(expense.id));

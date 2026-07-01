@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { MenuItemKind, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
 import { Errors } from '../lib/errors';
-import { deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
+import { deferAfterCommit, deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
+import { alertService } from './alert.service';
 import { getPrisma } from '../lib/prisma';
 import { menuRepo } from '../repositories/menu.repo';
 import { orderLineRepo } from '../repositories/orderLine.repo';
@@ -747,6 +748,26 @@ export const orderService = {
         deferEmit('admin', 'order:closed', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:closed', { orderId: order.id });
 
+        // Owner alerts — fire only after this transaction (incl. the blocking
+        // bill print) commits. A large discount and/or a nasiya sale are the
+        // two confirm-time events worth pushing immediately.
+        const orderNumber = order.id.slice(-6).toUpperCase();
+        deferAfterCommit(() =>
+          alertService.largeDiscount({
+            orderNumber,
+            discount: totals.discountAmount.toNumber(),
+            total: totalDue,
+            waiterName: order.waiter?.fullName ?? null,
+          }),
+        );
+        if (debtPayment && input.debt) {
+          const debtorName = input.debt.debtorName;
+          const debtAmount = debtPayment.amount;
+          deferAfterCommit(() =>
+            alertService.debtSale({ orderNumber, debtorName, amount: debtAmount }),
+          );
+        }
+
         return mapToDto(updated);
       }, { timeout: 30_000, maxWait: 10_000 });
     });
@@ -787,6 +808,16 @@ export const orderService = {
 
         deferEmit('admin', 'order:walkout', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:walkout', { orderId: order.id });
+
+        deferAfterCommit(() =>
+          alertService.orderWalkout({
+            orderNumber: order.id.slice(-6).toUpperCase(),
+            tableName: order.table?.name ?? null,
+            amount: order.totalSnapshot?.toString() ?? '0',
+            waiterName: order.waiter?.fullName ?? null,
+            reason: input.reason,
+          }),
+        );
 
         return mapToDto(updated);
       });
