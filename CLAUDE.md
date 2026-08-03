@@ -7,10 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
 
 Source-of-truth docs (read these before non-trivial changes):
-- `docs/PROJECT_TECHNICAL_OVERVIEW.md` — system overview.
-- `docs/agent-plans/00-shared/decisions.md` — **locked** product/domain decisions (roles, order lifecycle, bill math). Do not change these without explicit instruction.
-- `docs/agent-plans/00-shared/conventions.md` — code style and naming.
-- `docs/FINANCE_IMPLEMENTATION_SPEC.md` — finance module spec.
+- **`docs/CURRENT_WORKFLOW.md` — START HERE.** Code-verified snapshot of what the system actually does: the money path, order state machine, FIFO/COGS, finance formulas, API surface, socket wiring, ranked known defects, and an explicit list of which other docs to distrust. Where any doc disagrees with it, it wins.
+- **`docs/AUDIT_FINDINGS.md` — 145 open findings (11 BLOCKER / 18 CRITICAL), audited 2026-08-03 against `docs/POS_STANDARDS.md`. §8 is a live remediation tracker — a fix pass is IN PROGRESS; read §8 before starting work so you don't redo or skip a step.** §1 explains the systemic issue (no detective controls) that ties the top findings together.
+- `docs/POS_STANDARDS.md` — the audit rubric: 60 ID'd requirements from the Keurmerk POS reliability standard, Uzbek fiscal law (КМ РУз №943), and WCAG 2.2. Cite these IDs in any new finding.
+- `docs/PRD_FOUNDATION.md` — scoping input for a forthcoming PRD over the four areas being rebuilt: inventory, finance, calculations, UI/UX. Groups the audit findings by subsystem into numbered requirements (`INV-*`, `FIN-*`, `CALC-*`, `UX-*`), plus sequencing and open product decisions. **§7 lists constraints that must not be "fixed"** — read it before changing any finance formula.
+- `docs/agent-plans/00-shared/decisions.md` — product/domain intent (roles, order lifecycle, bill math) and v1 scope exclusions. Labelled "locked", but **several claims have drifted from the code** — see `CURRENT_WORKFLOW.md` §12 before relying on it. Don't change it without explicit instruction.
+- `docs/agent-plans/00-shared/conventions.md` — code style and naming. Current.
+- `docs/FINANCE_IMPLEMENTATION_SPEC.md` — finance module spec. Current.
+- `docs/PROJECT_TECHNICAL_OVERVIEW.md` — system overview; partly historical, verify before relying.
 
 ## Commands
 
@@ -31,14 +35,17 @@ Master-specific (run inside `apps/master/`):
 pnpm prisma:generate                       # regenerate Prisma client
 pnpm exec prisma migrate dev --name <name> # create + apply a migration
 pnpm exec tsx prisma/seed.ts               # seed dev.db
-pnpm exec tsx scripts/simulate-flow.ts     # end-to-end flow against running server
-bash scripts/api-smoke.sh                  # curl-based smoke test, BASE_URL=http://localhost:4000
+pnpm exec tsx scripts/smoke-e2e-flow.ts    # end-to-end flow (self-contained, no server needed)
+pnpm exec tsx scripts/smoke-fifo.ts        # FIFO peel/restore invariants
+pnpm exec tsx scripts/smoke-finance-pnl.ts # P&L + cash-drawer math
 pnpm package:win                           # NSIS installer (Windows)
 pnpm build:printer                         # cross-build receipt.exe via mingw (Linux)
 pnpm build:printer:win                     # build receipt.exe via MSVC (Windows)
 ```
 
-Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the smoke scripts above and manual flows.
+Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (each runs real services against a throwaway SQLite) plus manual flows.
+
+⚠ Not all scripts are live. `scripts/api-smoke.sh` is **dead legacy** — it still curls kitchen users, `request-bill` and `mark-paid`, none of which exist. Several `simulate-*.ts` scripts carry pre-v0.1.3 expectations and fail against current behaviour. Read a script before trusting a green run.
 
 ## Architecture
 
@@ -51,8 +58,8 @@ Electron app where the **main process hosts the Express + Socket.io server**, an
   - `socket.ts` — Socket.io rooms `admin` and `waiter:{userId}`. There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }`.
   - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain.
-- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. A partial unique index enforces "one active order per table".
-- `src/renderer/` — React 18 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state.
+- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. ⚠ "One active order per table" is **currently unenforced** — migration `20260607041034` rebuilt the `Order` table and did not recreate the partial unique index, so the `P2002` catch in `createDraft` can no longer fire.
+- `src/renderer/` — React 19 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state. (Root `pnpm.overrides` pins react/react-dom to 19.1.0 workspace-wide; `apps/order/package.json` still *declares* ^18.3.0 but the override wins.)
 
 ### Order (`apps/order/`)
 Electron desktop waiter app — the keyboard/touchscreen equivalent of the mobile app. PIN login, create/edit drafts, send orders. Connects to master via REST + Socket.io using a `MasterUrlProvider` that persists the server URL in `userData`. Same renderer style as master (sidebar shell, shadcn primitives, TanStack Query).
@@ -84,8 +91,8 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 
 - **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `SENT → WALKOUT` and `DRAFT|SENT → CANCELED` as terminal branches. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
 - **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. It atomically validates payments, snapshots totals, inserts `Payment`/`Debt` rows, prints the bill (blocking — failure rolls the whole transaction back), and flips the order to `CLOSED`.
-- **Stock**: orders containing tracked items are rejected atomically if any `Ingredient.currentStock` is insufficient. Cancelling from `DRAFT` restores stock; cancelling from `SENT` does not.
-- **Roles**: OWNER sees finance/profit; ADMIN does not. WAITER is mobile/order-app only. Don't expose owner-only data to lower roles.
+- **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line runs a FIFO peel (oldest active batch first) and is rejected atomically if any `Ingredient.currentStock` is insufficient. Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); only `WALKOUT` consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point.
+- **Roles**: OWNER sees finance/profit; ADMIN does not. WAITER is mobile/order-app only. Don't expose owner-only data to lower roles. ⚠ This is currently enforced client-side only for profit — `/api/finance/daily` is ADMIN+OWNER and still returns `pnl.profit` on the wire.
 - **v1 scope explicitly excludes**: split/merge bills, per-line discounts, Click/Payme, structured modifiers, multi-tenant. Don't add them speculatively.
 
 ## Printer
