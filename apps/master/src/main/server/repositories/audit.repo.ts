@@ -39,7 +39,9 @@ export const auditRepo = {
     const [items, total] = await Promise.all([
       client.auditLog.findMany({
         where,
-        include: { user: true },
+        // Never `include: { user: true }` — that ships passwordHash and pinHash
+        // to the client. Select only what AuditPage renders (see api/audit.ts).
+        include: { user: { select: { id: true, fullName: true, role: true } } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: params.pageSize,
