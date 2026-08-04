@@ -374,6 +374,212 @@ accuracy regression.
 4. **Existing miscreated dishes (INV-19)** — restate history or fix forward only? FIFO's "honest
    history" principle argues for forward only.
 
+### 1.9 Schema decisions — working session, 2026-08-04
+
+Worked through in conversation with the developer. **Settled** items are confirmed and should be
+treated like `R1–R7`. **Open** items are the ones a PRD cannot be written without.
+
+#### Settled
+
+**S-1 · Units belong to the ingredient, never to the dish.** A menu item has no unit — food is sold
+per **porsiya**, always. Price and tan narx are per portion. Only `Ingredient` carries a unit.
+
+**S-2 · `IngredientUnit` is a closed, immutable enum of exactly three values.**
+
+```prisma
+enum IngredientUnit { KG  LITR  DONA }
+
+model Ingredient {
+  unit  IngredientUnit   // set at creation, never updatable
+  // buyUnit, recipeUnit, conversionFactor — all removed
+}
+```
+
+Three string columns plus a human-typed number collapse into one enum. The ledger scale lives in
+code as a constant, not as data:
+
+| `unit` | operator types | ledger stores | factor |
+|---|---|---|---|
+| `KG` | kg | gramm | ×1000 |
+| `LITR` | litr | ml | ×1000 |
+| `DONA` | dona | dona | ×1 |
+
+Enforcement must hold at **four** points or it is not a constraint: the enum column itself; `unit`
+absent from every update schema; `z.nativeEnum` on `POST /api/ingredients` — today it accepts
+free-text `buyUnit`/`recipeUnit` and any positive `conversionFactor` (`ingredient.controller.ts:15-18`);
+and IngredientsPage's free-text `<Input>`s replaced by the three-option picker MenuPage already uses
+(`IngredientsPage.tsx:294,298,308`). Those two paths have already drifted — `UNIT_PRESETS` writes
+`gramm`, IngredientsPage defaults to `g`.
+
+*This deletes `M-74` outright* — no editable conversion factor is left to corrupt — and `INV-18`
+collapses from "lock once batches exist" to "never editable".
+
+**S-3 · Quantities are decimal; the ledger stays integral.** Every quantity is already
+`Prisma.Decimal` end to end (`step="0.001"` on purchases and recipes, `step="any"` on menu-create),
+so decimals need no work. Keep the internal ×1000: the operator types `1.5 kg`, the ledger holds
+`1500` gramm — exact. Storing kg directly would make every peel a float subtraction (Prisma `Decimal`
+maps to a SQLite NUMERIC column, stored as REAL when fractional), so 100 sales of 0.2 kg can settle
+at `1.7e-15` rather than `0`; `findActiveBatchesForIngredient` filters `remainingQty > 0`, so that
+batch would linger forever holding dust and `INV-16`'s invariant check would report drift that isn't
+real. **`R1` is satisfied literally** — its wording is that the two-unit model stops being "anything
+a human has to think about", not that it leaves the ledger.
+
+**S-4 · Recipes are typed in the ledger unit.** Buy in kg, cook in gramm — `200 gramm guruch`, not
+`0.2 kg guruch`. The code already works this way (`MenuPage.tsx:587-588`). Each row states its own
+unit: `Guruch — [200] gramm/porsiya`.
+
+**S-5 · Cost is typed exactly once, at creation, then always derived.** The create form takes an
+initial purchase (quantity + total paid); after that the unit price comes only from real purchases.
+A dish with no purchase shows *"tan narxi kiritilmagan"*, never a zero (`R6`, `INV-2`). **Stock is
+never edited directly** — `setCurrentStock` has zero callers and must keep them; a wrong number is
+corrected through Sanoq, which records the actor and values the variance. Direct editing would be
+the loophole that makes counting pointless.
+
+**S-6 · The four verbs map to four screens.** This is the answer to "how do they add, edit or renew
+a quantity after creating the dish":
+
+| Verb | Screen | Frequency |
+|---|---|---|
+| **Add** an ingredient to a dish | the dish's own screen — type a new row | when the recipe changes |
+| **Edit** per-portion quantity | same screen — 150 → 170 gramm | rarely |
+| **Renew the quantity** (bought more) | **Bozor** — every ingredient listed, last price pre-filled, one save | **daily, ~30 s** |
+| **Fix a wrong stock number** | **Sanoq** — type what was counted | weekly |
+| **Change the cost** | never typed — derived from the next purchase | — |
+
+#### Proposed, not yet confirmed
+
+**P-1 · `MenuItem.tracking` enum.** `RECIPE | BATCH | PRODUCT | SERVICE`, stored not inferred
+(`INV-20`), backfilled from the existing sale-time inference. `MenuItemKind` stays untouched —
+`billing.service.ts` keys the whole subtotal/service-charge split on it and that split is correct.
+
+#### Open — a PRD cannot be written without these
+
+**O-1 · Pooled storeroom vs per-dish ingredients. ⚠ CONFLICTS WITH `R4`.**
+The developer stated a preference on 2026-08-04 for **separated ingredients, one set per food item**
+— i.e. the current model — on user-friendliness grounds: the operator types name + quantity + cost
+inline while creating the dish, and a shared storeroom reads as a second concept to manage.
+**Not resolved.** The counter-argument, recorded so nobody rediscovers it:
+
+- **The authoring flow is identical under both models.** Recognition-on-type — *"Go'sht — omborda
+  bor: 9.5 kg, oxirgi narx 100 000/kg. Shuni ishlatamizmi?"* — gives inline typing with one row
+  underneath. The operator never sees the word "storeroom".
+- **They diverge at the two daily screens, not at creation.** One 10 kg bag of meat has to be split
+  across `Go'sht (plov)` / `Go'sht (shurpa)` / `Go'sht (somsa)` by hand, every day, with no correct
+  answer — and the 9.1 kg later weighed at Sanoq must be divided the same invented way, so the farq
+  is arithmetic rather than a measurement.
+- **Mid-service failure:** plov's go'sht row hits zero and blocks plov sales while 6 kg sits on the
+  shelf under shurpa's row.
+- `R4` was set with the owner and is the prerequisite for `INV-12 → INV-14 → INV-16 → FIN-12`, the
+  chain that answers "raqamlar to'g'ri kelmayapti".
+
+**If separation is chosen, `INV-14` (Sanoq), `INV-16` (invariant check) and `FIN-12` (the daily farq
+line) leave scope, and the PRD must say so explicitly.** If the real driver is that plov's meat is a
+different *thing* from shurpa's, the answer is distinct names (`Mol go'shti` / `Qo'y go'shti`), not
+per-dish scoping — one row per thing you buy and store, not one per dish that mentions it.
+
+**O-2 · Where does a `PRODUCT` purchase land?** Buying 24 Pepsi for 240 000: as **Xarajat** it hits
+the P&L today and booking COGS at sale double-counts it; as **Xarid** with the dish booking zero COGS
+it is `M-64`'s 100%-margin lie. *Recommendation:* **Xarid** — cash out, excluded from operating —
+with the dish booking `COGS = unitCostSnapshot × qty` at sale, so the unsold remainder is correctly
+deferred cost. To stop the typed tan narx going stale, **the purchase form offers its own derived
+unit price as the new tan narx**: 240 000 ÷ 24 → *"tan narxni 10 000 ga yangilaymi?"*. That also
+answers §1.8 decision 1 better than a nudge — derive-with-confirmation, neither blind nor late.
+
+**O-3 · Does stock leave at cook time or at sale time?** Surfaced by the plov walkthrough (§1.10) and
+**the most consequential open item.** Plov is cooked in a kazan at 08:00, but the ledger peels only
+when a waiter taps a line at 13:00 — so between those hours the storeroom is wrong by whatever is in
+the kazan. Any count taken during service compares against a knowingly false number, and every farq
+gets blamed on shrinkage.
+
+| | Model | Cost |
+|---|---|---|
+| **B1** | `BATCH` inputs are never tracked ingredients; cost is typed | Simplest, but contradicts `R2` — shurpa's go'sht goes untracked |
+| **B2** | The **morning production entry peels the ingredients** and creates the portion count; cost per portion = peeled COGS ÷ N | Storeroom is truthful at every hour; "qanchaga tushdi" becomes derived rather than self-reported. **One genuinely new concept: a production event** |
+| **B3** | `BATCH` is portion-counting layered on a normal recipe; stock still peels per sale | Cheapest, but the storeroom shows go'sht on the shelf after the pot is already cooked |
+
+*Recommendation: **B2**.* It is the only option where the storeroom is true at the moment somebody
+would physically count it, and it collapses types 1 and 2 into one mechanism — both are pots, and
+they differ only in whether the cost is derived from a recipe or typed. Note this contradicts §1.1's
+filing of plov as type 1 and shurpa as type 2: **both are pots**, and the type distinction is about
+cost basis, not about cooking.
+
+**O-4 · Whole numbers for `DONA`?** `step="1"` on `DONA`, decimals only on `KG` / `LITR`. One line;
+stops "2.5 dona non" at entry rather than in a report three weeks later. *Recommendation: yes.*
+
+### 1.10 Worked example — plov, end to end
+
+Built during the 2026-08-04 session to make the money flow concrete. Every number reconciles; keep it
+that way if the model changes. Pure food chain — no ijara/oylik/gaz, per `R3`.
+
+**Setup.** Tracked ingredients: Go'sht `KG`, Guruch `KG`, Sabzi `KG`, Yog' `LITR`. **Not** created as
+ingredients at all (`R2`): piyoz, tuz, zira, ziravor. Recipe per porsiya: guruch 200 g · go'sht 150 g ·
+sabzi 100 g · yog' 30 ml. `MenuItem` plov, `tracking = RECIPE`, price 35 000, no unit.
+
+**1 — Bazaar (money out).** Type quantity + total paid; unit price derived.
+
+| | qty | total paid | → ledger |
+|---|---|---|---|
+| Go'sht | 10 kg | 900 000 | 10 000 gramm @ **90**/g |
+| Guruch | 20 kg | 300 000 | 20 000 gramm @ **15**/g |
+| Sabzi | 10 kg | 60 000 | 10 000 gramm @ **6**/g |
+| Yog' | 5 l | 120 000 | 5 000 ml @ **24**/ml |
+| | | **1 380 000** | |
+
+Per line: `Expense` (cat. `Mahsulot xaridi`) + `Purchase` batch (`remainingQty = quantityRecipeUnit`)
++ `currentStock +=` + `IngredientMovement(PURCHASE)` + `AuditLog`. **1 380 000 left the drawer; zero
+hit the P&L.** An asset was bought, not a cost incurred.
+
+**2 — What the system now knows for free.**
+Tan narx `= 3 000 + 13 500 + 600 + 720 = ` **17 820** ("asosiy mahsulotlar" — piyoz and ziravor are
+not in it, so it runs low in one direction, per §1.0).
+Yield: guruch 100 · **go'sht 66 ← bottleneck** · sabzi 100 · yog' 166 → **"66 porsiya, go'sht tugaydi
+birinchi."** `yieldService.computeAll` computes this today and shows it on no screen (`INV-9`).
+
+**3 — The sale.** Stock moves at line-add, not at send or confirm. FIFO peels oldest-first, writing
+`OrderLineBatchConsumption` (so a cancel restores to the *same* batch at the *same* price) +
+`IngredientMovement(CONSUME)`, accumulating `OrderLine.cogsSnapshot = 17 820`.
+40 portions → COGS **712 800**, revenue **1 400 000**.
+
+**4 — The day's two books, and why they disagree.**
+
+```
+CASH                          P&L
+in    1 400 000               netSales   1 400 000
+out   1 380 000               COGS         712 800
+─────────────────             operating          0   ← bazaar excluded (already in COGS)
+drawer  +20 000               foyda        687 200
+```
+
+Both correct. The gap is food on the shelf: guruch 180 000 + go'sht 360 000 + sabzi 36 000 + yog'
+91 200 = **667 200**, and it closes exactly:
+
+```
+1 380 000 − 712 800 = 667 200      (spent − consumed = still in store)
+  687 200 −  20 000 = 667 200      (profit − drawer  = inventory added)
+```
+
+**This identity is almost certainly the owner's "raqamlar to'g'ri kelmayapti".** Buy a sack on Monday
+and the till looks terrible while profit looks great; sell it down on Friday with no bazaar trip and
+the reverse. Nothing is wrong, and nothing on any screen says so — `FIN-12` is exactly this line made
+visible.
+
+**5 — Day 2, price moves.** Go'sht now 100/g. Batches: A = 4 000 g @ 90, B = 10 000 g @ 100. Sell 30:
+
+| portions | go'sht source | tan narx each |
+|---|---|---|
+| 1 – 26 | all from A @ 90 | 17 820 |
+| 27 | 100 g from A + 50 g from B | 18 320 |
+| 28 – 30 | all from B @ 100 | 19 320 |
+
+Three tan narx values in one day, all correct; Monday's plov stays 17 820 forever. For a `RECIPE`
+dish the tan narx is **not stored** — the menu screen shows an estimate at today's prices, the ledger
+holds the truth per sale. `R6` is satisfied by *derivable*, not by *stored*.
+
+**6 — Sanoq.** Ledger says 9 500 g of go'sht; the scale says 9 100 g. Farq −400 g, valued by peeling
+FIFO (same engine, no new costing path) @ 100 = **40 000 so'm**. Reason codes *Buzildi · To'kildi ·
+Xato hisoblangan · Bilmayman*; writes `StocktakeEntry` + `IngredientMovement(STOCKTAKE)` + audit;
+visible in the P&L; sent to the owner.
+
 ---
 
 ## 2. Finance
@@ -738,44 +944,54 @@ Beyond the per-area decisions:
 
 ## 7. Status — READ THIS FIRST IF YOU ARE A NEW SESSION
 
-**Last worked: 2026-08-04.** Nothing is committed. Baseline is still `e8af3bf`.
+**Last worked: 2026-08-04 (second session).** Branch `audit/pos-review-and-prd-foundation`, clean
+tree, two commits ahead of `main` and unpushed: `13e44dd` (the `F-5` fix) and `b50115c` (this file,
+`AUDIT_FINDINGS.md`, `POS_STANDARDS.md`, rewritten `CURRENT_WORKFLOW.md`, `CLAUDE.md`).
+`pnpm typecheck` passes across all three apps.
+
+**What the second session did:** worked the inventory *schema* — the piece §7 had left as "next".
+Settled the unit model (`S-1`…`S-6`), proposed the stored type enum (`P-1`), and surfaced four open
+questions (`O-1`…`O-4`), one of which conflicts with `R4`. All in **§1.9**. A full worked example
+of plov — purchase → cost → sale → the two books → count, with numbers that reconcile — is **§1.10**;
+read it before touching costing.
 
 ### Where this stands
 
 | Area | State |
 |---|---|
-| **§1 Inventory** | **Designed and settled with the owner.** Governing rules `R1–R7` (§1.0), the four menu-item types (§1.1), operating facts and the reconciliation loop (§1.1), 25 requirements (§1.5). Ready to become a PRD |
+| **§1 Inventory** | **Designed and settled with the owner** (rules `R1–R7`, four types, operating facts, reconciliation loop, 25 requirements). **Schema now half-settled** — §1.9 `S-1`…`S-6` are confirmed, `O-1`…`O-4` block PRD generation |
 | §2 Finance · §3 Calculations · §4 UI/UX | **Drafted from the audit only.** Requirements are sound but have **not** been through the same owner conversation §1 got, and several now need to answer to `R1–R7` |
 | Sequencing (§5) | Reordered against the owner's three stated goals, not audit severity |
 
 ### The two open threads
 
-1. **This document — active.** The inventory design is done; finance/calculations/UI are not.
+1. **This document — active.** Inventory design done; inventory *schema* half-settled (§1.9);
+   finance/calculations/UI untouched by an owner conversation.
 2. **`AUDIT_FINDINGS.md` §8 fix queue — paused, not abandoned.** Fix 1 of 6 (`F-5`, the audit-query
-   password-hash leak) is done and uncommitted. Fix 2 (`F-4`, ADMIN can PATCH themselves to OWNER,
-   unaudited) was next and was verified still open at `user.service.ts:76-91`. That queue is six small
-   high-consequence fixes and is independent of this document — it can resume at any time.
-
-### Uncommitted working tree
-
-```
-M  CLAUDE.md                                          (indexes the new docs)
-M  apps/master/.../repositories/audit.repo.ts         (the F-5 fix)
-M  docs/CURRENT_WORKFLOW.md                           (rewritten from source)
-?? docs/AUDIT_FINDINGS.md                             (new)
-?? docs/POS_STANDARDS.md                              (new)
-?? docs/PRD_FOUNDATION.md                             (this file)
-```
+   password-hash leak) is **done and committed** (`13e44dd`). Fix 2 (`F-4`, ADMIN can PATCH
+   themselves to OWNER, unaudited) is next and was re-verified still open at `user.service.ts:61-112`
+   — `update()` checks `existing.role` but passes `input.role` straight to the repo, and audits only
+   reactivation. That queue is six small high-consequence fixes, independent of this document, and
+   can resume at any time.
 
 ### Next steps, in order
 
-1. **Re-pass §1.4 and §1.5 against `R1–R7`.** Several requirements predate the rules and now
-   contradict them — `INV-3`'s picker wording, the unit handling in `INV-6`, and `R7` turns some
-   findings from "fix this page" into "delete this page". *This is the first thing to do.*
-2. **Confirm the `R2` ingredient count** (§1.0 open check). Holds at 10–20; needs a different Bozor
-   and Sanoq design at 40+.
-3. **Generate the inventory PRD** from §1 — it is the only section ready for it.
-4. **Give §2/§3/§4 the same owner treatment §1 got** before turning them into a PRD. The audit's
+1. **Answer `O-1`…`O-4` in §1.9.** These block PRD generation, and `O-1` (pooled vs per-dish
+   ingredients) and `O-3` (cook-time vs sale-time stock) are load-bearing — `O-3` in particular
+   changes what §1.1's type model even means. *This is the first thing to do.*
+2. **Re-pass §1.4 and §1.5 against `R1–R7` and against §1.9.** Several requirements predate both —
+   `INV-3`'s picker wording, `INV-6`'s unit handling (now largely deleted by `S-2`), `INV-18`
+   (collapsed by `S-2` into "never editable"), and `M-74` (deleted outright). `R7` also turns some
+   findings from "fix this page" into "delete this page" — that deletion list is itself an open call:
+   candidates confirmed in code are the Chegirmalar page (no reachable path reads its caps), combos
+   (no price, builder shows no money), the category reorder arrows (every UI-created category has
+   `displayOrder: 0`, so the swap writes 0 over 0), and the "Farq chegarasi (%)" setting for a Sanoq
+   screen that does not exist.
+3. **Confirm the `R2` ingredient count** (§1.0 open check). Holds at 10–20; needs a different Bozor
+   and Sanoq design at 40+. Note this question is moot under `O-1` separation — per-dish scoping
+   multiplies the row count by the number of dishes that use each ingredient.
+4. **Generate the inventory PRD** from §1 — still the only section ready for it.
+5. **Give §2/§3/§4 the same owner treatment §1 got** before turning them into a PRD. The audit's
    priorities are demonstrably not the owner's — see the note at the end of §5.
 
 ### Settled — do not reopen
@@ -789,6 +1005,13 @@ M  docs/CURRENT_WORKFLOW.md                           (rewritten from source)
   `purchaseService.record`'s existing signature.
 - The FIFO costing engine itself is correct and stays. `R1–R7` change what feeds it and what reads it,
   never the peel.
+- **Units are a property of the ingredient, not the dish** — a dish is sold per porsiya and has no
+  unit (§1.9 `S-1`).
+- **Exactly three units, as an immutable enum**: `KG` · `LITR` · `DONA`. No `conversionFactor`
+  column, no free text, never editable after creation. Ledger scale (gramm/ml/dona) is a code
+  constant (§1.9 `S-2`, `S-3`).
+- **Cost is typed once at creation, then always derived from purchases**; stock is never edited
+  directly — only Sanoq corrects it (§1.9 `S-5`).
 
 ---
 
