@@ -153,7 +153,14 @@ tranche:
   `onClick` on a bare `<tr>` with no `role`, no `tabIndex` and no press feedback. The path is
   live: `MonthlyTable` passes `onRowClick` for the day drill-down. Tapping works, so this is
   not urgent on a device with no keyboard, but the row does not look or behave like a target.
-  Its seven callers are the reports sections, so convert them together.
+  Its seven callers are the reports sections, so convert them together. Its wrapper still
+  carries `rounded-md border bg-card`.
+- `components/expenses/ExpenseCreateDialog.tsx` — one tinted warning box (`border-warning/30`
+  `bg-warning/5`). The system says a state is a solid fill carrying its word, not a 5% tint
+  behind a hairline.
+
+These two are the only `rounded-*` / `border` remnants left outside `components/ui/`. The
+radius is inert either way — the Tailwind scale is zeroed — but the intent should go.
 
 The duplicate `ConfirmDialog` is resolved: two implementations existed, and the dead one —
 which carried the document-level Enter handler that fired `onConfirm` regardless of focus —
