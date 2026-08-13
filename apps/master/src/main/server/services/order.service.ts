@@ -14,7 +14,7 @@ import { auditService } from './audit.service';
 import { billingService } from './billing.service';
 import { debtService } from './debt.service';
 import { printService } from './print.service';
-import { consumptionService } from './consumption.service';
+import { stockService } from './stock.service';
 
 type Tx = Prisma.TransactionClient;
 type RequestingUser = {
@@ -128,7 +128,7 @@ async function maybeRestoreLineStock(
 ) {
   if (line.isCanceled) return;
   if (!line.menuItemId) return;
-  await consumptionService.restore(
+  await stockService.restore(
     { id: line.id, menuItemId: line.menuItemId, actorUserId },
     line.quantity,
     tx,
@@ -272,7 +272,7 @@ export const orderService = {
             );
 
         if (!isService) {
-          await consumptionService.consume(
+          await stockService.consume(
             { id: line.id, menuItemId: input.menuItemId, actorUserId },
             input.quantity,
             tx,
@@ -328,7 +328,7 @@ export const orderService = {
             unitPriceSnapshot: component.menuItem.price,
             quantity: component.quantity,
           }, tx);
-          await consumptionService.consume(
+          await stockService.consume(
             { id: line.id, menuItemId: component.menuItemId, actorUserId },
             component.quantity,
             tx,
@@ -380,7 +380,7 @@ export const orderService = {
 
       return getPrisma().$transaction(async (tx) => {
         if (delta > 0 && line.menuItemId) {
-          await consumptionService.consume(
+          await stockService.consume(
             { id: line.id, menuItemId: line.menuItemId, actorUserId },
             delta,
             tx,
@@ -389,7 +389,7 @@ export const orderService = {
           // Miqdor kamaytirilsa, kamaytirilgan ulush omborga qaytadi.
           // DRAFT va SENT ikkalasiga ham amal qiladi — maybeRestoreLineStock
           // bilan bir xil mantiq.
-          await consumptionService.restore(
+          await stockService.restore(
             { id: line.id, menuItemId: line.menuItemId, actorUserId },
             Math.abs(delta),
             tx,
