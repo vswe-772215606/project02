@@ -7,6 +7,17 @@ import { cn } from '@/lib/utils';
 type RowSpec = {
   label: string;
   value: string;
+  /**
+   * Money by default, because nearly every row here is. A row must say
+   * `text` to opt out — counts, and any value already formatted upstream.
+   *
+   * This used to be inferred from the string's shape, which could not work:
+   * money arrives from the server as `Decimal.toFixed(0)`, so `"245000"` is
+   * indistinguishable from a count of orders. Positive money took the count
+   * branch and rendered as an unseparated digit run while negative money,
+   * carrying a `-`, formatted correctly.
+   */
+  kind?: 'money' | 'text';
   emphasis?: 'bold' | 'total' | 'subtotal';
   tone?: 'income' | 'expense' | 'warn' | 'good' | 'danger' | 'muted';
   hint?: string;
@@ -82,9 +93,9 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
   ];
 
   const orderRows: RowSpec[] = [
-    { label: 'Yopilgan buyurtmalar', value: String(report.sales.closedOrders) },
-    { label: 'Bekor qilingan', value: String(report.sales.canceledOrders), tone: report.sales.canceledOrders > 0 ? 'warn' : 'muted' },
-    { label: "To'lamay ketgan", value: `${report.sales.walkoutOrders} (${formatMoney(walkoutTotal)} so'm)`, tone: report.sales.walkoutOrders > 0 ? 'danger' : 'muted' },
+    { label: 'Yopilgan buyurtmalar', value: String(report.sales.closedOrders), kind: 'text' },
+    { label: 'Bekor qilingan', value: String(report.sales.canceledOrders), kind: 'text', tone: report.sales.canceledOrders > 0 ? 'warn' : 'muted' },
+    { label: "To'lamay ketgan", value: `${report.sales.walkoutOrders} (${formatMoney(walkoutTotal)} so'm)`, kind: 'text', tone: report.sales.walkoutOrders > 0 ? 'danger' : 'muted' },
   ];
 
   return (
@@ -129,12 +140,14 @@ function Group({ title, rows, highlight }: { title: string; rows: RowSpec[]; hig
 }
 
 function SummaryRow({ row }: { row: RowSpec }) {
-  const numeric = Number(row.value.replace(/^-/, ''));
   const isNegative = row.value.startsWith('-');
-  const display = isNegative ? `-${formatMoney(numeric)}` : formatMoney(row.value);
-
-  const isMoney = !/^[0-9]+ \(/.test(row.value) && !/^[0-9]+$/.test(row.value);
-  const valueText = isMoney ? display : row.value;
+  const numeric = Number(row.value.replace(/^-/, ''));
+  const valueText =
+    row.kind === 'text'
+      ? row.value
+      : isNegative
+        ? `-${formatMoney(numeric)}`
+        : formatMoney(row.value);
 
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-border/40 last:border-0">

@@ -4,6 +4,10 @@ import { formatMoney } from '@/lib/format';
 /**
  * Right-aligned, tabular-numeric UZS amount. Negative values are tinted
  * destructive. UI_UX_RULES §9.1.
+ *
+ * Carries the 17px money floor itself. It previously set no size at all, so
+ * every caller inherited whatever was ambient — inside a table that was 14px,
+ * which silently put most of the money in the app under the floor.
  */
 export function MoneyCell({
   value,
@@ -17,7 +21,7 @@ export function MoneyCell({
   return (
     <span
       className={cn(
-        'tabular-nums text-right',
+        'text-[17px] tabular-nums text-right',
         isNegative && 'text-destructive',
         className,
       )}

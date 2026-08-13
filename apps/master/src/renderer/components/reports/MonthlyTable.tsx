@@ -26,8 +26,8 @@ function weekdayLabel(dateStr: string): string {
 }
 
 export function MonthlyTable({ report, onSelectDay }: Props) {
-  // Only render rows that actually have activity, plus visually emphasise
-  // weekends with a slight muted tint to make the table easy to scan.
+  // Every day in the month, including days with no activity — a blank row is
+  // how a closed day shows up, so filtering them out would hide it.
   const rows = report.daily;
 
   const columns: DataTableColumn<MonthlyDayRow>[] = [
