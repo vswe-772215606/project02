@@ -2,6 +2,7 @@ import { OrderStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
 import { expenseRepo } from '../repositories/expense.repo';
+import { stockEntryRepo } from '../repositories/stockEntry.repo';
 import { expenseService } from './expense.service';
 import { reportsService } from './reports.service';
 import { localDayKey, localDayRange } from '../lib/time';
@@ -52,18 +53,7 @@ export const financeService = {
       walkoutOrderRows,
       outstandingDebtsAsOfDay,
     ] = await Promise.all([
-      prisma.purchase.findMany({
-        // Drill-down list and totals must only count ACTIVE purchases. A
-        // reversed/deleted batch would otherwise show in the "Xaridlar (ombor)"
-        // block AND inflate purchasesTotal, while its Expense row already nets
-        // to 0 — admin would see a mismatch (xaridlar > expensesNet).
-        where: {
-          occurredAt: { gte: dayStart, lt: dayEnd },
-          status: 'ACTIVE',
-        },
-        include: { ingredient: { select: { id: true, name: true, buyUnit: true } } },
-        orderBy: [{ occurredAt: 'asc' }],
-      }),
+      stockEntryRepo.listMoneyForRange(dayStart, dayEnd),
       expenseService.listByDate(date),
       expenseService.listByDate(date, {
         excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
@@ -173,11 +163,11 @@ export const financeService = {
       purchases: purchases.map((p) => ({
         id: p.id,
         occurredAt: p.occurredAt.toISOString(),
-        ingredientName: p.ingredient.name,
-        quantityBuyUnit: p.quantityBuyUnit.toFixed(3),
-        buyUnit: p.ingredient.buyUnit,
-        totalCostUzs: decStr(p.totalCostUzs),
-        supplierNote: p.supplierNote,
+        ingredientName: p.menuItem.name,
+        quantityBuyUnit: String(p.qty),
+        buyUnit: 'dona',
+        totalCostUzs: decStr(p.paidUzs),
+        supplierNote: p.note,
       })),
       expensesItems: expenseSummary.items.map((e) => ({
         id: e.id,
@@ -277,11 +267,11 @@ export const financeService = {
       ingredientPurchases: purchases.map((p) => ({
         id: p.id,
         occurredAt: p.occurredAt.toISOString(),
-        ingredientName: p.ingredient.name,
-        quantityBuyUnit: p.quantityBuyUnit.toFixed(3),
-        buyUnit: p.ingredient.buyUnit,
-        totalCostUzs: decStr(p.totalCostUzs),
-        supplierNote: p.supplierNote,
+        ingredientName: p.menuItem.name,
+        quantityBuyUnit: String(p.qty),
+        buyUnit: 'dona',
+        totalCostUzs: decStr(p.paidUzs),
+        supplierNote: p.note,
       })),
       ingredientPurchasesTotal: {
         count: ledger.outflow.ingredientPurchasesCount,

@@ -206,6 +206,32 @@ async function main() {
   assertEq('ITEM_COST_CHANGED audits for SERVICE item', serviceCostAudits, 0);
   ok('SERVICE item ignores costPrice on update');
 
+  step('7', 'Confirm the order; daily ledger books COGS from costPrice and Xaridlar from restock money');
+  await http('POST', `/api/orders/${draft.id}/send`, { token: waiter });
+  const totals = (await http<{ order: { id: string } }>('GET', `/api/orders/${draft.id}`, { token: waiter })).body;
+  void totals;
+  const orderRow = await prisma.order.findUniqueOrThrow({ where: { id: draft.id }, include: { lines: { where: { isCanceled: false } } } });
+  const due = orderRow.lines.reduce((sum, l) => sum + Number(l.unitPriceSnapshot) * l.quantity, 0);
+  await http('POST', `/api/orders/${draft.id}/confirm`, {
+    token: admin,
+    body: { payments: [{ method: 'CASH', amount: due }] },
+  });
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tashkent' });
+  const daily = (await http<{
+    pnl: { cogs: string };
+    outflow: { purchasesTotal: string; purchasesCount: number };
+    ledger: { outflow: { ingredientPurchases: string; ingredientPurchasesCount: number } };
+  }>('GET', `/api/finance/daily?date=${today}`, { token: admin })).body;
+  const expectedLineCogs = 20000 * 1 + 500 * 2; // plov line (qty 1 after decrease) + choy line
+  if (Number(daily.pnl.cogs) < expectedLineCogs) {
+    return fail(`daily cogs ${daily.pnl.cogs} < expected contribution ${expectedLineCogs}`);
+  }
+  ok(`daily pnl.cogs (${daily.pnl.cogs}) includes this order's ${expectedLineCogs}`);
+  if (Number(daily.ledger.outflow.ingredientPurchases) < 240000) {
+    return fail(`ingredientPurchases ${daily.ledger.outflow.ingredientPurchases} missing the 240000 restock`);
+  }
+  ok(`ledger ingredientPurchases (${daily.ledger.outflow.ingredientPurchases}) includes 240000`);
+
   console.log(`\n${c(32, 'SMOKE STOCK-COUNT (part 1) PASSED')}`);
   await prisma.$disconnect();
 }

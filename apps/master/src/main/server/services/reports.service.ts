@@ -2,6 +2,7 @@ import { ExpenseStatus, OrderStatus, PaymentMethod, Prisma } from '@prisma/clien
 import { expenseService } from './expense.service';
 import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
+import { stockEntryRepo } from '../repositories/stockEntry.repo';
 import {
   localDayKey,
   localDayRange,
@@ -1123,8 +1124,7 @@ export const reportsService = {
       expenseReturnsAgg,
       expenseSummary,
       operatingExpenseSummary,
-      purchasesTotalAgg,
-      purchasesCountAgg,
+      moneyRestocks,
       debtsOpenedAgg,
       debtRepaidAgg,
       outstandingAsOfEod,
@@ -1176,16 +1176,7 @@ export const reportsService = {
       expenseService.listByDate(dayAnchor, {
         excludeCategoryIds: [INGREDIENT_EXPENSE_CATEGORY_ID],
       }),
-      prisma.purchase.aggregate({
-        // ACTIVE only — a reversed/deleted batch's cash is unwound via its
-        // Expense REVERSAL row, so counting it here too would double-show it in
-        // the "Xaridlar" block and disagree with the ACTIVE-only drill-down list.
-        where: { occurredAt: { gte: dayStart, lt: dayEnd }, status: 'ACTIVE' },
-        _sum: { totalCostUzs: true },
-      }),
-      prisma.purchase.count({
-        where: { occurredAt: { gte: dayStart, lt: dayEnd }, status: 'ACTIVE' },
-      }),
+      stockEntryRepo.aggregateMoneyForRange(dayStart, dayEnd),
       prisma.debt.aggregate({
         where: { openedAt: { gte: dayStart, lt: dayEnd } },
         _count: true,
@@ -1277,7 +1268,7 @@ export const reportsService = {
     const drawerMovement = realCashIn.minus(cashOut);
     const operatingExpense = new Prisma.Decimal(operatingExpenseSummary.totals.operating);
     const pendingRepayable = new Prisma.Decimal(expenseSummary.totals.pendingRepayable);
-    const ingredientPurchases = purchasesTotalAgg._sum.totalCostUzs ?? new Prisma.Decimal(0);
+    const ingredientPurchases = moneyRestocks.total;
 
     let cogs = new Prisma.Decimal(0);
     type MealRow = {
@@ -1373,7 +1364,7 @@ export const reportsService = {
         operatingExpense: decStr(operatingExpense),
         pendingRepayable: decStr(pendingRepayable),
         ingredientPurchases: decStr(ingredientPurchases),
-        ingredientPurchasesCount: purchasesCountAgg,
+        ingredientPurchasesCount: moneyRestocks.count,
       },
       pnl: {
         revenue: decStr(netSales),
