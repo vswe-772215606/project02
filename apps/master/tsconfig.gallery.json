@@ -1,0 +1,19 @@
+{
+  // The gallery mounts the real renderer pages against a stubbed API, so its
+  // fixtures must satisfy the same response types the server returns. It cannot
+  // join tsconfig.renderer.json: that project is composite with rootDir
+  // src/renderer, and gallery/ sits outside it. Checked separately here, over
+  // both trees, so a fixture that has drifted from the API contract fails.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "baseUrl": "./src/renderer",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["gallery/**/*", "src/renderer/**/*"]
+}

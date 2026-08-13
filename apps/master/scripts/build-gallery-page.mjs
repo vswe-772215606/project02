@@ -23,7 +23,13 @@ const [css, js] = await Promise.all([
 // inline block early; break it up so the browser keeps reading JavaScript.
 const safeJs = js.replaceAll('</script', '<\\/script');
 
-const html = `<title>Blocks C1 Gallery</title>
+// The charset must be declared here: this script rebuilds the document rather
+// than editing gallery/index.html, so that file's own <meta charset> is
+// discarded. Without it a file opened from disk is decoded by guesswork, and
+// the Uzbek copy — o', g', curly quotes, em dashes — turns to mojibake.
+const html = `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chayxana Master — ekran ko'rinishi</title>
 <style>
 ${css}
 </style>

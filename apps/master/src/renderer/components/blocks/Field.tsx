@@ -4,13 +4,21 @@ import { cn } from '@/lib/utils';
 
 type FieldTone = 'default' | 'raised' | 'live' | 'settled' | 'owed' | 'selected';
 
+/**
+ * Each tone also publishes `--label-fg`, the colour `FieldLabel` reads.
+ *
+ * A label cannot simply be muted ink: muted-foreground is chosen for the light
+ * default surface, and on a coloured fill it collapses — 2.70:1 on settled,
+ * 2.26:1 on live, 1.07:1 on owed, where a 12px caption is effectively
+ * invisible. Following the fill's own foreground clears 4.5:1 on every tone.
+ */
 const toneClass: Record<FieldTone, string> = {
-  default: 'bg-field text-foreground',
-  raised: 'bg-field-raised text-foreground',
-  live: 'bg-live text-live-foreground',
-  settled: 'bg-settled text-settled-foreground',
-  owed: 'bg-owed text-owed-foreground',
-  selected: 'bg-selected text-selected-foreground',
+  default: 'bg-field text-foreground [--label-fg:var(--muted-foreground)]',
+  raised: 'bg-field-raised text-foreground [--label-fg:var(--muted-foreground)]',
+  live: 'bg-live text-live-foreground [--label-fg:var(--primary-foreground)]',
+  settled: 'bg-settled text-settled-foreground [--label-fg:var(--success-foreground)]',
+  owed: 'bg-owed text-owed-foreground [--label-fg:var(--destructive-foreground)]',
+  selected: 'bg-selected text-selected-foreground [--label-fg:var(--selected-foreground)]',
 };
 
 type FieldProps = React.HTMLAttributes<HTMLDivElement> & {
@@ -37,7 +45,12 @@ export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
 );
 Field.displayName = 'Field';
 
-/** Small caps label used above a value, inside a Field. */
+/**
+ * Small caps label used above a value, inside a Field.
+ *
+ * Takes its colour from the enclosing Field's `--label-fg` so it stays legible
+ * on every tone, falling back to muted ink when used outside a Field.
+ */
 export const FieldLabel = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -45,7 +58,8 @@ export const FieldLabel = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'text-[12px] font-semibold uppercase tracking-[0.09em] text-muted-foreground',
+      'text-[12px] font-semibold uppercase tracking-[0.09em]',
+      'text-[hsl(var(--label-fg,var(--muted-foreground)))]',
       className,
     )}
     {...props}

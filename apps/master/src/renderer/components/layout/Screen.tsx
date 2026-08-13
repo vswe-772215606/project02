@@ -31,8 +31,14 @@ export function Screen({ title, status, children, panel }: ScreenProps) {
     <div className="flex min-h-0 flex-1 gap-seam">
       <Seam className="min-w-0 flex-1 content-start" style={{ gridTemplateRows: 'auto 1fr' }}>
         <div className="flex items-center justify-between gap-3 bg-field px-pad py-2.5">
-          <h1 className="truncate text-[17px] font-semibold">{title}</h1>
-          {status ? <div className="flex shrink-0 items-center gap-seam">{status}</div> : null}
+          <h1 className="shrink-0 truncate text-[17px] font-semibold">{title}</h1>
+          {/* Wraps rather than clips. A screen with a full toolbar (Foydalanuvchilar
+              runs a search box, four role filters, two status filters and a create
+              button) overflowed behind the side panel and put its last control out
+              of reach — on a touchscreen there is no scroll-to-reveal for it. */}
+          {status ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-seam">{status}</div>
+          ) : null}
         </div>
         <div className="min-h-0 overflow-auto bg-seam">{children}</div>
       </Seam>
