@@ -12,6 +12,8 @@
     "package:win:portable": "pnpm run build && electron-builder --win portable --x64",
     "build:printer": "bash ./scripts/build-printer.sh",
     "build:printer:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-printer.ps1",
+    "gallery": "vite build --config vite.gallery.config.ts",
+    "gallery:page": "pnpm run gallery && node ./scripts/build-gallery-page.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "echo 'no lint configured yet'"
   },

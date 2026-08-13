@@ -20,3 +20,6 @@ apps/master/prisma/**/*.db
 *.zip
 
 .pnpm-store/
+
+# Design-system gallery build output
+apps/master/gallery-dist/
