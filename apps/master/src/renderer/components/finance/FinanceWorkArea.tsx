@@ -8,7 +8,7 @@ type MealRowDisplay =
   | { type: 'category'; data: FinanceDaily['mealSalesByCategory'][number] }
   | { type: 'item'; data: FinanceDaily['mealSales'][number] };
 
-const MEAL_COLUMNS = '1fr 64px 130px 130px 110px';
+const MEAL_COLUMNS = '1fr 64px 130px 130px';
 const PURCHASE_COLUMNS = '120px 1fr 120px 130px';
 const EXPENSE_COLUMNS = '1fr 120px 130px';
 const DEBT_COLUMNS = '1fr 140px';
@@ -20,13 +20,6 @@ const REPAY_CHIP: Record<FinanceDaily['operatingExpenses'][number]['repayStatus'
   RETURNED: { tone: 'settled', label: 'Qaytarildi' },
   WRITTEN_OFF: { tone: 'owed', label: "Yo'qotildi" },
 };
-
-function profitClass(value: string | number): string | undefined {
-  const n = Number(value);
-  if (n > 0) return 'text-settled';
-  if (n < 0) return 'text-owed';
-  return undefined;
-}
 
 function SectionHead({ title, hint }: { title: string; hint?: string }) {
   return (
@@ -43,8 +36,13 @@ function SectionHead({ title, hint }: { title: string; hint?: string }) {
  * "Sotuv" and "Chiqim" each named two different numbers on the old screen —
  * every occurrence here is qualified once (`(sof)` / `(yalpi)` /
  * `(xaridlarsiz)`) so the same word never carries two meanings on one screen.
- * `pnl.profit` is deliberately never read anywhere in this file — Sof foyda
- * belongs to Hisobot, not to ADMIN's daily view.
+ *
+ * No profit anywhere in this file, at any grain. `pnl.profit` is never read,
+ * and the "Sotilgan ovqatlar" breakdown stops at Sotuv/Tan narxi — the
+ * per-dish `.profit` field is margin the same way the headline number is,
+ * just in smaller print. Quantity, revenue and cost stay: ADMIN enters cost
+ * prices in Ombor, so cost is theirs to see. Profit, at any grain, belongs to
+ * Hisobot.
  */
 export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | undefined; isLoading: boolean }) {
   const mealRows = useMemo<MealRowDisplay[]>(() => {
@@ -103,7 +101,6 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
         <span className="text-right">Soni</span>
         <span className="text-right">Sotuv (yalpi)</span>
         <span className="text-right">Tan narxi</span>
-        <span className="text-right">Foyda</span>
       </RowHeader>
       {mealRows.length === 0 ? (
         <div className="bg-field px-pad py-3 text-[13px] text-muted-foreground">Bugun sotuv yo&apos;q</div>
@@ -117,7 +114,6 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
               <span className="text-right text-[13px] font-semibold tabular-nums">{row.data.qty}</span>
               <RowMoney>{formatMoney(row.data.revenue)}</RowMoney>
               <RowMoney>{formatMoney(row.data.cogs)}</RowMoney>
-              <RowMoney className={profitClass(row.data.profit)}>{formatMoney(row.data.profit)}</RowMoney>
             </Row>
           ) : (
             <Row key={row.data.menuItemId} columns={MEAL_COLUMNS}>
@@ -128,7 +124,6 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
               <span className="text-right text-[13px] tabular-nums">{row.data.qty}</span>
               <RowMoney>{formatMoney(row.data.revenue)}</RowMoney>
               <RowMoney className="text-muted-foreground">{formatMoney(row.data.cogs)}</RowMoney>
-              <RowMoney className={profitClass(row.data.profit)}>{formatMoney(row.data.profit)}</RowMoney>
             </Row>
           ),
         )
@@ -139,7 +134,6 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
           <span className="text-right text-[13px] font-semibold tabular-nums">{data.mealSalesTotal.qty}</span>
           <RowMoney>{formatMoney(data.mealSalesTotal.revenue)}</RowMoney>
           <RowMoney>{formatMoney(data.mealSalesTotal.cogs)}</RowMoney>
-          <RowMoney className={profitClass(data.mealSalesTotal.profit)}>{formatMoney(data.mealSalesTotal.profit)}</RowMoney>
         </Row>
       ) : null}
 
