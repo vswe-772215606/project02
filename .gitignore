@@ -18,3 +18,5 @@ apps/master/prisma/**/*.db
 # Build artifacts
 *.apk
 *.zip
+
+.pnpm-store/
