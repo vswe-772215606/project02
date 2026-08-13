@@ -16,7 +16,7 @@ import { ConnectionBanner } from '@/components/feedback/ConnectionBanner';
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-seam p-seam text-foreground">
+    <div className="flex h-full w-full overflow-hidden bg-seam p-seam text-foreground">
       <NavRail />
       <div className="ml-seam flex min-w-0 flex-1 flex-col gap-seam">
         <ConnectionBanner />

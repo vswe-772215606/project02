@@ -76,6 +76,12 @@
     @apply border-border;
   }
 
+  /* The shell fills its container rather than the viewport, so it can also be
+     mounted inside a fixed-size frame (see the gallery preview). */
+  html, body, #root {
+    height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground text-sm;
     /* The till runs Windows, where Segoe UI Variable is native and carries
