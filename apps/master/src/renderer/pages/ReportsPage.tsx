@@ -1,31 +1,25 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Printer, FileDown, RefreshCw, ChevronDown } from 'lucide-react';
-import { DailyReport, MonthlyDayRow, MonthlyReport, SummaryReport, reportsApi } from '../api/reports';
-import { ForbiddenMessage } from '../components/ForbiddenMessage';
+import {
+  Printer,
+  FileDown,
+  RefreshCw,
+  ChevronDown,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  HandCoins,
+  ShoppingBag,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
+
+import { DailyReport, MonthlyDayRow, MonthlyReport, SummaryReport, reportsApi } from '@/api/reports';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { PageContent } from '@/components/feedback/PageContent';
-import { PageHeader } from '@/components/feedback/PageHeader';
-import { EmptyState } from '@/components/feedback/EmptyState';
+import { Screen } from '@/components/layout/Screen';
+import { Field, FieldLabel, Row, RowHeader, RowMoney, Seam } from '@/components/blocks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SalesSummary } from '@/components/reports/SalesSummary';
 import { CashflowSection } from '@/components/reports/CashflowSection';
 import { ResultsSection } from '@/components/reports/ResultsSection';
@@ -38,30 +32,14 @@ import { IncidentsSection } from '@/components/reports/IncidentsSection';
 import { GrandSummarySection } from '@/components/reports/GrandSummarySection';
 import { MonthlyTable } from '@/components/reports/MonthlyTable';
 import { StatTile } from '@/components/reports/report-helpers';
+import { PnlSummaryTiles } from '@/components/reports-v2/PnlSummaryTiles';
 import { formatMoney, tashkentDayKey, tashkentMonthKey } from '@/lib/format';
 import { printCurrentView, saveDailyReportPdf, saveFinancePdf } from '@/lib/save-pdf';
-import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  HandCoins,
-  ShoppingBag,
-  Sparkles,
-  TrendingUp,
-} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const UZBEK_MONTHS = [
-  'Yanvar',
-  'Fevral',
-  'Mart',
-  'Aprel',
-  'May',
-  'Iyun',
-  'Iyul',
-  'Avgust',
-  'Sentabr',
-  'Oktabr',
-  'Noyabr',
-  'Dekabr',
+  'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
+  'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr',
 ];
 
 // Default date pickers are anchored to Tashkent so they match the backend's
@@ -85,6 +63,42 @@ function formatDateLabel(dateStr: string) {
   return `${Number(day)} ${UZBEK_MONTHS[Number(monthPart) - 1] ?? monthPart} ${year}`;
 }
 
+type SummaryPresetKey = 'today' | 'yesterday' | 'this-week' | 'this-month';
+
+/** Tashkent-anchored range presets — same TZ-safe pattern as `tashkentDayKey`
+ * and `MonthlyTable`'s weekday math (UTC-midnight instant, formatted in
+ * Asia/Tashkent), so a preset picked here lands on the same calendar day the
+ * backend buckets it under regardless of host TZ. */
+function tashkentPreset(key: SummaryPresetKey): { from: string; to: string } {
+  const todayKey = tashkentDayKey();
+  if (key === 'today') return { from: todayKey, to: todayKey };
+  if (key === 'yesterday') {
+    const y = tashkentDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    return { from: y, to: y };
+  }
+  if (key === 'this-month') return { from: `${tashkentMonthKey()}-01`, to: todayKey };
+  // this-week: Monday-start, computed off a UTC-midnight instant of "today".
+  const [y, m, d] = todayKey.split('-').map(Number);
+  const utcToday = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
+  const dow = utcToday.getUTCDay(); // 0=Sun
+  const monday = new Date(utcToday);
+  monday.setUTCDate(utcToday.getUTCDate() - ((dow + 6) % 7));
+  return { from: tashkentDayKey(monday), to: todayKey };
+}
+
+const SUMMARY_PRESETS: Array<{ key: SummaryPresetKey; label: string }> = [
+  { key: 'today', label: 'Bugun' },
+  { key: 'yesterday', label: 'Kecha' },
+  { key: 'this-week', label: 'Shu hafta' },
+  { key: 'this-month', label: 'Shu oy' },
+];
+
+const TABS: Array<{ key: 'daily' | 'monthly' | 'summary'; label: string }> = [
+  { key: 'daily', label: 'Kunlik' },
+  { key: 'monthly', label: 'Oylik' },
+  { key: 'summary', label: 'Umumiy' },
+];
+
 /** A print-only block at the top of the rendered page — shows in PDF / Ctrl+P, hidden on screen. */
 function PrintHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -95,111 +109,89 @@ function PrintHeader({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-function DailyReportSections({ report }: { report: DailyReport }) {
+/** Centered status text — loading / error / empty / forbidden. Not a data figure, so it's exempt from the tabular-money floor. */
+function ReportMessage({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="space-y-6">
-      <ResultsSection report={report} />
-      <SalesSummary report={report} />
-      <CashflowSection report={report} />
-      <ExpensesSection report={report} />
-      <DebtSection report={report} />
-
-      {/* Collapsible detail tables — closed on screen, force-open in print via @media print rule */}
-      <Collapsible title="Buyurtmalar reestri" count={`${report.ordersTable.length} ta yozuv`}>
-        <OrdersSection report={report} />
-      </Collapsible>
-
-      <Collapsible title="Ofitsiantlar bo'yicha" count={`${report.perWaiter.length} ta ofitsiant`}>
-        <PerWaiterSection report={report} />
-      </Collapsible>
-
-      <Collapsible title="Taomlar bo'yicha sotuv" count={`${report.mealSales.length} ta taom`}>
-        <MealSalesSection report={report} />
-      </Collapsible>
-
-      <Collapsible
-        title="Bekor / To'lamay ketgan"
-        count={`${report.cancellations.length + report.walkouts.length} ta hodisa`}
-      >
-        <IncidentsSection report={report} />
-      </Collapsible>
-
-      {/* Always visible — this is the page everyone looks at. Print-keep so
-          it doesn't get split across page boundaries when rendering as PDF. */}
-      <div data-print-keep>
-        <GrandSummarySection report={report} />
-      </div>
+    <div className="flex h-full flex-col items-center justify-center gap-1.5 px-pad py-16 text-center">
+      <div className="text-[15px] font-semibold">{title}</div>
+      {hint ? <div className="max-w-md text-[13px] text-muted-foreground">{hint}</div> : null}
     </div>
   );
 }
 
-function Collapsible({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: string;
-  children: React.ReactNode;
-}) {
+/** Collapsible detail table — closed on screen, force-open in print via the
+ * `data-print-expand` rule in styles.css. Rebuilt on Blocks C1 tokens; the
+ * print contract (`no-print` on the summary, `data-print-expand` on the
+ * element) is unchanged. */
+function Collapsible({ title, count, children }: { title: string; count: string; children: ReactNode }) {
   return (
-    <details data-print-expand className="group rounded-lg border bg-card">
-      <summary className="no-print cursor-pointer select-none px-4 py-3 flex items-center justify-between gap-2 hover:bg-muted/40 transition-colors">
-        <span className="text-sm font-semibold">{title}</span>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{count}</span>
+    <details data-print-expand className="group">
+      <summary className="no-print flex h-row [list-style:none] cursor-pointer items-center justify-between gap-2 bg-field-raised px-pad press-block focus-block [&::-webkit-details-marker]:hidden">
+        <span className="text-[14.5px] font-semibold">{title}</span>
+        <span className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <span className="tabular-nums">{count}</span>
           <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" strokeWidth={2} />
         </span>
       </summary>
-      <div className="px-4 pb-4 pt-2 border-t">{children}</div>
+      <div className="bg-field p-pad">{children}</div>
     </details>
   );
 }
 
-function DailyLoadingSkeleton() {
+/**
+ * One day's report — the summary tiles lead, the existing sections (reused
+ * as-is from `components/reports/`) prove them underneath. Used both for the
+ * Kunlik tab and the monthly drill-down dialog, exactly as before.
+ */
+function DailyView({ report }: { report: DailyReport }) {
+  const pnl = report.ledger.pnl;
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <Card key={i}>
-            <CardContent className="pt-6 space-y-3">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-12 w-48" />
-              <Skeleton className="h-3 w-40" />
-            </CardContent>
-          </Card>
-        ))}
+    <div className="flex flex-col gap-pad p-pad">
+      <PnlSummaryTiles
+        revenue={pnl.revenue}
+        cogs={pnl.cogs}
+        operatingExpense={pnl.operatingExpense}
+        profit={pnl.profit}
+      />
+
+      <div className="flex flex-col gap-4">
+        <ResultsSection report={report} />
+        <SalesSummary report={report} />
+        <CashflowSection report={report} />
+        <ExpensesSection report={report} />
+        <DebtSection report={report} />
+
+        <Collapsible title="Buyurtmalar reestri" count={`${report.ordersTable.length} ta yozuv`}>
+          <OrdersSection report={report} />
+        </Collapsible>
+
+        <Collapsible title="Ofitsiantlar bo'yicha" count={`${report.perWaiter.length} ta ofitsiant`}>
+          <PerWaiterSection report={report} />
+        </Collapsible>
+
+        <Collapsible title="Taomlar bo'yicha sotuv" count={`${report.mealSales.length} ta taom`}>
+          <MealSalesSection report={report} />
+        </Collapsible>
+
+        <Collapsible
+          title="Bekor / To'lamay ketgan"
+          count={`${report.cancellations.length + report.walkouts.length} ta hodisa`}
+        >
+          <IncidentsSection report={report} />
+        </Collapsible>
+
+        {/* Always visible — this is the page everyone looks at, now also led
+            by the tiles above. Print-keep so it doesn't split across page
+            boundaries when rendering as PDF. */}
+        <div data-print-keep>
+          <GrandSummarySection report={report} />
+        </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="pb-1">
-              <Skeleton className="h-3 w-24" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-7 w-32 mb-1" />
-              <Skeleton className="h-3 w-28" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-32" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, j) => (
-              <Skeleton key={j} className="h-4 w-full" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
 
-function MonthlyView({
+function MonthlyReportView({
   report,
   onSelectDay,
 }: {
@@ -207,7 +199,7 @@ function MonthlyView({
   onSelectDay: (day: MonthlyDayRow) => void;
 }) {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 p-pad">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
         <StatTile
           label="Kelgan pul"
@@ -261,8 +253,226 @@ function MonthlyView({
   );
 }
 
+const CATEGORY_COLUMNS = '1fr 90px 160px 160px 160px';
+
+function IncomesByCategory({ report }: { report: SummaryReport }) {
+  return (
+    <Seam className="content-start">
+      <div className="bg-field-raised px-pad py-2.5">
+        <FieldLabel>Kirimlar — kategoriyalar bo'yicha</FieldLabel>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Menyu kategoriyalari bo'yicha sotuv</p>
+      </div>
+
+      {report.incomes.byMenuCategory.length === 0 ? (
+        <div className="bg-field px-pad py-8 text-center text-[14px] text-muted-foreground">
+          Tanlangan davrda sotuv yo'q
+        </div>
+      ) : (
+        <>
+          <RowHeader columns={CATEGORY_COLUMNS}>
+            <span>Kategoriya</span>
+            <span className="text-right">Soni</span>
+            <span className="text-right">Sotuv</span>
+            <span className="text-right">Tan narxi</span>
+            <span className="text-right">Yalpi foyda</span>
+          </RowHeader>
+          {report.incomes.byMenuCategory.map((row) => {
+            const p = Number(row.profit);
+            return (
+              <Row key={row.categoryId} columns={CATEGORY_COLUMNS}>
+                <span className="min-w-0 truncate font-semibold">{row.categoryName}</span>
+                <span className="text-right text-[14px] tabular-nums">{row.qty}</span>
+                <RowMoney>{formatMoney(row.revenue)}</RowMoney>
+                <RowMoney className="text-muted-foreground">{formatMoney(row.cogs)}</RowMoney>
+                <RowMoney className={cn(p > 0 && 'text-success', p < 0 && 'text-destructive')}>
+                  {formatMoney(row.profit)}
+                </RowMoney>
+              </Row>
+            );
+          })}
+          <Row inert columns={CATEGORY_COLUMNS}>
+            <span className="font-semibold uppercase tracking-[0.05em]">Jami</span>
+            <span className="text-right text-[14px] tabular-nums">{report.incomes.totals.qty}</span>
+            <RowMoney>{formatMoney(report.incomes.totals.revenue)}</RowMoney>
+            <RowMoney>{formatMoney(report.incomes.totals.cogs)}</RowMoney>
+            <RowMoney>
+              {formatMoney(String(Number(report.incomes.totals.revenue) - Number(report.incomes.totals.cogs)))}
+            </RowMoney>
+          </Row>
+        </>
+      )}
+
+      {(Number(report.incomes.other.debtRepaid) > 0 || Number(report.incomes.other.expenseReturns) > 0) && (
+        <Field>
+          <FieldLabel>Boshqa kirimlar</FieldLabel>
+          <div className="mt-2 flex flex-col gap-1.5">
+            {Number(report.incomes.other.debtRepaid) > 0 && (
+              <div className="flex items-baseline justify-between text-[14px]">
+                <span className="text-muted-foreground">Qarz qaytimi</span>
+                <span className="font-semibold tabular-nums">{formatMoney(report.incomes.other.debtRepaid)}</span>
+              </div>
+            )}
+            {Number(report.incomes.other.expenseReturns) > 0 && (
+              <div className="flex items-baseline justify-between text-[14px]">
+                <span className="text-muted-foreground">Chiqim qaytimi (avans va h.k.)</span>
+                <span className="font-semibold tabular-nums">{formatMoney(report.incomes.other.expenseReturns)}</span>
+              </div>
+            )}
+          </div>
+        </Field>
+      )}
+    </Seam>
+  );
+}
+
+function PnlBreakdownCard({ report }: { report: SummaryReport }) {
+  const profit = Number(report.pnl.profit);
+  return (
+    <Seam className="content-start">
+      <div className="bg-field-raised px-pad py-2.5">
+        <FieldLabel>Sof foyda</FieldLabel>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Sotuv − sotilgan ovqat tan narxi − chiqim</p>
+      </div>
+      <Field className="flex flex-col gap-4">
+        <div>
+          <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            Chiqimlar — kategoriyalar bo'yicha
+          </div>
+          {report.pnl.expensesByCategory.length === 0 ? (
+            <p className="text-[14px] text-muted-foreground">Operatsion chiqim yo'q</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {report.pnl.expensesByCategory.map((row) => (
+                <div key={row.categoryId} className="flex items-baseline justify-between gap-3">
+                  <span className="text-[14px]">{row.categoryName}</span>
+                  <span className="text-[15px] font-semibold tabular-nums">{formatMoney(row.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between text-[14px]">
+            <span>Sotuv</span>
+            <span className="tabular-nums text-success">+{formatMoney(report.pnl.grossRevenue)}</span>
+          </div>
+          {Number(report.pnl.discount) > 0 && (
+            <div className="flex items-baseline justify-between text-[14px]">
+              <span>Chegirma</span>
+              <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.discount)}</span>
+            </div>
+          )}
+          <div className="flex items-baseline justify-between text-[14px]">
+            <span>Tan narxi</span>
+            <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.cogs)}</span>
+          </div>
+          <div className="flex items-baseline justify-between text-[14px]">
+            <span>Chiqim</span>
+            <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.operatingExpense)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-baseline justify-between bg-field-raised px-3 py-2.5 text-[17px] font-bold">
+          <span className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Sof foyda</span>
+          <span className={cn('tabular-nums', profit > 0 && 'text-success', profit < 0 && 'text-destructive')}>
+            {formatMoney(report.pnl.profit)}
+          </span>
+        </div>
+      </Field>
+    </Seam>
+  );
+}
+
+function CashBreakdownCard({ report }: { report: SummaryReport }) {
+  const cashFarq = Number(report.cash.farq);
+  return (
+    <Seam className="content-start">
+      <div className="bg-field-raised px-pad py-2.5">
+        <FieldLabel>Pul harakati</FieldLabel>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Haqiqatda kassaga kelgan/ketgan pul</p>
+      </div>
+      <Field className="flex flex-col gap-4">
+        <div>
+          <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            Kategoriyalar bo'yicha chiqimlar (xaridlar bilan)
+          </div>
+          {report.cash.expensesByCategory.length === 0 ? (
+            <p className="text-[14px] text-muted-foreground">Chiqim yo'q</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {report.cash.expensesByCategory.map((row) => (
+                <div key={row.categoryId} className="flex items-baseline justify-between gap-3">
+                  <span className="text-[14px]">{row.categoryName}</span>
+                  <span className="text-[15px] font-semibold tabular-nums">{formatMoney(row.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between text-[14px]">
+            <span>Sotuv (naqd va karta)</span>
+            <span className="tabular-nums text-success">+{formatMoney(report.cash.salesInflow)}</span>
+          </div>
+          {Number(report.cash.debtRepaid) > 0 && (
+            <div className="flex items-baseline justify-between text-[14px]">
+              <span>Qarz qaytimi</span>
+              <span className="tabular-nums text-success">+{formatMoney(report.cash.debtRepaid)}</span>
+            </div>
+          )}
+          {Number(report.cash.expenseReturns) > 0 && (
+            <div className="flex items-baseline justify-between text-[14px]">
+              <span>Chiqim qaytimi</span>
+              <span className="tabular-nums text-success">+{formatMoney(report.cash.expenseReturns)}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-baseline justify-between bg-field-raised px-3 py-2 text-[15px] font-semibold">
+          <span>Jami kelgan</span>
+          <span className="tabular-nums text-success">{formatMoney(report.cash.totalIn)}</span>
+        </div>
+
+        <div className="flex items-baseline justify-between text-[14px]">
+          <span>Jami ketgan</span>
+          <span className="tabular-nums text-destructive">−{formatMoney(report.cash.totalOut)}</span>
+        </div>
+
+        <div className="flex items-baseline justify-between bg-field-raised px-3 py-2.5 text-[17px] font-bold">
+          <span className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">Farq</span>
+          <span className={cn('tabular-nums', cashFarq > 0 && 'text-success', cashFarq < 0 && 'text-destructive')}>
+            {formatMoney(report.cash.farq)}
+          </span>
+        </div>
+      </Field>
+    </Seam>
+  );
+}
+
+function SummaryReportView({ report }: { report: SummaryReport }) {
+  return (
+    <div className="flex flex-col gap-pad p-pad">
+      <PnlSummaryTiles
+        revenue={report.pnl.revenue}
+        cogs={report.pnl.cogs}
+        operatingExpense={report.pnl.operatingExpense}
+        profit={report.pnl.profit}
+      />
+
+      <IncomesByCategory report={report} />
+
+      <div className="grid grid-cols-1 gap-pad xl:grid-cols-2">
+        <PnlBreakdownCard report={report} />
+        <CashBreakdownCard report={report} />
+      </div>
+    </div>
+  );
+}
+
 export function ReportsPage() {
-  usePageTitle('Hisobotlar');
+  usePageTitle('Moliyaviy hisobot');
   const [tab, setTab] = useState<'daily' | 'monthly' | 'summary'>('daily');
   const [date, setDate] = useState(localDateString);
   const [month, setMonth] = useState(localMonthString);
@@ -312,10 +522,6 @@ export function ReportsPage() {
     (monthlyQuery.error as Error | null)?.message === 'Forbidden' ||
     (summaryQuery.error as Error | null)?.message === 'Forbidden';
 
-  if (isForbidden) {
-    return <ForbiddenMessage />;
-  }
-
   const isLoading = tab === 'daily' ? dailyQuery.isLoading
     : tab === 'monthly' ? monthlyQuery.isLoading
     : summaryQuery.isLoading;
@@ -334,6 +540,12 @@ export function ReportsPage() {
 
   const onPrint = () => {
     printCurrentView();
+  };
+
+  const onRefetch = () => {
+    if (tab === 'daily') dailyQuery.refetch();
+    else if (tab === 'monthly') monthlyQuery.refetch();
+    else summaryQuery.refetch();
   };
 
   const onSavePdf = async () => {
@@ -359,148 +571,139 @@ export function ReportsPage() {
     });
   };
 
+  const todayKey = tashkentDayKey();
+  const yesterdayKey = tashkentPreset('yesterday').from;
+
   return (
-    <PageContent>
+    <Screen
+      title="Moliyaviy hisobot"
+      status={
+        <div className="no-print flex flex-wrap items-center justify-end gap-seam">
+          <div className="flex gap-seam">
+            {TABS.map((t) => (
+              <Button
+                key={t.key}
+                size="sm"
+                variant={tab === t.key ? 'default' : 'secondary'}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </Button>
+            ))}
+          </div>
+
+          {tab === 'daily' ? (
+            <div className="flex items-center gap-seam">
+              <Button size="sm" variant={date === todayKey ? 'default' : 'secondary'} onClick={() => setDate(todayKey)}>
+                Bugun
+              </Button>
+              <Button
+                size="sm"
+                variant={date === yesterdayKey ? 'default' : 'secondary'}
+                onClick={() => setDate(yesterdayKey)}
+              >
+                Kecha
+              </Button>
+              <Input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-[168px]"
+                aria-label="Sana"
+              />
+            </div>
+          ) : tab === 'monthly' ? (
+            <div className="flex items-center gap-seam">
+              <Input
+                type="number"
+                min={2020}
+                max={2100}
+                value={selectedYear}
+                onChange={(e) => {
+                  const nextYear = e.target.value || selectedYear;
+                  setMonth(`${nextYear}-${selectedMonthPart}`);
+                }}
+                className="w-[92px]"
+                numeric
+                aria-label="Yil"
+              />
+              <select
+                value={selectedMonthPart}
+                onChange={(e) => setMonth(`${selectedYear}-${e.target.value}`)}
+                className="h-control bg-field px-3 text-[15px] text-foreground focus-block"
+                aria-label="Oy"
+              >
+                {UZBEK_MONTHS.map((label, index) => {
+                  const value = String(index + 1).padStart(2, '0');
+                  return (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-seam">
+              {SUMMARY_PRESETS.map((p) => {
+                const preset = tashkentPreset(p.key);
+                const active = preset.from === summaryFrom && preset.to === summaryTo;
+                return (
+                  <Button
+                    key={p.key}
+                    size="sm"
+                    variant={active ? 'default' : 'secondary'}
+                    onClick={() => {
+                      setSummaryFrom(preset.from);
+                      setSummaryTo(preset.to);
+                    }}
+                  >
+                    {p.label}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
+
+          <Button size="sm" variant="secondary" onClick={onRefetch} disabled={isFetching} title="Yangilash">
+            <RefreshCw className={isFetching ? 'animate-spin' : ''} />
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onPrint} title="Chop etish">
+            <Printer />
+          </Button>
+          <Button size="sm" onClick={onSavePdf} title="PDF saqlash">
+            <FileDown />
+            PDF
+          </Button>
+        </div>
+      }
+    >
       <PrintHeader
         title={
           tab === 'daily' ? 'Kunlik moliyaviy hisobot'
           : tab === 'monthly' ? 'Oylik moliyaviy hisobot'
-          : "Umumiy moliyaviy hisobot"
+          : 'Umumiy moliyaviy hisobot'
         }
         subtitle={printSubtitle}
       />
 
-      <PageHeader
-        title="Moliyaviy hisobot"
-        description="Owner uchun kunlik va oylik P&L: tushum, chiqim, foyda, nasiya."
-        actions={
-          <div className="flex items-center gap-2 no-print">
-            {tab === 'daily' ? (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="report-date" className="text-xs text-muted-foreground">Sana:</Label>
-                <Input
-                  id="report-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-44 h-9"
-                />
-              </div>
-            ) : tab === 'monthly' ? (
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground">Davr:</Label>
-                <Input
-                  type="number"
-                  min={2020}
-                  max={2100}
-                  value={selectedYear}
-                  onChange={(e) => {
-                    const nextYear = e.target.value || selectedYear;
-                    setMonth(`${nextYear}-${selectedMonthPart}`);
-                  }}
-                  className="w-24 h-9 tabular-nums"
-                />
-                <Select
-                  value={selectedMonthPart}
-                  onValueChange={(value) => setMonth(`${selectedYear}-${value}`)}
-                >
-                  <SelectTrigger className="h-9 w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {UZBEK_MONTHS.map((label, index) => {
-                      const value = String(index + 1).padStart(2, '0');
-                      return (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="report-from" className="text-xs text-muted-foreground">Davr:</Label>
-                <Input
-                  id="report-from"
-                  type="date"
-                  value={summaryFrom}
-                  onChange={(e) => setSummaryFrom(e.target.value)}
-                  className="w-40 h-9"
-                />
-                <span className="text-xs text-muted-foreground">—</span>
-                <Input
-                  id="report-to"
-                  type="date"
-                  value={summaryTo}
-                  onChange={(e) => setSummaryTo(e.target.value)}
-                  className="w-40 h-9"
-                />
-              </div>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => (
-                tab === 'daily' ? dailyQuery.refetch()
-                : tab === 'monthly' ? monthlyQuery.refetch()
-                : summaryQuery.refetch()
-              )}
-              disabled={isFetching}
-              title="Yangilash"
-            >
-              <RefreshCw className={isFetching ? 'animate-spin' : ''} />
-              Yangilash
-            </Button>
-            <Button variant="outline" size="sm" onClick={onPrint} title="Chop etish">
-              <Printer />
-              Chop etish
-            </Button>
-            <Button variant="default" size="sm" onClick={onSavePdf} title="PDF saqlash">
-              <FileDown />
-              PDF saqlash
-            </Button>
-          </div>
-        }
-      />
-
-      <div className="no-print">
-        <Tabs value={tab} onValueChange={(value) => setTab(value as 'daily' | 'monthly' | 'summary')}>
-          <TabsList>
-            <TabsTrigger value="daily">Kunlik</TabsTrigger>
-            <TabsTrigger value="monthly">Oylik</TabsTrigger>
-            <TabsTrigger value="summary">Umumiy</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-      {isLoading ? (
-        <DailyLoadingSkeleton />
+      {isForbidden ? (
+        <ReportMessage title="Ruxsat yo'q" hint="Faqat egasi (Owner) bu sahifani ko'ra oladi." />
+      ) : isLoading ? (
+        <ReportMessage title="Yuklanmoqda…" />
       ) : error ? (
-        <Card>
-          <CardContent className="pt-6">
-            <EmptyState
-              title="Hisobotni yuklab bo'lmadi"
-              hint={(error as Error)?.message ?? 'Iltimos, qayta urinib ko\'ring.'}
-            />
-          </CardContent>
-        </Card>
-      ) : tab === 'daily' && dailyQuery.data ? (
-        <DailyReportSections report={dailyQuery.data} />
-      ) : tab === 'monthly' && monthlyQuery.data ? (
-        <MonthlyView
-          report={monthlyQuery.data}
-          onSelectDay={(row) => setSelectedDayDate(row.date)}
+        <ReportMessage
+          title="Hisobotni yuklab bo'lmadi"
+          hint={(error as Error)?.message ?? "Iltimos, qayta urinib ko'ring."}
         />
+      ) : tab === 'daily' && dailyQuery.data ? (
+        <DailyView report={dailyQuery.data} />
+      ) : tab === 'monthly' && monthlyQuery.data ? (
+        <MonthlyReportView report={monthlyQuery.data} onSelectDay={(row) => setSelectedDayDate(row.date)} />
       ) : tab === 'summary' && summaryQuery.data ? (
-        <SummaryView report={summaryQuery.data} />
+        <SummaryReportView report={summaryQuery.data} />
       ) : (
-        <Card>
-          <CardContent className="pt-6">
-            <EmptyState title="Hisobot mavjud emas" hint="Tanlangan davr uchun ma'lumot topilmadi." />
-          </CardContent>
-        </Card>
+        <ReportMessage title="Hisobot mavjud emas" hint="Tanlangan davr uchun ma'lumot topilmadi." />
       )}
 
       <Dialog open={!!selectedDayDate} onOpenChange={(open) => { if (!open) setSelectedDayDate(null); }}>
@@ -511,221 +714,12 @@ export function ReportsPage() {
             </DialogTitle>
           </DialogHeader>
           {selectedDayQuery.data
-            ? <DailyReportSections report={selectedDayQuery.data} />
+            ? <DailyView report={selectedDayQuery.data} />
             : selectedDayQuery.isLoading
-              ? <div className="py-8 text-center text-sm text-muted-foreground">Yuklanmoqda…</div>
+              ? <div className="py-8 text-center text-[14px] text-muted-foreground">Yuklanmoqda…</div>
               : null}
         </DialogContent>
       </Dialog>
-    </PageContent>
-  );
-}
-
-// ─── Summary (Umumiy) tab — date-range P&L + Cash basis side-by-side ──────
-function SummaryView({ report }: { report: SummaryReport }) {
-  const profit = Number(report.pnl.profit);
-  const cashFarq = Number(report.cash.farq);
-
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <h3 className="text-sm font-semibold uppercase tracking-wide">
-            Kirimlar — kategoriyalar bo'yicha
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Menyu kategoriyalari bo'yicha sotuv
-          </p>
-        </CardHeader>
-        <CardContent>
-          {report.incomes.byMenuCategory.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              Tanlangan davrda sotuv yo'q
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="text-left py-2 font-medium">Kategoriya</th>
-                  <th className="text-right py-2 font-medium">Soni</th>
-                  <th className="text-right py-2 font-medium">Sotuv (so'm)</th>
-                  <th className="text-right py-2 font-medium">Tan narxi</th>
-                  <th className="text-right py-2 font-medium" title="Sotuv − Tan narxi (operatsion chiqimga bo'lib o'tmagan)">
-                    Yalpi foyda
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.incomes.byMenuCategory.map((row) => {
-                  const p = Number(row.profit);
-                  return (
-                    <tr key={row.categoryId} className="border-b border-border/40">
-                      <td className="py-2 font-medium">{row.categoryName}</td>
-                      <td className="py-2 text-right tabular-nums">{row.qty}</td>
-                      <td className="py-2 text-right tabular-nums">{formatMoney(row.revenue)}</td>
-                      <td className="py-2 text-right tabular-nums text-muted-foreground">{formatMoney(row.cogs)}</td>
-                      <td className={`py-2 text-right tabular-nums font-medium ${p > 0 ? 'text-success' : p < 0 ? 'text-destructive' : ''}`}>
-                        {formatMoney(row.profit)}
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr className="border-t-2 border-border font-bold">
-                  <td className="py-2 uppercase tracking-wide text-xs">Jami</td>
-                  <td className="py-2 text-right tabular-nums">{report.incomes.totals.qty}</td>
-                  <td className="py-2 text-right tabular-nums">{formatMoney(report.incomes.totals.revenue)}</td>
-                  <td className="py-2 text-right tabular-nums text-muted-foreground">{formatMoney(report.incomes.totals.cogs)}</td>
-                  <td className="py-2 text-right tabular-nums text-success">
-                    {formatMoney(String(Number(report.incomes.totals.revenue) - Number(report.incomes.totals.cogs)))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-          {(Number(report.incomes.other.debtRepaid) > 0 || Number(report.incomes.other.expenseReturns) > 0) && (
-            <div className="mt-3 pt-3 border-t border-dashed border-border space-y-1 text-sm">
-              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-                Boshqa kirimlar
-              </div>
-              {Number(report.incomes.other.debtRepaid) > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Qarz qaytimi</span>
-                  <span className="tabular-nums">{formatMoney(report.incomes.other.debtRepaid)}</span>
-                </div>
-              )}
-              {Number(report.incomes.other.expenseReturns) > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Chiqim qaytimi (avans va h.k.)</span>
-                  <span className="tabular-nums">{formatMoney(report.incomes.other.expenseReturns)}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Two side-by-side cards: P&L | Cash basis */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <h3 className="text-sm font-semibold uppercase tracking-wide">Sof foyda</h3>
-            <p className="text-xs text-muted-foreground">
-              Sotuv − sotilgan ovqat tan narxi − chiqim
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-                Chiqimlar — kategoriyalar bo'yicha
-              </div>
-              {report.pnl.expensesByCategory.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-1">Operatsion chiqim yo'q</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {report.pnl.expensesByCategory.map((row) => (
-                      <tr key={row.categoryId} className="border-b border-border/40">
-                        <td className="py-1.5">{row.categoryName}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatMoney(row.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="space-y-1 pt-3 border-t border-border">
-              <div className="flex justify-between text-sm">
-                <span>Sotuv</span>
-                <span className="tabular-nums text-success">+{formatMoney(report.pnl.grossRevenue)}</span>
-              </div>
-              {Number(report.pnl.discount) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>Chegirma</span>
-                  <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.discount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-sm">
-                <span>Tan narxi</span>
-                <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.cogs)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Chiqim</span>
-                <span className="tabular-nums text-destructive">−{formatMoney(report.pnl.operatingExpense)}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
-                <span className="uppercase tracking-wide">Sof foyda</span>
-                <span className={`tabular-nums ${profit > 0 ? 'text-success' : profit < 0 ? 'text-destructive' : ''}`}>
-                  {formatMoney(report.pnl.profit)}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h3 className="text-sm font-semibold uppercase tracking-wide">Pul harakati</h3>
-            <p className="text-xs text-muted-foreground">
-              Haqiqatda kassaga kelgan/ketgan pul
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
-                Kategoriyalar bo'yicha chiqimlar (xaridlar bilan)
-              </div>
-              {report.cash.expensesByCategory.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-1">Chiqim yo'q</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {report.cash.expensesByCategory.map((row) => (
-                      <tr key={row.categoryId} className="border-b border-border/40">
-                        <td className="py-1.5">{row.categoryName}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatMoney(row.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="space-y-1 pt-3 border-t border-border">
-              <div className="flex justify-between text-sm">
-                <span>Sotuv (naqd va karta)</span>
-                <span className="tabular-nums text-success">+{formatMoney(report.cash.salesInflow)}</span>
-              </div>
-              {Number(report.cash.debtRepaid) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>Qarz qaytimi</span>
-                  <span className="tabular-nums text-success">+{formatMoney(report.cash.debtRepaid)}</span>
-                </div>
-              )}
-              {Number(report.cash.expenseReturns) > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>Chiqim qaytimi</span>
-                  <span className="tabular-nums text-success">+{formatMoney(report.cash.expenseReturns)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-sm font-semibold border-t border-border/40 pt-1">
-                <span>Jami kelgan</span>
-                <span className="tabular-nums text-success">{formatMoney(report.cash.totalIn)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Jami ketgan</span>
-                <span className="tabular-nums text-destructive">−{formatMoney(report.cash.totalOut)}</span>
-              </div>
-              <div className="flex justify-between text-base font-bold pt-2 border-t border-border">
-                <span className="uppercase tracking-wide">Farq</span>
-                <span className={`tabular-nums ${cashFarq > 0 ? 'text-success' : cashFarq < 0 ? 'text-destructive' : ''}`}>
-                  {formatMoney(report.cash.farq)}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    </Screen>
   );
 }
