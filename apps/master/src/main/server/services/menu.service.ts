@@ -177,14 +177,24 @@ export const menuService = {
       if (data.kind !== undefined) patch.kind = data.kind;
       if (data.isActive !== undefined) patch.isActive = data.isActive;
 
-      const costChanged = data.costPrice !== undefined;
-      if (costChanged) {
+      // SERVICE items never carry cost or a count — mirror createItem's
+      // forced null/false, so a PATCH can't sneak either onto a xizmat haqi
+      // line. Silently ignored (treated as not provided), not rejected.
+      const isService = existing.kind === MenuItemKind.SERVICE;
+
+      let costChanged = false;
+      if (!isService && data.costPrice !== undefined) {
         const next = data.costPrice === null ? null : new Prisma.Decimal(data.costPrice as number | string);
         if (next && next.lte(0)) throw Errors.Validation("Tan narx 0 dan katta bo'lishi kerak");
-        patch.costPrice = next;
+        // Decimal-safe: only audit a real change. null↔non-null always
+        // counts as changed; both-non-null compares by value via .eq().
+        costChanged = next === null
+          ? existing.costPrice !== null
+          : existing.costPrice === null || !next.eq(existing.costPrice);
+        if (costChanged) patch.costPrice = next;
       }
 
-      const countedChanged = data.counted !== undefined && data.counted !== existing.counted;
+      const countedChanged = !isService && data.counted !== undefined && data.counted !== existing.counted;
       if (countedChanged) {
         patch.counted = data.counted;
         // ON: must be counted before it sells again. OFF: count is meaningless.

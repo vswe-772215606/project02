@@ -155,6 +155,57 @@ async function main() {
   });
   ok('restock on uncounted item → 400');
 
+  step('6b', 'updateItem: no-op cost PATCH is not audited; real change is; SERVICE ignores cost/counted');
+  const plov2 = (await http<{ id: string }>('POST', '/api/menu/items', {
+    token: admin,
+    body: { categoryId: cat.id, name: `Smoke plov2 ${suffix}`, price: 28000, mode: 'COUNTED', costPrice: 7000, initialCount: 5 },
+  })).body;
+  const plov2Created = await prisma.menuItem.findUniqueOrThrow({ where: { id: plov2.id } });
+  assertEq('stockCount after create with initialCount 5', plov2Created.stockCount, 5);
+  const plov2InitialEntry = await prisma.stockEntry.findFirstOrThrow({
+    where: { menuItemId: plov2.id, kind: 'COUNT' },
+    orderBy: { createdAt: 'asc' },
+  });
+  assertEq('initial StockEntry countBefore', plov2InitialEntry.countBefore, null);
+  assertEq('initial StockEntry countAfter', plov2InitialEntry.countAfter, 5);
+
+  await http('PATCH', `/api/menu/items/${plov2.id}`, { token: admin, body: { costPrice: 7000 } });
+  const costAuditsAfterNoop = await prisma.auditLog.count({
+    where: { action: 'ITEM_COST_CHANGED', entityId: plov2.id },
+  });
+  assertEq('ITEM_COST_CHANGED audits after no-op PATCH (same costPrice)', costAuditsAfterNoop, 0);
+
+  await http('PATCH', `/api/menu/items/${plov2.id}`, { token: admin, body: { costPrice: 8000 } });
+  const costAuditsAfterChange = await prisma.auditLog.count({
+    where: { action: 'ITEM_COST_CHANGED', entityId: plov2.id },
+  });
+  assertEq('ITEM_COST_CHANGED audits after real cost change', costAuditsAfterChange, 1);
+  const plov2AfterCostChange = await prisma.menuItem.findUniqueOrThrow({ where: { id: plov2.id } });
+  assertEq('costPrice after change', plov2AfterCostChange.costPrice?.toFixed(0), '8000');
+
+  await http('PATCH', `/api/menu/items/${plov2.id}`, { token: admin, body: { counted: false } });
+  const plov2AfterUncount = await prisma.menuItem.findUniqueOrThrow({ where: { id: plov2.id } });
+  assertEq('stockCount after counted:false', plov2AfterUncount.stockCount, null);
+  const uncountAudit = await prisma.auditLog.findFirstOrThrow({
+    where: { action: 'STOCK_COUNT_SET', entityId: plov2.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  const uncountMeta = uncountAudit.metadata as unknown as { origin?: string };
+  assertEq('counted-disabled audit origin', uncountMeta.origin, 'counted-disabled');
+
+  const serviceItem = (await http<{ id: string }>('POST', '/api/menu/items', {
+    token: admin,
+    body: { categoryId: cat.id, name: `Smoke service ${suffix}`, price: 5000, mode: 'SERVICE' },
+  })).body;
+  await http('PATCH', `/api/menu/items/${serviceItem.id}`, { token: admin, body: { costPrice: 9999 } });
+  const serviceAfter = await prisma.menuItem.findUniqueOrThrow({ where: { id: serviceItem.id } });
+  assertEq('SERVICE item costPrice stays null after PATCH costPrice', serviceAfter.costPrice, null);
+  const serviceCostAudits = await prisma.auditLog.count({
+    where: { action: 'ITEM_COST_CHANGED', entityId: serviceItem.id },
+  });
+  assertEq('ITEM_COST_CHANGED audits for SERVICE item', serviceCostAudits, 0);
+  ok('SERVICE item ignores costPrice on update');
+
   console.log(`\n${c(32, 'SMOKE STOCK-COUNT (part 1) PASSED')}`);
   await prisma.$disconnect();
 }
