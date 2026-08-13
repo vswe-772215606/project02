@@ -32,7 +32,7 @@ import { IncidentsSection } from '@/components/reports/IncidentsSection';
 import { GrandSummarySection } from '@/components/reports/GrandSummarySection';
 import { MonthlyTable } from '@/components/reports/MonthlyTable';
 import { StatTile } from '@/components/reports/report-helpers';
-import { PnlSummaryTiles } from '@/components/reports-v2/PnlSummaryTiles';
+import { PnlSummaryTiles } from '@/components/reports/PnlSummaryTiles';
 import { formatMoney, tashkentDayKey, tashkentMonthKey } from '@/lib/format';
 import { printCurrentView, saveDailyReportPdf, saveFinancePdf } from '@/lib/save-pdf';
 import { cn } from '@/lib/utils';
