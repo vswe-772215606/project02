@@ -55,7 +55,9 @@ export function Keypad({ onKey, showDecimal = false, className }: KeypadProps) {
           ,
         </Key>
       ) : (
-        <Key disabled />
+        /* Hidden from the accessibility tree as well as disabled: a nameless
+           dimmed button is noise to anyone reading the pad with a cursor. */
+        <Key disabled aria-hidden="true" />
       )}
       <Key onClick={() => onKey('0')} aria-label="0">
         0

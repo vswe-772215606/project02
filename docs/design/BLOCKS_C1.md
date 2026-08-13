@@ -57,7 +57,8 @@ pair clears 4.5:1. Values live in `src/renderer/styles.css`.
 | Focus | `#8A6B2E` | `--ring` | 4.6:1 | 2px inset ring on the focused control |
 
 Hex values are the design reference; the HSL triplets in `styles.css` are what actually
-ships, and the two differ by up to a unit per channel from rounding.
+ships, and rounding puts the two up to two units apart on a channel. No contrast ratio
+crosses a threshold because of it.
 
 Three corrections landed with the palette: `--warning` went from **1.98:1** to 5.9:1 and
 `--success` from **3.30:1** to 6.9:1 — both render money — and `--info` retired the blue,
@@ -82,6 +83,11 @@ work against **every** fill in the palette:
 - **`.press-block`** — a brightness step plus a 1px nudge. Per-tone `active:bg-*` only ever
   worked for the default fill, so a live, owed or already-selected element had no pressed
   state at all; a brightness step works on any fill.
+
+Press is the only thing that animates. **State changes are instant** — selecting a row,
+switching the active nav item, disabling a control — because on a till an immediate swap
+reads as responsiveness and a 75ms fade reads as lag. The `transition-colors` these
+components inherited from shadcn existed to soften hover, and there is no hover here.
 
 Tailwind exposes domain aliases beside the shadcn names: `bg-live`, `bg-settled`, `bg-owed`,
 `bg-selected`, `bg-field`, `bg-field-raised`, `bg-field-press`, `bg-seam`. **Prefer these in

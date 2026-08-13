@@ -13,15 +13,23 @@ const toneClass: Record<ChipTone, string> = {
 };
 
 /**
- * A Chip is a label, never a control: interactive props are omitted so one
- * cannot be turned into a tap target on a bare `<span>` — no role, no tab
- * stop, no keyboard route. Use a `Button` or a `Row` when a press is wanted.
+ * A Chip is a label, never a control.
+ *
+ * The props are an allowlist rather than an omission list: subtracting the
+ * handlers you can think of still leaves `role`, `onFocus` and every pointer
+ * and touch event untouched — and pointer events are the natural interaction
+ * vector on a till, so a denylist blocks the wrong things. Naming what a
+ * label legitimately needs means nothing interactive can slip through at all.
+ *
+ * Use a `Button` or a clickable `Row` when a press is actually wanted.
  */
-type ChipProps = Omit<
-  React.HTMLAttributes<HTMLSpanElement>,
-  'onClick' | 'onKeyDown' | 'onKeyUp' | 'onMouseDown' | 'onMouseUp' | 'tabIndex'
-> & {
+type ChipProps = {
   tone?: ChipTone;
+  children?: React.ReactNode;
+  className?: string;
+  /** Hover text for the rare abbreviation. Never the only carrier of meaning. */
+  title?: string;
+  id?: string;
 };
 
 /**
@@ -31,17 +39,20 @@ type ChipProps = Omit<
  * colour never carries the meaning on its own.
  */
 export const Chip = React.forwardRef<HTMLSpanElement, ChipProps>(
-  ({ className, tone = 'inert', ...props }, ref) => (
+  ({ className, tone = 'inert', children, title, id }, ref) => (
     <span
       ref={ref}
+      id={id}
+      title={title}
       className={cn(
         'inline-flex items-center px-2.5 py-1.5',
         'text-[12px] font-semibold uppercase tracking-[0.05em]',
         toneClass[tone],
         className,
       )}
-      {...props}
-    />
+    >
+      {children}
+    </span>
   ),
 );
 Chip.displayName = 'Chip';
