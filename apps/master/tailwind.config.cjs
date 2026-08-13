@@ -103,6 +103,21 @@ module.exports = {
         full: '0',
       },
 
+      // Separation is a seam or a change of fill — never depth. Zeroed in the
+      // theme for the same reason as borderRadius: an unconverted component
+      // carrying `shadow-sm` should render flat rather than reintroduce
+      // elevation the system doesn't use.
+      boxShadow: {
+        none: 'none',
+        sm: 'none',
+        DEFAULT: 'none',
+        md: 'none',
+        lg: 'none',
+        xl: 'none',
+        '2xl': 'none',
+        inner: 'none',
+      },
+
       // Two spacing values and four heights govern the whole surface.
       spacing: {
         seam: 'var(--seam-w)',
