@@ -1,6 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ['class'],
   content: [
     './src/renderer/index.html',
     './src/renderer/**/*.{js,ts,jsx,tsx}',
@@ -57,11 +56,69 @@ module.exports = {
           DEFAULT: 'hsl(var(--info))',
           foreground: 'hsl(var(--info-foreground))',
         },
+
+        // ── Blocks C1 vocabulary ────────────────────────────────────
+        // Domain names for the same tokens. Prefer these in new code:
+        // `bg-live` says what it means where `bg-primary` does not.
+        seam: 'hsl(var(--background))',
+        field: {
+          DEFAULT: 'hsl(var(--card))',
+          raised: 'hsl(var(--secondary))',
+          press: 'hsl(var(--accent))',
+        },
+        selected: {
+          DEFAULT: 'hsl(var(--selected))',
+          foreground: 'hsl(var(--selected-foreground))',
+        },
+        live: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        settled: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        owed: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
       },
+
+      // Square corners everywhere — the rule is enforced by the build so a
+      // stray `rounded-*` cannot reintroduce one.
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        none: '0',
+        sm: '0',
+        DEFAULT: '0',
+        md: '0',
+        lg: '0',
+        xl: '0',
+        '2xl': '0',
+        '3xl': '0',
+        full: '0',
+      },
+
+      // Two spacing values and four heights govern the whole surface.
+      spacing: {
+        seam: 'var(--seam-w)',
+        pad: 'var(--pad)',
+        moat: 'var(--moat)',
+      },
+      height: {
+        row: 'var(--h-row)',
+        control: 'var(--h-control)',
+        action: 'var(--h-action)',
+        key: 'var(--h-key)',
+      },
+      minHeight: {
+        row: 'var(--h-row)',
+        control: 'var(--h-control)',
+        action: 'var(--h-action)',
+        key: 'var(--h-key)',
+      },
+      width: {
+        control: 'var(--h-control)',
+        key: 'var(--h-key)',
       },
       keyframes: {
         'accordion-down': {

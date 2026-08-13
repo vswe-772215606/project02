@@ -19,6 +19,8 @@ import { DebtsPage } from './pages/DebtsPage';
 import { OmborPage } from './pages/OmborPage';
 import { FinancePage } from './pages/FinancePage';
 import { SalariesPage } from './pages/SalariesPage';
+// Dev-only design-system gallery. Not in the sidebar; reachable at #/components.
+import { ComponentsPage } from './pages/ComponentsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -44,6 +46,7 @@ function AuthedRoutes() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/components" element={<ComponentsPage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </AppShell>

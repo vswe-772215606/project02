@@ -1,22 +1,40 @@
-import * as React from "react"
+import * as React from 'react';
 
-import { cn } from "@/lib/utils"
+import { cn } from '@/lib/utils';
 
-const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
-    return (
-      <input
-        type={type}
-        className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-          className
-        )}
-        ref={ref}
-        {...props}
-      />
-    )
-  }
-)
-Input.displayName = "Input"
+export interface InputProps extends React.ComponentProps<'input'> {
+  /**
+   * Money and quantity entry: larger, semibold, right-aligned, tabular so a
+   * column of them lines up.
+   */
+  numeric?: boolean;
+}
 
-export { Input }
+/**
+ * Blocks C1 input.
+ *
+ * 48px, filled, and borderless at rest — focus draws a 2px inset ring rather
+ * than colouring a border that was never there.
+ */
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, numeric = false, ...props }, ref) => (
+    <input
+      type={type}
+      className={cn(
+        'flex h-control w-full bg-field px-3 text-foreground',
+        'transition-colors duration-75',
+        'placeholder:text-muted-foreground',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'disabled:cursor-not-allowed disabled:bg-field-raised disabled:text-muted-foreground',
+        'file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground',
+        numeric ? 'text-right text-[17px] font-semibold tabular-nums' : 'text-[15px]',
+        className,
+      )}
+      ref={ref}
+      {...props}
+    />
+  ),
+);
+Input.displayName = 'Input';
+
+export { Input };
