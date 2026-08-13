@@ -1,6 +1,6 @@
 # Count-based inventory — design
 
-**Date:** 2026-08-13 · **Status:** approved, awaiting implementation plan
+**Date:** 2026-08-13 · **Status:** implemented on `feat/count-based-inventory` (2026-08-13, commits `c72ee40`…`4484c34`; final review passed — see §11 for accepted follow-ups)
 **Branch:** `feat/count-based-inventory` (off `audit/pos-review-and-prd-foundation`)
 **Supersedes:** the ingredient/FIFO inventory model (`REFACTOR_PLAN.md` Phases 0–2 as shipped) and `PRD_FOUNDATION.md` §1 (including §1.9 `S-1`…`S-6`, `O-1`…`O-4`, which are moot under this design). This consciously reopens two `PRD_FOUNDATION.md` §7 "do not reopen" items — "the FIFO engine stays" and ingredient-level tracking (`R2`/`R4`) — at the developer's explicit direction.
 
@@ -242,3 +242,38 @@ Fiscalization (`F-1`…`F-3`), backups (`F-9`), the rest of the paused audit fix
 Findings that die with the old model rather than being fixed: `F-11`, `C-18`, `C-11`,
 `C-15`'s inventory half, `M-64`…`M-74` (inventory-admin block), `M-1`'s Chegirmalar caps
 question is unaffected.
+
+## 11. Post-implementation follow-ups (final review triage, 2026-08-13)
+
+Accepted as deferred at merge time — none blocks the model:
+
+- **Smoke the restore lattice** — quantity-decrease is the only restored path a smoke
+  asserts; add coverage for line-cancel-keeps-snapshot / order-cancel-restores /
+  walkout-doesn't (order-cancel currently zeroes line `cogsSnapshot` while line-cancel
+  keeps it — invisible to reports, worth documenting or unifying when touched).
+- **Compound `PATCH { kind, costPrice }` evades the SERVICE cost guard** —
+  `menu.service.ts` `isService` reads pre-patch kind; one-liner
+  `(data.kind ?? existing.kind)` next time the file is touched. Unreachable from clients.
+- **`stockEntryRepo.latestOccurredAtByItemIds` scans the whole journal** — fine at
+  chayxana scale; switch to `groupBy`/`_max` before the append-only table grows.
+- **`paidUzs ⇒ linked Expense` invariant is enforced only by `restock()`'s transaction**
+  — document on the money-range repo methods; a future write path that sets `paidUzs`
+  without an expense would be silently excluded from Xaridlar.
+- **Keldi/Sanoq cannot be backdated** (`occurredAt` pinned to now) — product decision to
+  revisit; a morning-after entry lands in the wrong day's Xaridlar.
+- **Renderer type staleness** — `api/menu.ts`'s `MenuItem` type overstates what the
+  waiter-facing `GET /api/menu` now returns (cost/stock fields stripped server-side);
+  split the type when next touched. MenuPage's edit modal falls back to the stripped
+  object if opened before `/api/menu/items` resolves (low probability, self-heals).
+- **Dead listeners in untouched apps** — order/mobile still subscribe to the retired
+  `ingredient:stockChanged` and carry one stale "yield" comment; remove on their next
+  release.
+- **Zero-count styling in MenuPage's availability cell** has no urgency color (Ombor's
+  red badge is the operational signal); scripts/seed are outside `pnpm typecheck`
+  (pre-existing; `tsx` runtime is their only net); CURRENT_WORKFLOW §5 says "13 parallel
+  queries" where the `Promise.all` has 12 entries (one issues two queries — either word
+  is defensible).
+- **Still-open audit items untouched by this branch:** `F-4`, `F-7`, `F-6`, `C-3`
+  (re-verified open at merge; the paused `AUDIT_FINDINGS.md` §8 queue remains the
+  tracker), route-level role guards in the admin renderer remain nav-only (server 403s
+  are the real boundary).
