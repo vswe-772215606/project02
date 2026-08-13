@@ -185,19 +185,25 @@ async function main() {
     });
   }
 
+  // Count-based inventory (2026-08 refactor): every FOOD item needs `counted`
+  // + a plausible `costPrice` so dev DBs are sellable right after seed.
+  // Choy is UNCOUNTED (never runs out, but still books COGS at sale);
+  // everything else is COUNTED with a starting stockCount of 50. Seeding a
+  // non-NULL stockCount here is deliberate — the fresh-start-at-zero rule
+  // belongs to the migration backfill, not the dev seed (see task-9-brief).
   const menuItems = [
-    { id: MENU_ITEM_IDS.achichuk, categoryId: CATEGORY_IDS.salads, name: 'Achichuk', description: 'Pomidor va piyozli salat', price: '18000', displayOrder: 0 },
-    { id: MENU_ITEM_IDS.guruchSalat, categoryId: CATEGORY_IDS.salads, name: 'Guruchli salat', description: 'Mayin guruch va sabzavotlar', price: '22000', displayOrder: 1 },
-    { id: MENU_ITEM_IDS.qarsildoqSalat, categoryId: CATEGORY_IDS.salads, name: 'Qarsildoq salat', description: 'Bodring va ko\'katli salat', price: '20000', displayOrder: 2 },
-    { id: MENU_ITEM_IDS.mastava, categoryId: CATEGORY_IDS.soups, name: 'Mastava', description: 'Mol go\'shtli issiq sho\'rva', price: '26000', displayOrder: 0 },
-    { id: MENU_ITEM_IDS.lagmonSoup, categoryId: CATEGORY_IDS.soups, name: 'Lag\'mon sho\'rva', description: 'Uy lag\'monidan sho\'rva', price: '30000', displayOrder: 1 },
-    { id: MENU_ITEM_IDS.osh, categoryId: CATEGORY_IDS.mains, name: 'Osh', description: 'An\'anaviy toshkent oshi', price: '35000', displayOrder: 0 },
-    { id: MENU_ITEM_IDS.molKabob, categoryId: CATEGORY_IDS.mains, name: 'Mol kabob', description: 'Mol go\'shtidan kabob', price: '42000', displayOrder: 1 },
-    { id: MENU_ITEM_IDS.tovuqKabob, categoryId: CATEGORY_IDS.mains, name: 'Tovuq kabob', description: 'Tovuq go\'shtidan kabob', price: '36000', displayOrder: 2 },
-    { id: MENU_ITEM_IDS.somsa, categoryId: CATEGORY_IDS.mains, name: 'Somsa', description: 'Tandir somsasi', price: '12000', displayOrder: 3 },
-    { id: MENU_ITEM_IDS.qoraChoy, categoryId: CATEGORY_IDS.tea, name: 'Qora choy', description: 'Bir choynak qora choy', price: '8000', displayOrder: 0 },
-    { id: MENU_ITEM_IDS.kokChoy, categoryId: CATEGORY_IDS.tea, name: 'Ko\'k choy', description: 'Bir choynak ko\'k choy', price: '8000', displayOrder: 1 },
-    { id: MENU_ITEM_IDS.patirNon, categoryId: CATEGORY_IDS.bread, name: 'Patir non', description: 'Yangi tandir non', price: '6000', displayOrder: 0 },
+    { id: MENU_ITEM_IDS.achichuk, categoryId: CATEGORY_IDS.salads, name: 'Achichuk', description: 'Pomidor va piyozli salat', price: '18000', displayOrder: 0, counted: true, stockCount: 50, costPrice: '5000' },
+    { id: MENU_ITEM_IDS.guruchSalat, categoryId: CATEGORY_IDS.salads, name: 'Guruchli salat', description: 'Mayin guruch va sabzavotlar', price: '22000', displayOrder: 1, counted: true, stockCount: 50, costPrice: '5000' },
+    { id: MENU_ITEM_IDS.qarsildoqSalat, categoryId: CATEGORY_IDS.salads, name: 'Qarsildoq salat', description: 'Bodring va ko\'katli salat', price: '20000', displayOrder: 2, counted: true, stockCount: 50, costPrice: '5000' },
+    { id: MENU_ITEM_IDS.mastava, categoryId: CATEGORY_IDS.soups, name: 'Mastava', description: 'Mol go\'shtli issiq sho\'rva', price: '26000', displayOrder: 0, counted: true, stockCount: 50, costPrice: '12000' },
+    { id: MENU_ITEM_IDS.lagmonSoup, categoryId: CATEGORY_IDS.soups, name: 'Lag\'mon sho\'rva', description: 'Uy lag\'monidan sho\'rva', price: '30000', displayOrder: 1, counted: true, stockCount: 50, costPrice: '12000' },
+    { id: MENU_ITEM_IDS.osh, categoryId: CATEGORY_IDS.mains, name: 'Osh', description: 'An\'anaviy toshkent oshi', price: '35000', displayOrder: 0, counted: true, stockCount: 50, costPrice: '20000' },
+    { id: MENU_ITEM_IDS.molKabob, categoryId: CATEGORY_IDS.mains, name: 'Mol kabob', description: 'Mol go\'shtidan kabob', price: '42000', displayOrder: 1, counted: true, stockCount: 50, costPrice: '15000' },
+    { id: MENU_ITEM_IDS.tovuqKabob, categoryId: CATEGORY_IDS.mains, name: 'Tovuq kabob', description: 'Tovuq go\'shtidan kabob', price: '36000', displayOrder: 2, counted: true, stockCount: 50, costPrice: '15000' },
+    { id: MENU_ITEM_IDS.somsa, categoryId: CATEGORY_IDS.mains, name: 'Somsa', description: 'Tandir somsasi', price: '12000', displayOrder: 3, counted: true, stockCount: 50, costPrice: '4000' },
+    { id: MENU_ITEM_IDS.qoraChoy, categoryId: CATEGORY_IDS.tea, name: 'Qora choy', description: 'Bir choynak qora choy', price: '8000', displayOrder: 0, counted: false, stockCount: null, costPrice: '500' },
+    { id: MENU_ITEM_IDS.kokChoy, categoryId: CATEGORY_IDS.tea, name: 'Ko\'k choy', description: 'Bir choynak ko\'k choy', price: '8000', displayOrder: 1, counted: false, stockCount: null, costPrice: '500' },
+    { id: MENU_ITEM_IDS.patirNon, categoryId: CATEGORY_IDS.bread, name: 'Patir non', description: 'Yangi tandir non', price: '6000', displayOrder: 0, counted: true, stockCount: 50, costPrice: '2500' },
   ];
 
   for (const item of menuItems) {
@@ -214,6 +220,9 @@ async function main() {
         displayOrder: item.displayOrder,
         isAvailable: true,
         isActive: true,
+        counted: item.counted,
+        stockCount: item.stockCount,
+        costPrice: item.costPrice,
       },
       update: {
         category: {
@@ -225,6 +234,9 @@ async function main() {
         displayOrder: item.displayOrder,
         isAvailable: true,
         isActive: true,
+        counted: item.counted,
+        stockCount: item.stockCount,
+        costPrice: item.costPrice,
       },
     });
   }
