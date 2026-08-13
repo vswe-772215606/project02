@@ -29,22 +29,31 @@ export class AppErrorBoundary extends React.Component<Props, State> {
       return this.props.children;
     }
 
+    // Plain elements and tokens only, deliberately: this renders after
+    // something below it has already thrown, so it must not depend on the
+    // component library it is reporting the failure of.
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
-        <div className="max-w-2xl w-full rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
-          <div className="text-sm font-bold uppercase tracking-[0.2em] text-red-600">
-            Runtime Error
+      <div className="flex min-h-screen items-center justify-center bg-seam p-moat">
+        <div className="grid w-full max-w-2xl gap-seam">
+          <div className="bg-owed p-pad text-owed-foreground">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.09em]">
+              Dastur xatosi
+            </div>
+            <h1 className="mt-1 text-[24px] font-semibold leading-tight">
+              Sahifani yuklashda xatolik yuz berdi
+            </h1>
           </div>
-          <h1 className="mt-3 text-2xl font-bold text-slate-900">
-            Sahifani yuklashda xatolik yuz berdi
-          </h1>
-          <p className="mt-3 text-sm text-slate-600">
-            Iltimos, Windows ilovasidagi log fayllarni yuboring:
-            <span className="block mt-2 rounded bg-slate-100 px-3 py-2 font-mono text-xs text-slate-800">
+
+          <div className="bg-field p-pad">
+            <p className="text-[14px] text-foreground">
+              Iltimos, Windows ilovasidagi log fayllarni yuboring:
+            </p>
+            <div className="mt-2 bg-field-raised px-3 py-2 text-[14px]">
               %APPDATA%\Chayxana Master\logs\
-            </span>
-          </p>
-          <pre className="mt-5 overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-red-200">
+            </div>
+          </div>
+
+          <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap break-words bg-selected p-pad text-[13px] leading-relaxed text-selected-foreground">
             {this.state.error.stack ?? this.state.error.message}
           </pre>
         </div>

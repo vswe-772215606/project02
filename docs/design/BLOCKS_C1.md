@@ -107,7 +107,17 @@ new code** — `bg-live` says what it means where `bg-primary` does not.
   approach, and no tooltip may carry information the operator needs.
 - **Colour is never alone.** Every fill carries its word: *Band*, *Bo'sh*, *Nasiya*.
 - **Tabular figures** wherever digits line up.
-- **13px floor, 17px money.**
+- **12px labels, 13px text, 17px money.**
+
+### The one border exception
+
+A dense data grid may use hairline cell rules instead of seams: `components/salaries/DailyMatrix.tsx`
+is a payroll matrix roughly thirty day-columns wide, where a 2px seam per column would spend
+60px of a 1366px screen on gaps alone. Rules there are structure, not decoration — including
+the heavier rule at a month boundary — and they use `--border`, so they read as seams.
+
+This is the only place it is allowed. It is not a licence for borders on cards, rows, or
+panels, and it is still never a coloured edge.
 
 ## 5. Primitives
 
@@ -139,10 +149,16 @@ from the sidebar, and removable by deleting `pages/ComponentsPage.tsx` plus its 
 The primitives above are done. These still carry pre-C1 styling and are the natural next
 tranche:
 
-- `components/data/DataTable.tsx` — should compose `Seam` + `RowHeader` + `Row`; today it
-  puts `onClick` on a `<tr>` with no keyboard route to it.
-- `components/ConfirmDialog.tsx` — two implementations exist and the non-compliant one won;
-  its document-level Enter handler fires `onConfirm` regardless of focus.
+- `components/data/DataTable.tsx` — should compose `Seam` + `RowHeader` + `Row`. Today it puts
+  `onClick` on a bare `<tr>` with no `role`, no `tabIndex` and no press feedback. The path is
+  live: `MonthlyTable` passes `onRowClick` for the day drill-down. Tapping works, so this is
+  not urgent on a device with no keyboard, but the row does not look or behave like a target.
+  Its seven callers are the reports sections, so convert them together.
+
+The duplicate `ConfirmDialog` is resolved: two implementations existed, and the dead one —
+which carried the document-level Enter handler that fired `onConfirm` regardless of focus —
+has been deleted. The surviving `components/feedback/ConfirmDialog.tsx` has no key handler,
+so that accidental-confirm hazard is gone.
 - `components/ui/` — `dialog`, `sheet`, `select`, `checkbox`, `table`, `alert`, `card`.
 - `components/feedback/` — `PageHeader`, `PageContent`, `EmptyState`.
 - `components/layout/` — `AppShell`, `Sidebar` (Sidebar should compose `NavItem`).
