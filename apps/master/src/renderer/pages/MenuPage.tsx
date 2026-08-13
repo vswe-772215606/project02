@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -108,6 +108,20 @@ export function MenuPage() {
     queryKey: ['menu', 'combos', showInactive],
     queryFn: () => menuApi.listCombos(showInactive),
   });
+
+  // GET /api/menu (menuData, above) is the client-safe DTO shared with
+  // waiter apps and carries no costPrice/stockCount/counted. This page is
+  // the only admin UI that needs those fields (stock column + edit-modal
+  // pre-fill), so fetch them separately from the ADMIN/OWNER-gated
+  // /api/menu/items and look them up by id.
+  const { data: fullItems = [] } = useQuery({
+    queryKey: ['menu', 'items', showInactive],
+    queryFn: () => menuApi.listItems(showInactive),
+  });
+  const fullItemById = useMemo(
+    () => new Map(fullItems.map((it) => [it.id, it])),
+    [fullItems],
+  );
 
   // Category Mutations
   const createCategoryMutation = useMutation({
@@ -328,7 +342,15 @@ export function MenuPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {items.map((item) => (
+                  {items.map((item) => {
+                    // Enriched row from /api/menu/items — carries costPrice/
+                    // stockCount/counted that the client-safe `item` above
+                    // does not. Defaults to "not counted yet" while the
+                    // second query is still in flight.
+                    const full = fullItemById.get(item.id);
+                    const counted = full?.counted ?? false;
+                    const stockCount = full?.stockCount ?? null;
+                    return (
                     <tr key={item.id} className={`hover:bg-slate-50/50 transition-colors ${!item.isActive ? 'bg-slate-50/50' : ''}`}>
                       <td className="px-6 py-4">
                         <div className={`font-bold ${!item.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{item.name}</div>
@@ -338,16 +360,16 @@ export function MenuPage() {
                         <MoneyCell value={item.price} className={!item.isActive ? 'text-slate-400' : undefined} />
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {item.kind === 'SERVICE' || !item.counted ? (
+                        {item.kind === 'SERVICE' || !counted ? (
                           <Badge variant="outline">Doim mavjud</Badge>
-                        ) : item.stockCount === null ? (
+                        ) : stockCount === null ? (
                           <Badge variant="outline">Sanoq kiritilmagan</Badge>
                         ) : (
-                          <span className="tabular-nums">{item.stockCount} dona</span>
+                          <span className="tabular-nums">{stockCount} dona</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <button 
+                        <button
                           disabled={!item.isActive}
                           onClick={() => toggleAvailabilityMutation.mutate({ id: item.id, isAvailable: !item.isAvailable })}
                           className={`p-1.5 rounded-full transition-colors ${
@@ -361,13 +383,13 @@ export function MenuPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end space-x-2">
-                          <button 
-                            onClick={() => setEditItem(item)}
+                          <button
+                            onClick={() => setEditItem(full ?? item)}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
                           >
                             <Pencil size={16} />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleToggleItemActive(item)}
                             className={`p-1.5 rounded transition-all ${item.isActive ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'}`}
                           >
@@ -376,7 +398,8 @@ export function MenuPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">

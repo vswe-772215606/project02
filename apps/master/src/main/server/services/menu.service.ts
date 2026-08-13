@@ -44,7 +44,27 @@ export const menuService = {
   },
 
   async listCombos(includeInactive = false) {
-    return menuRepo.listCombos(includeInactive);
+    const combos = await menuRepo.listCombos(includeInactive);
+    // Explicit whitelist — GET /api/menu/combos stays open to every
+    // authenticated role (apps/order and apps/mobile fetch it for combo
+    // order-taking under WAITER PIN sessions), but menuRepo's raw include
+    // nests the full MenuItem per component. Never pass that through: it
+    // carries costPrice/stockCount/counted/unitCostSnapshot — the same
+    // margin data listMenuForClients strips from GET /api/menu.
+    return combos.map((combo) => ({
+      id: combo.id,
+      name: combo.name,
+      isActive: combo.isActive,
+      components: combo.components.map((component) => ({
+        id: component.id,
+        menuItemId: component.menuItemId,
+        quantity: component.quantity,
+        menuItem: {
+          name: component.menuItem.name,
+          price: component.menuItem.price,
+        },
+      })),
+    }));
   },
 
   /**
@@ -63,7 +83,19 @@ export const menuService = {
       items: items
         .filter((item) => item.categoryId === category.id)
         .map((item) => ({
-          ...item,
+          // Explicit whitelist — this DTO is readable by every authenticated
+          // role including WAITER. Never spread the raw item: costPrice,
+          // stockCount, counted and the legacy unitCostSnapshot are margin
+          // data and must not ship to waiter clients.
+          id: item.id,
+          categoryId: item.categoryId,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          kind: item.kind,
+          isAvailable: item.isAvailable,
+          displayOrder: item.displayOrder,
+          isActive: item.isActive,
           effectivelyAvailable:
             item.isAvailable &&
             (item.kind === MenuItemKind.SERVICE || !item.counted || (item.stockCount ?? 0) > 0),
