@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
  * shadcn's generic variant names.
  */
 const badgeVariants = cva(
-  'inline-flex items-center px-2.5 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.05em] transition-colors',
+  'inline-flex items-center px-2.5 py-1.5 text-[12px] font-semibold uppercase tracking-[0.05em]',
   {
     variants: {
       variant: {

@@ -19,9 +19,8 @@ const buttonVariants = cva(
   cn(
     'inline-flex items-center justify-center gap-2 whitespace-nowrap',
     'text-[15px] font-semibold tracking-[0.01em]',
-    'transition-[background-color,transform] duration-75 active:translate-y-px',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-    'disabled:pointer-events-none disabled:bg-field-raised disabled:text-muted-foreground disabled:translate-y-0',
+    'press-block focus-block',
+    'disabled:pointer-events-none disabled:bg-field-raised disabled:text-muted-foreground',
     '[&_svg]:pointer-events-none [&_svg]:size-[18px] [&_svg]:shrink-0',
   ),
   {
@@ -32,9 +31,9 @@ const buttonVariants = cva(
         /** Removes, cancels, writes off. Keep it 16px clear — see ActionBar. */
         destructive: 'bg-owed text-owed-foreground',
         /** Everything else on the surface. */
-        outline: 'bg-field text-foreground active:bg-field-press',
-        secondary: 'bg-field-raised text-foreground active:bg-field-press',
-        ghost: 'bg-transparent text-foreground active:bg-field-press',
+        outline: 'bg-field text-foreground',
+        secondary: 'bg-field-raised text-foreground',
+        ghost: 'bg-transparent text-foreground',
         link: 'bg-transparent text-foreground underline underline-offset-4',
       },
       size: {

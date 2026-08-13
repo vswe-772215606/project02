@@ -45,7 +45,7 @@ export const FieldLabel = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground',
+      'text-[12px] font-semibold uppercase tracking-[0.09em] text-muted-foreground',
       className,
     )}
     {...props}
@@ -64,9 +64,9 @@ type MoneyFieldProps = Omit<FieldProps, 'children'> & {
 };
 
 /**
- * The headline money surface. Figures are tabular so columns of these line
- * up down a page, and the value never drops below 17px anywhere in the app —
- * here it sits at 31.
+ * The headline money surface. Figures are tabular so columns of these line up
+ * down a page. Money never renders below 17px anywhere in the system — here it
+ * sits at 31, and in a table row `RowMoney` holds the 17px floor.
  */
 export const MoneyField = React.forwardRef<HTMLDivElement, MoneyFieldProps>(
   ({ label, value, unit, note, className, ...props }, ref) => (

@@ -14,8 +14,7 @@ export const Key = React.forwardRef<HTMLButtonElement, KeyProps>(
       className={cn(
         'flex h-key items-center justify-center bg-field text-foreground',
         'text-[22px] font-semibold tabular-nums',
-        'transition-[background-color,transform] duration-75 active:translate-y-px active:bg-field-press',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'press-block focus-block',
         'disabled:pointer-events-none disabled:bg-field-raised disabled:text-muted-foreground',
         className,
       )}
@@ -56,7 +55,7 @@ export function Keypad({ onKey, showDecimal = false, className }: KeypadProps) {
           ,
         </Key>
       ) : (
-        <Key disabled aria-hidden="true" tabIndex={-1} />
+        <Key disabled />
       )}
       <Key onClick={() => onKey('0')} aria-label="0">
         0

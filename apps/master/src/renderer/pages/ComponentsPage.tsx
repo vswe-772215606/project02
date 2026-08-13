@@ -36,7 +36,7 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   return (
     <Seam>
       <Field tone="raised" className="py-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.1em]">{title}</div>
+        <div className="text-[12px] font-semibold uppercase tracking-[0.1em]">{title}</div>
         {note ? <div className="mt-0.5 text-[13px] text-muted-foreground">{note}</div> : null}
       </Field>
       <Field>{children}</Field>
@@ -74,6 +74,17 @@ export function ComponentsPage() {
             <MoneyField label="Bugungi savdo" value="12 450 000" unit="so'm" note="kecha 11 505 000 · +8.2%" />
             <MoneyField label="Sof foyda" value="3 180 000" unit="so'm" note="COGS 6 920 000" />
             <MoneyField label="Kassa qoldig'i" value="0" unit="so'm" note="sanoq kiritilmagan" tone="raised" />
+          </Seam>
+        </Section>
+
+        <Section title="Field tones" note="The same surface in each state fill. Every tone pairs with a word — the fill never carries the meaning alone.">
+          <Seam direction="row" wrap className="w-max">
+            <Field className="w-[150px]"><FieldLabel>Default</FieldLabel><div className="mt-1">Bo'sh</div></Field>
+            <Field tone="raised" className="w-[150px]"><FieldLabel>Raised</FieldLabel><div className="mt-1">Sarlavha</div></Field>
+            <Field tone="live" className="w-[150px]"><FieldLabel>Live</FieldLabel><div className="mt-1">Band</div></Field>
+            <Field tone="settled" className="w-[150px]"><FieldLabel>Settled</FieldLabel><div className="mt-1">Yopilgan</div></Field>
+            <Field tone="owed" className="w-[150px]"><FieldLabel>Owed</FieldLabel><div className="mt-1">Nasiya</div></Field>
+            <Field tone="selected" className="w-[150px]"><FieldLabel>Selected</FieldLabel><div className="mt-1">Tanlandi</div></Field>
           </Seam>
         </Section>
 
@@ -141,11 +152,17 @@ export function ComponentsPage() {
               <Button>Saqlash</Button>
               <Button variant="outline">Yopish</Button>
               <Button variant="ghost">Tozalash</Button>
+              <Button variant="link">Batafsil</Button>
+              <Button size="sm">Qo'shish</Button>
+              <Button size="lg" variant="outline">Kattaroq</Button>
               <Button size="icon" aria-label="Qo'shish"><Package /></Button>
             </div>
             <ActionBar destructive={<Button variant="destructive">O'chirish</Button>}>
               <Button variant="outline">Bekor qilish</Button>
               <Button>Tasdiqlash</Button>
+            </ActionBar>
+            <ActionBar align="start" destructive={<Button variant="destructive" size="sm">Yo'qotish</Button>}>
+              <Button variant="outline" size="sm">Chapdan</Button>
             </ActionBar>
           </div>
         </Section>
@@ -173,6 +190,7 @@ export function ComponentsPage() {
             <Tile label="Xona 3" state="Band" tone={selectedTile === 'xona3' ? 'selected' : 'live'} onClick={() => setSelectedTile('xona3')} />
             <Tile label="Stol 5" state={selectedTile === 'stol5' ? 'Tanlandi' : "Bo'sh"} tone={selectedTile === 'stol5' ? 'selected' : 'default'} onClick={() => setSelectedTile('stol5')} />
             <Tile label="Xona 2" state="Nasiya" tone="owed" onClick={() => setSelectedTile('xona2')} />
+            <Tile label="Stol 7" state="Yopilgan" tone="settled" onClick={() => setSelectedTile('stol7')} />
             <Tile label="Stol 8" state="Yopiq" tone="inert" disabled />
           </Seam>
         </Section>
@@ -180,6 +198,7 @@ export function ComponentsPage() {
         <Section title="Keypad" note="Fixed three columns of 66px keys. Tender and quantity only — never navigation.">
           <div className="flex flex-wrap items-start gap-pad">
             <Keypad onKey={onKey} />
+            <Keypad onKey={onKey} showDecimal />
             <div className="grid gap-seam">
               <FieldLabel>Tez summa</FieldLabel>
               <Seam direction="row" className="w-max">

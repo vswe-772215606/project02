@@ -17,7 +17,7 @@ export const RowHeader = React.forwardRef<HTMLDivElement, RowHeaderProps>(
       ref={ref}
       className={cn(
         'grid items-center gap-2.5 bg-field-raised px-pad py-2',
-        'text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground',
+        'text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground',
         className,
       )}
       style={{ ...COLUMN_STYLE(columns), ...style }}
@@ -41,7 +41,12 @@ type RowProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'onClick'> & {
  *
  * A Row with an `onClick` renders as a real button, so it is reachable by
  * keyboard and announced as actionable — the previous table rows carried a
- * click handler on a div and could not be tabbed to at all.
+ * click handler on a `<tr>` and could not be tabbed to at all.
+ *
+ * Because a clickable Row *is* the button, never nest another control inside
+ * one — button-in-button is invalid and breaks keyboard and screen-reader
+ * behaviour. When a line needs its own action, leave the Row non-clickable and
+ * put the control in its own grid cell beside it.
  *
  * Feedback is `:active` only. There is deliberately no hover state: the
  * terminal is a touchscreen and hover does not exist there.
@@ -49,15 +54,13 @@ type RowProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'onClick'> & {
 export const Row = React.forwardRef<HTMLElement, RowProps>(
   ({ className, columns, selected = false, inert = false, style, onClick, ...props }, ref) => {
     const classes = cn(
-      'grid w-full items-center gap-2.5 px-pad text-left text-[14.5px]',
-      'h-row transition-colors duration-75',
+      'grid w-full items-center gap-2.5 px-pad text-left text-[14.5px] h-row',
       selected
         ? 'bg-selected text-selected-foreground'
         : inert
           ? 'bg-field-raised text-muted-foreground'
           : 'bg-field text-foreground',
-      onClick && !selected && !inert && 'active:bg-field-press',
-      onClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+      onClick && 'press-block focus-block cursor-pointer',
       className,
     );
 
@@ -93,20 +96,23 @@ export const RowSub = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <span
     ref={ref}
-    className={cn('block text-[11.5px] text-muted-foreground', className)}
+    className={cn('block text-[13px] text-muted-foreground', className)}
     {...props}
   />
 ));
 RowSub.displayName = 'RowSub';
 
-/** Money cell inside a Row — right-aligned, tabular, semibold. */
+/**
+ * Money cell inside a Row — right-aligned, tabular, and held at the 17px
+ * money floor rather than inheriting the row's 14.5px body size.
+ */
 export const RowMoney = React.forwardRef<
   HTMLSpanElement,
   React.HTMLAttributes<HTMLSpanElement>
 >(({ className, ...props }, ref) => (
   <span
     ref={ref}
-    className={cn('text-right font-semibold tabular-nums', className)}
+    className={cn('text-right text-[17px] font-semibold tabular-nums', className)}
     {...props}
   />
 ));

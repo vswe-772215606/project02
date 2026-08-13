@@ -12,7 +12,15 @@ const toneClass: Record<ChipTone, string> = {
   selected: 'bg-selected text-selected-foreground',
 };
 
-type ChipProps = React.HTMLAttributes<HTMLSpanElement> & {
+/**
+ * A Chip is a label, never a control: interactive props are omitted so one
+ * cannot be turned into a tap target on a bare `<span>` — no role, no tab
+ * stop, no keyboard route. Use a `Button` or a `Row` when a press is wanted.
+ */
+type ChipProps = Omit<
+  React.HTMLAttributes<HTMLSpanElement>,
+  'onClick' | 'onKeyDown' | 'onKeyUp' | 'onMouseDown' | 'onMouseUp' | 'tabIndex'
+> & {
   tone?: ChipTone;
 };
 
@@ -28,7 +36,7 @@ export const Chip = React.forwardRef<HTMLSpanElement, ChipProps>(
       ref={ref}
       className={cn(
         'inline-flex items-center px-2.5 py-1.5',
-        'text-[11.5px] font-semibold uppercase tracking-[0.05em]',
+        'text-[12px] font-semibold uppercase tracking-[0.05em]',
         toneClass[tone],
         className,
       )}

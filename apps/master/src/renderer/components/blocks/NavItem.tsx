@@ -22,11 +22,10 @@ export const NavItem = React.forwardRef<HTMLButtonElement, NavItemProps>(
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-row w-full items-center gap-2.5 px-3 text-left text-[14.5px]',
-        'transition-colors duration-75',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'press-block focus-block',
         active
           ? 'bg-selected font-semibold text-selected-foreground'
-          : 'bg-field text-muted-foreground active:bg-field-press',
+          : 'bg-field text-muted-foreground',
         className,
       )}
       {...props}

@@ -1,5 +1,10 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // C1 is a single light system — no dark variant exists and no `.dark` class
+  // is ever applied. Kept on `class` (rather than removed) so that any stray
+  // `dark:` utility in an unconverted component stays inert instead of firing
+  // on the operator's OS colour-scheme preference.
+  darkMode: ['class'],
   content: [
     './src/renderer/index.html',
     './src/renderer/**/*.{js,ts,jsx,tsx}',

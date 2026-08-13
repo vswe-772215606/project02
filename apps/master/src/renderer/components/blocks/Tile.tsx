@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 export type TileTone = 'default' | 'live' | 'settled' | 'owed' | 'inert' | 'selected';
 
 const toneClass: Record<TileTone, string> = {
-  default: 'bg-field text-foreground active:bg-field-press',
+  default: 'bg-field text-foreground',
   live: 'bg-live text-live-foreground',
   settled: 'bg-settled text-settled-foreground',
   owed: 'bg-owed text-owed-foreground',
@@ -35,8 +35,7 @@ export const Tile = React.forwardRef<HTMLButtonElement, TileProps>(
       type="button"
       className={cn(
         'flex h-[78px] w-[100px] flex-col justify-between px-2.5 py-2.5 text-left',
-        'transition-transform duration-75 active:translate-y-px',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'press-block focus-block disabled:pointer-events-none',
         toneClass[tone],
         className,
       )}
@@ -44,7 +43,7 @@ export const Tile = React.forwardRef<HTMLButtonElement, TileProps>(
     >
       <span className="text-[14.5px] font-semibold">{label}</span>
       {state ? (
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em]">{state}</span>
+        <span className="text-[12px] font-semibold uppercase tracking-[0.08em]">{state}</span>
       ) : null}
     </button>
   ),

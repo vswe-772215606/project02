@@ -33,7 +33,9 @@ the space between and around them collapses.
 | Row, control | `48px` | Table row, nav item, input, standard button |
 | Action | `56px` | The action a screen exists for |
 | Keypad key | `66px` | Tender and quantity entry |
-| Text floor | `13px` | Money never below `17px` |
+| Label floor | `12px` | Uppercase micro-labels only, and they must carry tracking |
+| Text floor | `13px` | Everything a person reads as a sentence or a datum |
+| Money floor | `17px` | Including inside a 48px row — see `RowMoney` |
 
 ## 3. Palette
 
@@ -54,10 +56,32 @@ pair clears 4.5:1. Values live in `src/renderer/styles.css`.
 | Owed | `#9E5A51` | `--destructive` | 4.7:1 | Debt, walkout, overdue, delete |
 | Focus | `#8A6B2E` | `--ring` | 4.6:1 | 2px inset ring on the focused control |
 
+Hex values are the design reference; the HSL triplets in `styles.css` are what actually
+ships, and the two differ by up to a unit per channel from rounding.
+
 Three corrections landed with the palette: `--warning` went from **1.98:1** to 5.9:1 and
 `--success` from **3.30:1** to 6.9:1 — both render money — and `--info` retired the blue,
 mapping to the neutral selected fill so the app's stray blue usages degrade rather than
 persist.
+
+**This repaints the whole app, not just the converted components.** These are the same
+`:root` variables every unconverted shadcn primitive already consumes, so `dialog`, `sheet`,
+`select`, `table`, `alert`, `card`, `DataTable`, `AppShell` and `Sidebar` all changed colour
+the moment the tokens landed. That is intended — a half-repainted app would be worse — but
+it means the visual blast radius is every screen, not the primitives listed in §5.
+
+### Focus and press
+
+Two behaviours are shared classes rather than per-component utilities, because both have to
+work against **every** fill in the palette:
+
+- **`.focus-block`** — two inset rings, dark hugging the edge and light just inside it. A
+  single ochre ring measured 1.04:1 on the owed fill and 2.02:1 on live, i.e. invisible on
+  the primary and destructive buttons most likely to take keyboard focus. With two rings,
+  one of them always clears 3:1 whatever it sits on.
+- **`.press-block`** — a brightness step plus a 1px nudge. Per-tone `active:bg-*` only ever
+  worked for the default fill, so a live, owed or already-selected element had no pressed
+  state at all; a brightness step works on any fill.
 
 Tailwind exposes domain aliases beside the shadcn names: `bg-live`, `bg-settled`, `bg-owed`,
 `bg-selected`, `bg-field`, `bg-field-raised`, `bg-field-press`, `bg-seam`. **Prefer these in
@@ -87,7 +111,7 @@ new code** — `bg-live` says what it means where `bg-primary` does not.
 |---|---|
 | `Seam` | The structural container: a grid on the seam colour with `gap: 2px`. Nest freely — one consistent grid results. |
 | `Field` `FieldLabel` `MoneyField` | Any content surface, its caps label, and the headline money surface. |
-| `Row` `RowHeader` `RowSub` `RowMoney` | One 48px line of data. A `Row` with `onClick` renders a real `<button>`, so it is keyboard reachable. |
+| `Row` `RowHeader` `RowSub` `RowMoney` | One 48px line of data. A `Row` with `onClick` renders a real `<button>`, so it is keyboard reachable — which also means **never nest another control inside a clickable Row**; give the line its own grid cell for actions and leave the Row itself inert. |
 | `Chip` | State label — `live` / `settled` / `owed` / `inert` / `selected`. |
 | `Tile` | Square target: floor table, menu item, category. |
 | `Keypad` `Key` | Fixed 3×66px numeric entry. Tender and quantity only, never navigation. |
@@ -110,15 +134,25 @@ The primitives above are done. These still carry pre-C1 styling and are the natu
 tranche:
 
 - `components/data/DataTable.tsx` — should compose `Seam` + `RowHeader` + `Row`; today it
-  has click handlers on `<div>` rows with no keyboard route.
+  puts `onClick` on a `<tr>` with no keyboard route to it.
 - `components/ConfirmDialog.tsx` — two implementations exist and the non-compliant one won;
   its document-level Enter handler fires `onConfirm` regardless of focus.
 - `components/ui/` — `dialog`, `sheet`, `select`, `checkbox`, `table`, `alert`, `card`.
 - `components/feedback/` — `PageHeader`, `PageContent`, `EmptyState`.
 - `components/layout/` — `AppShell`, `Sidebar` (Sidebar should compose `NavItem`).
 
-Known counts from the 2026-08-03 audit that this system exists to fix, still outstanding in
-page code: 96 text elements below 12px, 115 blue classes across 7 files, 59 raw `<button>`
-against 83 `<Button>` (a 42% bypass rate), and four MenuPage actions hidden behind `hover`.
+Known problems from the 2026-08-03 audit that this system exists to fix, still outstanding
+in page code: text elements below 12px across ~25 files, blue classes across 7 files, a
+~42% raw-`<button>` bypass rate, and four MenuPage actions hidden behind `hover`.
+
+Height changes that will show on unconverted pages — expected, not accidental:
+
+- `OmborPage` row actions — two `Button size="sm"` plus a `Badge` in one `DataTable` cell;
+  every row in that table grows by roughly 16px.
+- `ReportsPage` toolbar — `Input`/`Select` pinned at `h-9` now sit beside 48px buttons in
+  the same flex row, so that toolbar is visibly uneven until it is converted.
+- `Header.tsx:94` — the global profile button is hardcoded `h-10`, so it stays under the
+  touch floor despite the new default. Removing that override is a one-line fix, but it
+  changes the header, which is layout.
 
 Page layout and composition are **not** decided here.

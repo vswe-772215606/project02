@@ -22,9 +22,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       type={type}
       className={cn(
         'flex h-control w-full bg-field px-3 text-foreground',
-        'transition-colors duration-75',
-        'placeholder:text-muted-foreground',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'placeholder:text-muted-foreground focus-block',
         'disabled:cursor-not-allowed disabled:bg-field-raised disabled:text-muted-foreground',
         'file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground',
         numeric ? 'text-right text-[17px] font-semibold tabular-nums' : 'text-[15px]',
