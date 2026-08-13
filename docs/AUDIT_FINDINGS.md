@@ -321,15 +321,20 @@ Worth recording — a clean result is an audit result.
 
 ## 8. Remediation status — READ THIS FIRST IF YOU ARE A NEW SESSION
 
+**Superseded, not fixed:** `F-11`, `C-18`, `C-11`, `C-15` (inventory half), `M-64`–`M-74` died with
+the ingredient/recipe/FIFO model — the count-based inventory redesign deleted the code and pages
+they cite. See `docs/superpowers/specs/2026-08-13-count-based-inventory-design.md` §10 and
+`docs/CURRENT_WORKFLOW.md` §4.
+
 **A fix pass is in progress.** Work through §9 in order. Update this table as each lands.
 
 | # | ID | Fix | Status |
 |---|---|---|---|
-| 1 | `F-5` | `audit.repo.ts` — `include: { user: true }` → `select` of id/fullName/role | ✅ **DONE** (uncommitted) |
+| 1 | `F-5` | `audit.repo.ts` — `include: { user: true }` → `select` of id/fullName/role | ✅ **DONE** (committed `13e44dd`) |
 | 2 | `F-4` | `userService.update` — reject role changes by non-OWNER; audit the change | ⬜ next |
 | 3 | `F-7` | `orders.controller.ts:52` — add `.nonnegative()` to payment amount | ⬜ |
 | 4 | `F-6` | `order.service.ts:673` — sum **all** DEBT legs; reject >1 | ⬜ |
-| 5 | `C-8` | `socket.ts:51-52` — `socket.join('all')` for every authed socket | ⬜ |
+| 5 | `C-8` | `socket.ts:51-52` — `socket.join('all')` for every authed socket | ✅ **DONE** — shipped on `feat/count-based-inventory` (`socket.ts` — every authenticated socket joins `all`) |
 | 6 | `C-3` | `index.ts:124` — add `httpServer.once('error', reject)` | ⬜ |
 
 **Working protocol the user asked for:** explain each finding in plain language (what's wrong, why it
