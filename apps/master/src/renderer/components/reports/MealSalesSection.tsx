@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { DailyReport } from '@/api/reports';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
-import { MoneyCell } from '@/components/data/MoneyCell';
+import { FieldLabel, RowMoney } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { Section, sumMoney } from './report-helpers';
 
@@ -44,15 +44,13 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
       key: 'gross',
       header: 'Sotuv',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.grossSales} />,
+      cell: (row) => <RowMoney>{formatMoney(row.grossSales)}</RowMoney>,
     },
     {
       key: 'avg',
       header: "O'rt. 1 buyurtma",
       align: 'right',
-      cell: (row) => (
-        <span className="tabular-nums text-muted-foreground">{formatMoney(row.avgPerOrder)}</span>
-      ),
+      cell: (row) => <RowMoney className="text-muted-foreground">{formatMoney(row.avgPerOrder)}</RowMoney>,
     },
   ];
 
@@ -65,7 +63,7 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
         emptyState={<span className="text-sm">Bu sana uchun taom sotuvi topilmadi</span>}
       />
       {report.mealSales.length > 0 && (
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/30 px-4 py-2 text-sm sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 bg-field-raised px-4 py-2 sm:grid-cols-4">
           <Totaled label="Taom turlari" value={`${report.mealSales.length} ta`} />
           <Totaled label="Jami sotilgan" value={`${totals.qty} dona`} />
           <Totaled label="Buyurtmalarda" value={`${totals.ordersCount} ta`} />
@@ -79,10 +77,8 @@ export function MealSalesSection({ report }: { report: DailyReport }) {
 function Totaled({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-        {label}
-      </span>
-      <span className={`tabular-nums ${bold ? 'font-semibold' : ''}`}>{value}</span>
+      <FieldLabel>{label}</FieldLabel>
+      <span className={`text-[17px] tabular-nums ${bold ? 'font-semibold' : ''}`}>{value}</span>
     </div>
   );
 }

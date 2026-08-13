@@ -1,8 +1,8 @@
 import type { MonthlyDayRow, MonthlyReport } from '@/api/reports';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
-import { MoneyCell } from '@/components/data/MoneyCell';
-import { cn } from '@/lib/utils';
+import { RowMoney } from '@/components/blocks';
+import { formatMoney } from '@/lib/format';
 
 type Props = {
   report: MonthlyReport;
@@ -37,7 +37,7 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
       cell: (row) => (
         <div className="font-medium tabular-nums">
           {dayLabel(row.date)}{' '}
-          <span className="text-muted-foreground text-xs font-normal">
+          <span className="text-[13px] font-normal text-muted-foreground">
             {weekdayLabel(row.date)}
           </span>
         </div>
@@ -54,41 +54,39 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
       key: 'gross',
       header: 'Yalpi sotuv',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.sales.grossSales} />,
+      cell: (row) => <RowMoney>{formatMoney(row.sales.grossSales)}</RowMoney>,
     },
     {
       key: 'discount',
       header: 'Chegirma',
       align: 'right',
       cell: (row) => (
-        <MoneyCell
-          value={row.sales.discounts}
-          className={Number(row.sales.discounts) > 0 ? 'text-muted-foreground' : ''}
-        />
+        <RowMoney className={Number(row.sales.discounts) > 0 ? 'text-muted-foreground' : ''}>
+          {formatMoney(row.sales.discounts)}
+        </RowMoney>
       ),
     },
     {
       key: 'net',
       header: 'Sof sotuv',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.sales.netSales} />,
+      cell: (row) => <RowMoney>{formatMoney(row.sales.netSales)}</RowMoney>,
     },
     {
       key: 'service',
       header: 'Xizmat haqi',
       align: 'right',
       cell: (row) => (
-        <MoneyCell
-          value={row.sales.serviceCharge}
-          className={Number(row.sales.serviceCharge) > 0 ? 'text-success' : 'text-muted-foreground'}
-        />
+        <RowMoney className={Number(row.sales.serviceCharge) > 0 ? 'text-success' : 'text-muted-foreground'}>
+          {formatMoney(row.sales.serviceCharge)}
+        </RowMoney>
       ),
     },
     {
       key: 'expenses',
       header: 'Chiqim',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.expenses.net} className="text-warning" />,
+      cell: (row) => <RowMoney className="text-warning">{formatMoney(row.expenses.net)}</RowMoney>,
     },
     {
       key: 'profit',
@@ -97,10 +95,9 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
       cell: (row) => {
         const v = Number(row.results.salesBasedProfit);
         return (
-          <MoneyCell
-            value={row.results.salesBasedProfit}
-            className={cn('font-semibold', v >= 0 ? 'text-success' : 'text-destructive')}
-          />
+          <RowMoney className={v >= 0 ? 'text-success' : 'text-destructive'}>
+            {formatMoney(row.results.salesBasedProfit)}
+          </RowMoney>
         );
       },
     },
@@ -111,10 +108,9 @@ export function MonthlyTable({ report, onSelectDay }: Props) {
       cell: (row) => {
         const v = Number(row.debtSnapshot.outstandingTotal);
         return (
-          <MoneyCell
-            value={row.debtSnapshot.outstandingTotal}
-            className={v > 0 ? 'text-destructive' : 'text-muted-foreground'}
-          />
+          <RowMoney className={v > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+            {formatMoney(row.debtSnapshot.outstandingTotal)}
+          </RowMoney>
         );
       },
     },

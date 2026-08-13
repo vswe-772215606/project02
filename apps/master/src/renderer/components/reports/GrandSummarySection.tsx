@@ -1,4 +1,5 @@
 import type { DailyReport } from '@/api/reports';
+import { FieldLabel } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { Section, sumMoney } from './report-helpers';
 import { cn } from '@/lib/utils';
@@ -99,9 +100,7 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
 
       {/* Single-line bottom strip with the headline number — easy to spot in print */}
       <div className="mt-6 border-t pt-4 flex flex-col md:flex-row md:items-baseline md:justify-between gap-2">
-        <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-          Bugungi sof foyda
-        </div>
+        <FieldLabel>Bugungi sof foyda</FieldLabel>
         <div
           className={cn(
             'text-3xl font-bold tabular-nums leading-none',
@@ -118,10 +117,8 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
 
 function Group({ title, rows, highlight }: { title: string; rows: RowSpec[]; highlight?: boolean }) {
   return (
-    <div className={cn(highlight && 'rounded-lg border border-primary/30 bg-primary/5 p-4 -m-1')}>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-        {title}
-      </div>
+    <div className={cn(highlight && 'bg-field-raised p-4 -m-1')}>
+      <FieldLabel className="mb-2">{title}</FieldLabel>
       <div className="space-y-0">
         {rows.map((row, idx) => (
           <SummaryRow key={`${row.label}-${idx}`} row={row} />
@@ -151,11 +148,11 @@ function SummaryRow({ row }: { row: RowSpec }) {
         >
           {row.label}
         </div>
-        {row.hint && <div className="text-[11px] text-muted-foreground mt-0.5">{row.hint}</div>}
+        {row.hint && <div className="mt-0.5 text-[13px] text-muted-foreground">{row.hint}</div>}
       </div>
       <span
         className={cn(
-          'text-sm tabular-nums whitespace-nowrap',
+          'text-[17px] tabular-nums whitespace-nowrap',
           (row.emphasis === 'bold' || row.emphasis === 'subtotal') && 'font-semibold',
           row.emphasis === 'total' && 'text-lg font-bold',
           row.tone === 'good' && 'text-success',

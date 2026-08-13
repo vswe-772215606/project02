@@ -1,7 +1,7 @@
 import type { DailyReport } from '@/api/reports';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
 import { DateTimeCell } from '@/components/data/DateCell';
-import { MoneyCell } from '@/components/data/MoneyCell';
+import { FieldLabel, RowMoney } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { Section, sumMoney } from './report-helpers';
 
@@ -19,7 +19,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
     {
       key: 'order',
       header: 'Buyurtma',
-      cell: (row) => <span className="font-mono text-xs text-muted-foreground">{row.orderId.slice(-6).toUpperCase()}</span>,
+      cell: (row) => <span className="font-mono text-[13px] text-muted-foreground">{row.orderId.slice(-6).toUpperCase()}</span>,
       width: '110px',
     },
     {
@@ -45,7 +45,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
     {
       key: 'order',
       header: 'Buyurtma',
-      cell: (row) => <span className="font-mono text-xs text-muted-foreground">{row.orderId.slice(-6).toUpperCase()}</span>,
+      cell: (row) => <span className="font-mono text-[13px] text-muted-foreground">{row.orderId.slice(-6).toUpperCase()}</span>,
       width: '110px',
     },
     {
@@ -60,7 +60,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
       key: 'amount',
       header: 'Summa',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.amount} className="text-destructive" />,
+      cell: (row) => <RowMoney className="text-destructive">{formatMoney(row.amount)}</RowMoney>,
     },
     {
       key: 'reason',
@@ -73,9 +73,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
     <Section title="Bekor va to'lamay ketgan">
       <div className="space-y-5">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Bekor qilingan ({report.cancellations.length} ta)
-          </div>
+          <FieldLabel className="mb-2">Bekor qilingan ({report.cancellations.length} ta)</FieldLabel>
           <DataTable
             columns={cancelCols}
             data={report.cancellations}
@@ -85,14 +83,14 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
         </div>
 
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-baseline justify-between">
+          <FieldLabel className="mb-2 flex items-baseline justify-between">
             <span>To&apos;lamay ketgan ({report.walkouts.length} ta)</span>
             {report.walkouts.length > 0 && (
-              <span className="text-xs font-normal text-destructive tabular-nums normal-case tracking-normal">
+              <span className="text-[17px] font-normal normal-case tracking-normal text-destructive tabular-nums">
                 Jami: {formatMoney(walkoutTotal)}
               </span>
             )}
-          </div>
+          </FieldLabel>
           <DataTable
             columns={walkoutCols}
             data={report.walkouts}

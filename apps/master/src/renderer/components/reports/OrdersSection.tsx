@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { DailyReport } from '@/api/reports';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
 import { DateTimeCell } from '@/components/data/DateCell';
-import { MoneyCell } from '@/components/data/MoneyCell';
+import { FieldLabel, RowMoney } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { ReportStatusBadge, Section, sumMoney } from './report-helpers';
 
@@ -52,41 +52,38 @@ export function OrdersSection({ report }: { report: DailyReport }) {
       key: 'gross',
       header: 'Yalpi',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.gross} />,
+      cell: (row) => <RowMoney>{formatMoney(row.gross)}</RowMoney>,
     },
     {
       key: 'discount',
       header: 'Chegirma',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.discount} className="text-muted-foreground" />,
+      cell: (row) => <RowMoney className="text-muted-foreground">{formatMoney(row.discount)}</RowMoney>,
     },
     {
       key: 'net',
       header: 'Sof',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.net} />,
+      cell: (row) => <RowMoney>{formatMoney(row.net)}</RowMoney>,
     },
     {
       key: 'cash',
       header: 'Naqd',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.cash} />,
+      cell: (row) => <RowMoney>{formatMoney(row.cash)}</RowMoney>,
     },
     {
       key: 'card',
       header: 'Karta',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.card} />,
+      cell: (row) => <RowMoney>{formatMoney(row.card)}</RowMoney>,
     },
     {
       key: 'debt',
       header: 'Qarz',
       align: 'right',
       cell: (row) => (
-        <MoneyCell
-          value={row.debt}
-          className={Number(row.debt) > 0 ? 'text-warning' : ''}
-        />
+        <RowMoney className={Number(row.debt) > 0 ? 'text-warning' : ''}>{formatMoney(row.debt)}</RowMoney>
       ),
     },
   ];
@@ -100,7 +97,7 @@ export function OrdersSection({ report }: { report: DailyReport }) {
         emptyState={<span className="text-sm">Tanlangan sana uchun buyurtmalar topilmadi</span>}
       />
       {report.ordersTable.length > 0 && (
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/30 px-4 py-2 text-sm sm:grid-cols-6">
+        <div className="mt-3 grid grid-cols-2 gap-2 bg-field-raised px-4 py-2 sm:grid-cols-6">
           <Totaled label="Yalpi" value={formatMoney(totals.gross)} />
           <Totaled label="Chegirma" value={formatMoney(totals.discount)} />
           <Totaled label="Sof" value={formatMoney(totals.net)} bold />
@@ -116,10 +113,8 @@ export function OrdersSection({ report }: { report: DailyReport }) {
 function Totaled({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-        {label}
-      </span>
-      <span className={`tabular-nums ${bold ? 'font-semibold' : ''}`}>{value}</span>
+      <FieldLabel>{label}</FieldLabel>
+      <span className={`text-[17px] tabular-nums ${bold ? 'font-semibold' : ''}`}>{value}</span>
     </div>
   );
 }

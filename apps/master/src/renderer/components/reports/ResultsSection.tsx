@@ -1,5 +1,6 @@
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { DailyReport } from '@/api/reports';
+import { FieldLabel } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { Row, Section } from './report-helpers';
 import { cn } from '@/lib/utils';
@@ -17,19 +18,9 @@ function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { promi
   const Icon = isLoss ? TrendingDown : TrendingUp;
 
   return (
-    <div
-      className={cn(
-        'rounded-lg border p-5 flex flex-col gap-1',
-        isProfit && 'border-success/40 bg-success/5',
-        isLoss && 'border-destructive/40 bg-destructive/5',
-        !isProfit && !isLoss && 'border-border bg-muted/40',
-      )}
-      data-print-keep
-    >
+    <div className="flex flex-col gap-1 bg-field p-5" data-print-keep>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
-          {label}
-        </div>
+        <FieldLabel>{label}</FieldLabel>
         <Icon
           className={cn(
             'h-5 w-5',
@@ -50,7 +41,7 @@ function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { promi
       >
         {formatMoney(value)}
       </div>
-      <div className="text-xs text-muted-foreground">{hint}</div>
+      <div className="text-[13px] text-muted-foreground">{hint}</div>
     </div>
   );
 }
@@ -80,9 +71,7 @@ export function ResultsSection({ report }: { report: DailyReport }) {
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            Foyda hisobi
-          </div>
+          <FieldLabel className="mb-1">Foyda hisobi</FieldLabel>
           <Row label="Sotuv" value={formatMoney(pnl.revenue)} />
           <Row label="− Tan narxi" value={`-${formatMoney(pnl.cogs)}`} tone="muted" />
           <Row label="− Chiqim" value={`-${formatMoney(pnl.operatingExpense)}`} tone="muted" />
@@ -91,9 +80,7 @@ export function ResultsSection({ report }: { report: DailyReport }) {
         </div>
 
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            To'lov tekshiruvi
-          </div>
+          <FieldLabel className="mb-1">To'lov tekshiruvi</FieldLabel>
           <Row label="Chek summasi" value={formatMoney(report.checks.salesVsPayments.billedTotal)} />
           <Row label="To'lovlar yig'indisi" value={formatMoney(report.checks.salesVsPayments.paymentTotal)} />
           <Row

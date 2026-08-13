@@ -1,7 +1,7 @@
 import type { DailyReport } from '@/api/reports';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
 import { DateTimeCell } from '@/components/data/DateCell';
-import { MoneyCell } from '@/components/data/MoneyCell';
+import { FieldLabel, RowMoney } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Row, Section } from './report-helpers';
@@ -31,10 +31,9 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
       header: 'Summa',
       align: 'right',
       cell: (row) => (
-        <MoneyCell
-          value={row.signedAmount}
-          className={cn(row.status === 'REVERSAL' && 'text-destructive')}
-        />
+        <RowMoney className={cn(row.status === 'REVERSAL' && 'text-destructive')}>
+          {formatMoney(row.signedAmount)}
+        </RowMoney>
       ),
     },
   ];
@@ -51,9 +50,7 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
 
         <div className="space-y-4">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-              Qisqa hisob
-            </div>
+            <FieldLabel className="mb-1">Qisqa hisob</FieldLabel>
             <Row label="Kiritilgan" value={formatMoney(report.checks.expenses.recordedExpense)} />
             <Row
               label="Bekor qilingan"
@@ -64,11 +61,9 @@ export function ExpensesSection({ report }: { report: DailyReport }) {
           </div>
 
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-              Turkumlar bo'yicha
-            </div>
+            <FieldLabel className="mb-1">Turkumlar bo'yicha</FieldLabel>
             {report.expenses.byCategory.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-2">Turkumlar bo'yicha chiqim yo'q</div>
+              <div className="py-2 text-[13px] text-muted-foreground">Turkumlar bo'yicha chiqim yo'q</div>
             ) : (
               report.expenses.byCategory.map((row) => (
                 <Row key={row.categoryId} label={row.categoryName} value={formatMoney(row.amount)} />

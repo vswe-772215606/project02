@@ -1,5 +1,6 @@
 import { Wallet } from 'lucide-react';
 import type { DailyReport } from '@/api/reports';
+import { FieldLabel } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { Row, Section, toneClass } from './report-helpers';
 import { cn } from '@/lib/utils';
@@ -15,9 +16,7 @@ export function CashflowSection({ report }: { report: DailyReport }) {
     <Section title="Pul oqimi">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            Kirim
-          </div>
+          <FieldLabel className="mb-1">Kirim</FieldLabel>
           <Row label="Naqd (buyurtmalardan)" value={formatMoney(report.cashflow.orderCash)} />
           <Row label="Karta (buyurtmalardan)" value={formatMoney(report.cashflow.orderCard)} />
           <Row
@@ -44,9 +43,7 @@ export function CashflowSection({ report }: { report: DailyReport }) {
           />
         </div>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            Chiqim
-          </div>
+          <FieldLabel className="mb-1">Chiqim</FieldLabel>
           <Row label="Kiritilgan chiqim" value={formatMoney(report.checks.expenses.recordedExpense)} />
           <Row
             label="Bekor qilingan (shu kun)"
@@ -58,11 +55,11 @@ export function CashflowSection({ report }: { report: DailyReport }) {
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-md border border-border bg-muted/30 px-4 py-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground font-medium">
+      <div className="mt-4 flex items-center justify-between bg-field-raised px-4 py-3">
+        <FieldLabel className="flex items-center gap-2">
           <Wallet className="h-3.5 w-3.5" />
           Kassa o&apos;zgarishi
-        </div>
+        </FieldLabel>
         <div className={cn('text-lg font-semibold tabular-nums', toneClass(drawerTone))}>
           {drawerDelta >= 0n ? '+' : '-'}
           {formatMoney((drawerDelta < 0n ? -drawerDelta : drawerDelta).toString())}

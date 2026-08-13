@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { DailyReport } from '@/api/reports';
 import { DataTable, type DataTableColumn } from '@/components/data/DataTable';
 import { DateTimeCell } from '@/components/data/DateCell';
-import { MoneyCell } from '@/components/data/MoneyCell';
+import { RowMoney, RowSub } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
 import { ReportStatusBadge, Section, StatTile, sumMoney } from './report-helpers';
 import { HandCoins, ArrowDownToLine, ArrowUpFromLine, Users } from 'lucide-react';
@@ -38,9 +38,7 @@ export function DebtSection({ report }: { report: DailyReport }) {
       cell: (row) => (
         <div className="flex flex-col gap-0.5 min-w-0">
           <span className="font-medium">{row.debtorName}</span>
-          {row.debtorPhone && (
-            <span className="text-xs text-muted-foreground">{row.debtorPhone}</span>
-          )}
+          {row.debtorPhone && <RowSub>{row.debtorPhone}</RowSub>}
         </div>
       ),
     },
@@ -48,28 +46,32 @@ export function DebtSection({ report }: { report: DailyReport }) {
       key: 'original',
       header: 'Nasiya',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.originalAmount} />,
+      cell: (row) => <RowMoney>{formatMoney(row.originalAmount)}</RowMoney>,
     },
     {
       key: 'repaidToday',
       header: 'Bugun qaytgan',
       align: 'right',
       cell: (row) => (
-        <MoneyCell value={row.repaidToday} className={Number(row.repaidToday) > 0 ? 'text-success' : ''} />
+        <RowMoney className={Number(row.repaidToday) > 0 ? 'text-success' : ''}>
+          {formatMoney(row.repaidToday)}
+        </RowMoney>
       ),
     },
     {
       key: 'totalRepaid',
       header: 'Jami qaytgan',
       align: 'right',
-      cell: (row) => <MoneyCell value={row.totalRepaid} />,
+      cell: (row) => <RowMoney>{formatMoney(row.totalRepaid)}</RowMoney>,
     },
     {
       key: 'remaining',
       header: 'Qoldiq',
       align: 'right',
       cell: (row) => (
-        <MoneyCell value={row.remainingAmount} className={Number(row.remainingAmount) > 0 ? 'text-destructive' : ''} />
+        <RowMoney className={Number(row.remainingAmount) > 0 ? 'text-destructive' : ''}>
+          {formatMoney(row.remainingAmount)}
+        </RowMoney>
       ),
     },
     {
