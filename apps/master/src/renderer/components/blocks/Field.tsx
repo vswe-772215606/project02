@@ -61,6 +61,12 @@ type MoneyFieldProps = Omit<FieldProps, 'children'> & {
   unit?: string;
   /** Secondary line under the value — comparison, count, timestamp. */
   note?: React.ReactNode;
+  /**
+   * `headline` (default) is the 31px page-level figure. `compact` holds the
+   * 17px money floor instead, for two or three across inside a panel — where
+   * the headline size overflows however narrow the track is allowed to get.
+   */
+  size?: 'headline' | 'compact';
 };
 
 /**
@@ -69,10 +75,15 @@ type MoneyFieldProps = Omit<FieldProps, 'children'> & {
  * sits at 31, and in a table row `RowMoney` holds the 17px floor.
  */
 export const MoneyField = React.forwardRef<HTMLDivElement, MoneyFieldProps>(
-  ({ label, value, unit, note, className, ...props }, ref) => (
-    <Field ref={ref} className={cn('min-w-[190px]', className)} {...props}>
+  ({ label, value, unit, note, className, size = 'headline', ...props }, ref) => (
+    <Field ref={ref} className={className} {...props}>
       <FieldLabel>{label}</FieldLabel>
-      <div className="mt-1 text-[31px] font-semibold leading-[1.15] tracking-[-0.02em] tabular-nums">
+      <div
+        className={cn(
+          'mt-1 font-semibold leading-[1.15] tabular-nums',
+          size === 'headline' ? 'text-[31px] tracking-[-0.02em]' : 'text-[17px]',
+        )}
+      >
         {value}
         {unit ? <span className="ml-1.5 text-[15px] font-normal tracking-normal text-muted-foreground">{unit}</span> : null}
       </div>

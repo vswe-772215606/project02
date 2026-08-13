@@ -61,11 +61,14 @@ export function UserFilters({
         </Button>
       ))}
 
+      {/* Says "Nofaollar bilan" rather than "Hammasi": the role group beside it
+          already has a Hammasi, and two adjacent buttons sharing a label while
+          doing different things is a mis-tap waiting to happen. */}
       <Button size="sm" variant={showInactive ? 'secondary' : 'default'} onClick={() => onShowInactiveChange(false)}>
         Faol {activeCount}
       </Button>
       <Button size="sm" variant={showInactive ? 'default' : 'secondary'} onClick={() => onShowInactiveChange(true)}>
-        Hammasi {totalCount}
+        Nofaollar bilan {totalCount}
       </Button>
 
       <Button size="sm" onClick={onCreate}>

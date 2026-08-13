@@ -65,10 +65,20 @@ export function useSocket() {
     });
 
     // Generic invalidation strategy: any event re-fetches relevant queries.
-    nextSocket.on('order:updated', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
-    nextSocket.on('order:closed', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
-    nextSocket.on('order:walkout', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
-    nextSocket.on('order:transferred', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
+    //
+    // Order events also refresh the floor: occupancy is derived from whether a
+    // table has an open order, and under the current layout the floor grid is
+    // the live-state display rather than a badge on a settings page, so a
+    // stale tile misrepresents the room.
+    const orderChanged = () => {
+      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
+      queryClientRef.current.invalidateQueries({ queryKey: ['tables'] });
+    };
+    nextSocket.on('order:updated', orderChanged);
+    nextSocket.on('order:closed', orderChanged);
+    nextSocket.on('order:walkout', orderChanged);
+    nextSocket.on('order:canceled', orderChanged);
+    nextSocket.on('order:transferred', orderChanged);
     nextSocket.on('menu:itemAvailability', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));
     nextSocket.on('stock:changed', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['stock'] });
