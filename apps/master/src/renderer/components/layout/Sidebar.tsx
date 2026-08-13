@@ -2,7 +2,6 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   ReceiptText,
-  BookOpen,
   UtensilsCrossed,
   Armchair,
   Users,
@@ -10,7 +9,6 @@ import {
   Settings,
   Package,
   HandCoins,
-  ShoppingCart,
   PanelLeft,
   Wallet,
   Coins,
@@ -59,11 +57,9 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    heading: 'Mahsulot va retsept',
+    heading: 'Menyu va ombor',
     items: [
-      { to: '/ingredients', label: 'Mahsulotlar', icon: Package, roles: ['OWNER', 'ADMIN'] },
-      { to: '/purchases', label: 'Xaridlar', icon: ShoppingCart, roles: ['OWNER', 'ADMIN'] },
-      { to: '/recipes', label: 'Retseptlar', icon: BookOpen, roles: ['OWNER', 'ADMIN'] },
+      { to: '/ombor', label: 'Ombor', icon: Package, roles: ['OWNER', 'ADMIN'] },
       { to: '/menu', label: 'Menyu', icon: UtensilsCrossed, roles: ['OWNER', 'ADMIN'] },
     ],
   },

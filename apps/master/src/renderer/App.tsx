@@ -16,9 +16,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { DebtsPage } from './pages/DebtsPage';
-import { IngredientsPage } from './pages/IngredientsPage';
-import { PurchasesPage } from './pages/PurchasesPage';
-import { RecipesPage } from './pages/RecipesPage';
+import { OmborPage } from './pages/OmborPage';
 import { FinancePage } from './pages/FinancePage';
 import { SalariesPage } from './pages/SalariesPage';
 
@@ -38,9 +36,7 @@ function AuthedRoutes() {
         <Route path="/tables" element={<TablesPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/discounts" element={<DiscountsPage />} />
-        <Route path="/ingredients" element={<IngredientsPage />} />
-        <Route path="/purchases" element={<PurchasesPage />} />
-        <Route path="/recipes" element={<RecipesPage />} />
+        <Route path="/ombor" element={<OmborPage />} />
         <Route path="/finance" element={<FinancePage />} />
         <Route path="/salaries" element={<SalariesPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
