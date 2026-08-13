@@ -290,18 +290,9 @@ export const stockService = {
 
   /** Ombor page data: every counted FOOD item + its latest entry timestamp. */
   async listCounted() {
-    const prisma = getPrisma();
-    const items = await prisma.menuItem.findMany({
-      where: { kind: MenuItemKind.FOOD, counted: true, isActive: true },
-      include: { category: { select: { id: true, name: true } } },
-      orderBy: [{ category: { displayOrder: 'asc' } }, { displayOrder: 'asc' }, { name: 'asc' }],
-    });
+    const items = await menuRepo.listCountedFoodItems();
     const ids = items.map((i) => i.id);
-    const latest = await prisma.stockEntry.findMany({
-      where: { menuItemId: { in: ids } },
-      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
-      select: { menuItemId: true, occurredAt: true },
-    });
+    const latest = await stockEntryRepo.latestOccurredAtByItemIds(ids);
     const lastByItem = new Map<string, Date>();
     for (const row of latest) {
       if (!lastByItem.has(row.menuItemId)) lastByItem.set(row.menuItemId, row.occurredAt);

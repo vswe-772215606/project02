@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { MenuItemKind, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 
 type Tx = Prisma.TransactionClient;
@@ -83,6 +83,15 @@ export const menuRepo = {
     return (tx ?? getPrisma()).menuItem.findMany({
       where: { categoryId },
       orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  },
+
+  /** Ombor page data source: every counted FOOD item, with category name. */
+  async listCountedFoodItems(tx?: Tx) {
+    return (tx ?? getPrisma()).menuItem.findMany({
+      where: { kind: MenuItemKind.FOOD, counted: true, isActive: true },
+      include: { category: { select: { id: true, name: true } } },
+      orderBy: [{ category: { displayOrder: 'asc' } }, { displayOrder: 'asc' }, { name: 'asc' }],
     });
   },
 

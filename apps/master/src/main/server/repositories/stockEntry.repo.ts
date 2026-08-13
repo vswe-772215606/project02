@@ -24,6 +24,19 @@ export const stockEntryRepo = {
   },
 
   /**
+   * Newest-first entries (id + timestamp only) across a set of items — the
+   * caller reduces this to one "latest" row per item. Backs the Ombor list's
+   * lastEntryAt column.
+   */
+  async latestOccurredAtByItemIds(menuItemIds: string[], tx?: Tx) {
+    return (tx ?? getPrisma()).stockEntry.findMany({
+      where: { menuItemId: { in: menuItemIds } },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      select: { menuItemId: true, occurredAt: true },
+    });
+  },
+
+  /**
    * Money-restocks in a half-open window, excluding entries whose linked
    * expense was reversed (their cash was unwound). Drives the "Xaridlar"
    * finance block after the Purchase model stops being written.
