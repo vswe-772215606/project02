@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Info } from 'lucide-react';
@@ -32,6 +32,7 @@ export function DiscountsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<{ discount: Discount; next: boolean } | null>(null);
 
   const { data: discounts = [] } = useQuery({
@@ -43,6 +44,12 @@ export function DiscountsPage() {
     queryKey: ['settings'],
     queryFn: () => settingsApi.get(),
   });
+
+  const activeCount = useMemo(() => discounts.filter((d) => d.isActive).length, [discounts]);
+  const visibleDiscounts = useMemo(
+    () => (showInactive ? discounts : discounts.filter((d) => d.isActive)),
+    [discounts, showInactive],
+  );
 
   const selected = creating ? null : discounts.find((d) => d.id === selectedId) ?? null;
   const showPanel = creating || !!selected;
@@ -86,15 +93,23 @@ export function DiscountsPage() {
       <Screen
         title="Chegirmalar"
         status={
-          <Button
-            size="sm"
-            onClick={() => {
-              setCreating(true);
-              setSelectedId(null);
-            }}
-          >
-            Yangi chegirma
-          </Button>
+          <>
+            <Button size="sm" variant={showInactive ? 'secondary' : 'default'} onClick={() => setShowInactive(false)}>
+              Faol {activeCount}
+            </Button>
+            <Button size="sm" variant={showInactive ? 'default' : 'secondary'} onClick={() => setShowInactive(true)}>
+              Hammasi {discounts.length}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setCreating(true);
+                setSelectedId(null);
+              }}
+            >
+              Yangi chegirma
+            </Button>
+          </>
         }
         panel={
           showPanel ? (
@@ -126,7 +141,7 @@ export function DiscountsPage() {
           </div>
 
           <DiscountList
-            discounts={discounts}
+            discounts={visibleDiscounts}
             selectedId={creating ? null : selectedId}
             onSelect={(discount) => {
               setSelectedId(discount.id);

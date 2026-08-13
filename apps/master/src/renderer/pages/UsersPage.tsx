@@ -7,20 +7,12 @@ import type { User } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Screen } from '@/components/layout/Screen';
-import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/feedback/ConfirmDialog';
 import { UserList } from '@/components/users/UserList';
 import { UserPanel } from '@/components/users/UserPanel';
+import { UserFilters, type RoleFilter } from '@/components/users/UserFilters';
+import { TodayStatsPanel } from '@/components/users/TodayStatsPanel';
 import { UserFormDialog, type UserFormPayload } from '@/components/users/UserFormDialog';
-
-type RoleFilter = 'ALL' | User['role'];
-
-const ROLE_FILTERS: { value: RoleFilter; label: string }[] = [
-  { value: 'ALL', label: 'Hammasi' },
-  { value: 'OWNER', label: 'Ega' },
-  { value: 'ADMIN', label: 'Admin' },
-  { value: 'WAITER', label: 'Ofitsiant' },
-];
 
 function extractApiError(err: unknown): string {
   if (err instanceof Error) return err.message || 'Xatolik yuz berdi';
@@ -33,7 +25,9 @@ function extractApiError(err: unknown): string {
  * The list is a selection, not a menu: every action on a person — edit,
  * deactivate, reactivate — lives in the panel once they're chosen, instead
  * of a row of small icon buttons that only differentiated themselves on
- * hover, which does not exist on a touchscreen.
+ * hover, which does not exist on a touchscreen. When nobody's chosen, the
+ * panel isn't empty — it shows today's waiter performance, which used to
+ * sit above the roster as its own table.
  */
 export function UsersPage() {
   usePageTitle('Foydalanuvchilar');
@@ -41,6 +35,8 @@ export function UsersPage() {
   const currentUser = useAuthStore((s) => s.user);
 
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
+  const [showInactive, setShowInactive] = useState(false);
+  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formState, setFormState] = useState<{ open: boolean; user: User | null }>({ open: false, user: null });
   const [confirmTarget, setConfirmTarget] = useState<{ user: User; next: boolean } | null>(null);
@@ -50,10 +46,26 @@ export function UsersPage() {
     queryFn: () => usersApi.list(true),
   });
 
-  const filtered = useMemo(
-    () => (roleFilter === 'ALL' ? users : users.filter((u) => u.role === roleFilter)),
-    [users, roleFilter],
-  );
+  const { data: todayStats } = useQuery({
+    queryKey: ['users', 'today-stats'],
+    queryFn: () => usersApi.todayStats(),
+    refetchInterval: 60_000,
+  });
+
+  const activeCount = useMemo(() => users.filter((u) => u.isActive).length, [users]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+      if (!showInactive && !u.isActive) return false;
+      if (needle) {
+        const haystack = `${u.fullName} ${u.username ?? ''}`.toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [users, roleFilter, showInactive, search]);
 
   const selected = users.find((u) => u.id === selectedId) ?? null;
 
@@ -97,21 +109,17 @@ export function UsersPage() {
       <Screen
         title="Foydalanuvchilar"
         status={
-          <>
-            {ROLE_FILTERS.map((chip) => (
-              <Button
-                key={chip.value}
-                size="sm"
-                variant={roleFilter === chip.value ? 'default' : 'secondary'}
-                onClick={() => setRoleFilter(chip.value)}
-              >
-                {chip.label}
-              </Button>
-            ))}
-            <Button size="sm" onClick={() => setFormState({ open: true, user: null })}>
-              Yangi foydalanuvchi
-            </Button>
-          </>
+          <UserFilters
+            search={search}
+            onSearchChange={setSearch}
+            roleFilter={roleFilter}
+            onRoleFilterChange={setRoleFilter}
+            showInactive={showInactive}
+            onShowInactiveChange={setShowInactive}
+            activeCount={activeCount}
+            totalCount={users.length}
+            onCreate={() => setFormState({ open: true, user: null })}
+          />
         }
         panel={
           selected ? (
@@ -123,6 +131,8 @@ export function UsersPage() {
               onDeactivate={() => setConfirmTarget({ user: selected, next: false })}
               onReactivate={() => setConfirmTarget({ user: selected, next: true })}
             />
+          ) : todayStats && todayStats.items.length > 0 ? (
+            <TodayStatsPanel date={todayStats.date} items={todayStats.items} />
           ) : (
             <div className="flex flex-1 items-center justify-center bg-field px-pad text-center text-[14px] text-muted-foreground">
               Ko'rish uchun xodimni tanlang
