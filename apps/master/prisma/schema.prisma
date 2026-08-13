@@ -126,6 +126,9 @@ enum AuditAction {
   STOCKTAKE_COMPLETED
   STOCKTAKE_VARIANCE_CATEGORIZED
   WASTE_RECORDED
+  STOCK_RESTOCKED
+  STOCK_COUNT_SET
+  ITEM_COST_CHANGED
 }
 
 enum IngredientMovementType {
@@ -181,6 +184,7 @@ model User {
   wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
   expensesWrittenOff    Expense[]            @relation("ExpenseWriteOff")
   expenseReturnsReceived ExpenseReturn[]     @relation("ExpenseReturnReceiver")
+  stockEntries          StockEntry[]         @relation("StockEntryActor")
 
   @@index([role])
   @@index([isActive])
@@ -230,6 +234,12 @@ model MenuItem {
   // used to populate cogsSnapshot at sale time. NULL for tracked items —
   // their COGS comes from FIFO batch peel via OrderLineBatchConsumption.
   unitCostSnapshot Decimal?
+  // Count-based inventory (2026-08 refactor). `counted` governs availability:
+  // stockCount NULL = sanoq kiritilmagan (blocked), 0..n otherwise. costPrice
+  // is the typed tan narx per portion; NULL books 0 COGS.
+  counted      Boolean      @default(true)
+  stockCount   Int?
+  costPrice    Decimal?
   isAvailable  Boolean      @default(true)
   displayOrder Int          @default(0)
   isActive     Boolean      @default(true)
@@ -242,6 +252,7 @@ model MenuItem {
   recipe          Recipe?
   selfIngredient  Ingredient?      @relation("SelfIngredient")
   ingredients     Ingredient[]     @relation("DishIngredients")
+  stockEntries    StockEntry[]
 
   @@index([categoryId])
   @@index([isAvailable])
@@ -461,6 +472,7 @@ model Expense {
   writtenOffBy      User?           @relation("ExpenseWriteOff", fields: [writtenOffById], references: [id])
   purchase          Purchase?       @relation(fields: [purchaseId], references: [id])
   returns           ExpenseReturn[]
+  stockEntry        StockEntry?
 
   @@index([occurredAt])
   @@index([categoryId])
@@ -814,4 +826,34 @@ model Setting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+enum StockEntryKind {
+  RESTOCK
+  COUNT
+}
+
+// Count-based inventory journal: append-only record of the two admin verbs.
+// Sales are NOT journaled here — they are reconstructible from OrderLines.
+model StockEntry {
+  id          String         @id @default(cuid())
+  menuItemId  String
+  kind        StockEntryKind
+  qty         Int
+  countBefore Int?
+  countAfter  Int
+  paidUzs     Decimal?
+  unitCost    Decimal?
+  expenseId   String?        @unique
+  note        String?
+  actorUserId String
+  occurredAt  DateTime
+  createdAt   DateTime       @default(now())
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+  expense  Expense? @relation(fields: [expenseId], references: [id])
+  actor    User     @relation("StockEntryActor", fields: [actorUserId], references: [id])
+
+  @@index([menuItemId, occurredAt])
+  @@index([occurredAt])
 }
