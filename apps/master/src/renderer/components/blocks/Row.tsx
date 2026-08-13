@@ -27,7 +27,12 @@ export const RowHeader = React.forwardRef<HTMLDivElement, RowHeaderProps>(
 );
 RowHeader.displayName = 'RowHeader';
 
-type RowProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'onClick'> & {
+/**
+ * Based on `HTMLElement` rather than `HTMLDivElement` because a Row renders as
+ * a `<button>` when it has an action: handler parameters are contravariant, so
+ * the wider element type is assignable to both branches.
+ */
+type RowProps = Omit<React.HTMLAttributes<HTMLElement>, 'onClick'> & {
   columns?: string;
   /** Inverts the whole row to the selected fill. There is no edge bar. */
   selected?: boolean;

@@ -1,101 +1,95 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2 } from 'lucide-react';
-import { ordersApi, type Order } from '@/api/orders';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+
+import { ordersApi, type ConfirmBody, type Order } from '@/api/orders';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { PageContent } from '@/components/feedback/PageContent';
-import { PageHeader } from '@/components/feedback/PageHeader';
-import { EmptyState } from '@/components/feedback/EmptyState';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ConfirmModal } from '@/components/ConfirmModal';
-import { ApprovalCard } from '@/components/approval/ApprovalCard';
+import { Screen } from '@/components/layout/Screen';
+import { Chip } from '@/components/blocks';
+import { QueueList } from '@/components/approval/QueueList';
+import { OrderTicket } from '@/components/approval/OrderTicket';
 import { WalkoutOrderDialog } from '@/components/approval/WalkoutOrderDialog';
 
-function ApprovalCardSkeleton() {
-  return (
-    <Card className="flex flex-col">
-      <CardHeader className="space-y-2 pb-3">
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-3 w-24" />
-      </CardHeader>
-      <CardContent className="flex-1 space-y-3 pb-4">
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-5 w-full" />
-      </CardContent>
-      <CardFooter className="gap-2 pt-0">
-        <Skeleton className="h-9 flex-1" />
-        <Skeleton className="h-9 flex-[2]" />
-      </CardFooter>
-    </Card>
-  );
-}
-
+/**
+ * The confirm loop: queue on the left, the order in hand on the right.
+ *
+ * The ticket is a panel rather than a modal, so its total and its confirm
+ * button cannot be scrolled off the screen by a long order or by adding a
+ * nasiya leg — the failure the layout audit rated worst.
+ */
 export function ApprovalQueuePage() {
   usePageTitle('Tasdiqlash');
-  const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [walkoutOrder, setWalkoutOrder] = useState<Order | null>(null);
 
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [] } = useQuery({
     queryKey: ['orders', 'sent'],
     queryFn: () => ordersApi.list({ status: 'SENT' }),
     refetchInterval: 15000,
   });
 
+  // The queue is live: keep a selection only while its order is still in it.
+  useEffect(() => {
+    if (selectedId && !orders.some((order) => order.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [orders, selectedId]);
+
+  const selectedSummary = orders.find((order) => order.id === selectedId) ?? null;
+
+  // The list payload carries no lines; the ticket needs them.
+  const { data: selected } = useQuery({
+    queryKey: ['orders', selectedId],
+    queryFn: () => ordersApi.getById(selectedId as string),
+    enabled: !!selectedId,
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: (body: ConfirmBody) => ordersApi.confirm(selectedId as string, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['finance'] });
+      toast.success('Buyurtma tasdiqlandi');
+      setSelectedId(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const ticketOrder = selected ?? selectedSummary;
+
   return (
-    <PageContent>
-      <PageHeader
+    <>
+      <Screen
         title="Tasdiqlash"
-        description="Yuborilgan buyurtmalar — tasdiqlash va to'lovni qabul qilish"
-        actions={
-          <Badge variant="outline" className="bg-info/10 text-info border-info/30 tabular-nums">
-            Faol: {orders.length}
-          </Badge>
-        }
-      />
-
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {Array.from({ length: 4 }).map((_, idx) => (
-            <ApprovalCardSkeleton key={idx} />
-          ))}
-        </div>
-      ) : orders.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={CheckCircle2}
-            title="Tasdiqlanishi kutilayotgan buyurtmalar yo'q"
-            hint="Ofitsiantlar yangi buyurtma yuborganda, ular shu yerda paydo bo'ladi."
-          />
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {orders.map((order) => (
-            <ApprovalCard
-              key={order.id}
-              order={order}
-              onConfirm={() => setConfirmOrder(order)}
-              onWalkout={() => setWalkoutOrder(order)}
+        status={<Chip tone={orders.length > 0 ? 'live' : 'inert'}>{orders.length} ta kutmoqda</Chip>}
+        panel={
+          ticketOrder ? (
+            <OrderTicket
+              key={ticketOrder.id}
+              order={ticketOrder}
+              submitting={confirmMutation.isPending}
+              error={confirmMutation.error?.message ?? null}
+              onConfirm={(body) => confirmMutation.mutate(body)}
+              onWalkout={() => setWalkoutOrder(ticketOrder)}
             />
-          ))}
-        </div>
-      )}
-
-      {confirmOrder && (
-        <ConfirmModal
-          order={confirmOrder}
-          open
-          onClose={() => setConfirmOrder(null)}
-        />
-      )}
+          ) : (
+            <div className="flex flex-1 items-center justify-center bg-field px-pad text-center text-[14px] text-muted-foreground">
+              {orders.length > 0
+                ? 'Tasdiqlash uchun buyurtmani tanlang'
+                : 'Tasdiqlanishi kutilayotgan buyurtma yo\'q'}
+            </div>
+          )
+        }
+      >
+        <QueueList orders={orders} selectedId={selectedId} onSelect={(order) => setSelectedId(order.id)} />
+      </Screen>
 
       <WalkoutOrderDialog
         order={walkoutOrder}
         open={!!walkoutOrder}
         onClose={() => setWalkoutOrder(null)}
       />
-    </PageContent>
+    </>
   );
 }

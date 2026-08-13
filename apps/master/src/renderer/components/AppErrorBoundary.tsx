@@ -9,7 +9,7 @@ type State = {
 };
 
 export class AppErrorBoundary extends React.Component<Props, State> {
-  state: State = {
+  override state: State = {
     error: null,
   };
 
@@ -17,14 +17,14 @@ export class AppErrorBoundary extends React.Component<Props, State> {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    const stack = info.componentStack.trim();
+  override componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    const stack = info.componentStack?.trim() ?? '';
     console.error(
       `[renderer-error-boundary] ${error.stack ?? error.message}${stack ? `\n${stack}` : ''}`,
     );
   }
 
-  render() {
+  override render() {
     if (!this.state.error) {
       return this.props.children;
     }
