@@ -17,6 +17,7 @@ import { purchaseRouter } from './routes/purchase.routes';
 import { reportsRouter } from './routes/reports.routes';
 import { printersRouter } from './routes/printers.routes';
 import { settingsRouter } from './routes/settings.routes';
+import { stockRouter } from './routes/stock.routes';
 import { tablesRouter } from './routes/tables.routes';
 import { usersRouter } from './routes/users.routes';
 import { errorHandler } from './middleware/errorHandler';
@@ -35,6 +36,7 @@ export function createApp(): Express {
   app.use('/api/discounts', discountsRouter);
   app.use('/api/expense-categories', expenseCategoryRouter);
   app.use('/api/expenses', expenseRouter);
+  app.use('/api/stock', stockRouter);
   app.use('/api/ingredients', ingredientRouter);
   app.use('/api/purchases', purchaseRouter);
   app.use('/api/finance', financeRouter);

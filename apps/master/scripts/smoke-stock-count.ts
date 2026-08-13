@@ -113,6 +113,48 @@ async function main() {
   });
   ok('addLine at count 0 → 409');
 
+  step('5', 'Restock with money: expense created, cost refreshed, entry journaled');
+  await http('POST', `/api/stock/${item.id}/count`, { token: admin, body: { countedQty: 9 } });
+  await http('POST', `/api/stock/${item.id}/restock`, {
+    token: admin,
+    body: { qty: 24, paidUzs: 240000, setCostFromPaid: true, note: 'smoke restock' },
+  });
+  const afterRestock = await prisma.menuItem.findUniqueOrThrow({ where: { id: item.id } });
+  assertEq('stockCount 9 + 24', afterRestock.stockCount, 33);
+  assertEq('costPrice refreshed to 240000/24', afterRestock.costPrice?.toFixed(0), '10000');
+  const entry = await prisma.stockEntry.findFirstOrThrow({
+    where: { menuItemId: item.id, kind: 'RESTOCK' },
+    orderBy: { createdAt: 'desc' },
+    include: { expense: true },
+  });
+  assertEq('entry unitCost', entry.unitCost?.toFixed(0), '10000');
+  if (!entry.expense) return fail('restock expense missing');
+  assertEq('expense category', entry.expense.categoryId, 'seed-cat-ingredients');
+  assertEq('expense amount', entry.expense.amount.toFixed(0), '240000');
+  const auditRows = await prisma.auditLog.count({
+    where: { action: { in: ['STOCK_RESTOCKED', 'STOCK_COUNT_SET'] }, entityId: item.id },
+  });
+  if (auditRows < 4) return fail(`expected >= 4 stock audit rows, got ${auditRows}`);
+  ok(`audit rows for stock verbs: ${auditRows}`);
+
+  step('6', 'Uncounted item books cost without a count');
+  const choy = (await http<{ id: string }>('POST', '/api/menu/items', {
+    token: admin,
+    body: { categoryId: cat.id, name: `Smoke choy ${suffix}`, price: 3000, mode: 'UNCOUNTED', costPrice: 500 },
+  })).body;
+  await http('POST', `/api/orders/${draft.id}/items`, {
+    token: waiter,
+    body: { menuItemId: choy.id, quantity: 2 },
+  });
+  const choyLine = await prisma.orderLine.findFirstOrThrow({ where: { orderId: draft.id, menuItemId: choy.id } });
+  assertEq('uncounted line cogs (500 × 2)', choyLine.cogsSnapshot?.toFixed(0), '1000');
+  await http('POST', `/api/stock/${choy.id}/restock`, {
+    token: admin,
+    body: { qty: 5 },
+    expectStatus: 400,
+  });
+  ok('restock on uncounted item → 400');
+
   console.log(`\n${c(32, 'SMOKE STOCK-COUNT (part 1) PASSED')}`);
   await prisma.$disconnect();
 }
