@@ -7,10 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
 
 Source-of-truth docs (read these before non-trivial changes):
-- **`docs/CURRENT_WORKFLOW.md` — START HERE.** Code-verified snapshot of what the system actually does: the money path, order state machine, FIFO/COGS, finance formulas, API surface, socket wiring, ranked known defects, and an explicit list of which other docs to distrust. Where any doc disagrees with it, it wins.
+- **`docs/CURRENT_WORKFLOW.md` — START HERE.** Code-verified snapshot of what the system actually does: the money path, order state machine, count-based inventory/COGS, finance formulas, API surface, socket wiring, ranked known defects, and an explicit list of which other docs to distrust. Where any doc disagrees with it, it wins.
 - **`docs/AUDIT_FINDINGS.md` — 145 open findings (11 BLOCKER / 18 CRITICAL), audited 2026-08-03 against `docs/POS_STANDARDS.md`. §8 is a live remediation tracker — a fix pass is IN PROGRESS; read §8 before starting work so you don't redo or skip a step.** §1 explains the systemic issue (no detective controls) that ties the top findings together.
 - `docs/POS_STANDARDS.md` — the audit rubric: 60 ID'd requirements from the Keurmerk POS reliability standard, Uzbek fiscal law (КМ РУз №943), and WCAG 2.2. Cite these IDs in any new finding.
-- `docs/PRD_FOUNDATION.md` — scoping input for a forthcoming PRD over the four areas being rebuilt: inventory, finance, calculations, UI/UX. Groups the audit findings by subsystem into numbered requirements (`INV-*`, `FIN-*`, `CALC-*`, `UX-*`), plus sequencing and open product decisions. **§7 is the handoff — start there.** **§1.9 holds the settled inventory-schema decisions (`S-1`…`S-6`) and the four open questions (`O-1`…`O-4`) that block PRD generation.** **§1.10 is a worked plov example, purchase → COGS → the two books → count, whose numbers reconcile — read it before touching costing.** **§8 lists constraints that must not be "fixed"** — read it before changing any finance formula.
+- `docs/PRD_FOUNDATION.md` — scoping input for a forthcoming PRD over four areas: inventory, finance, calculations, UI/UX. Groups the audit findings by subsystem into numbered requirements (`INV-*`, `FIN-*`, `CALC-*`, `UX-*`). **§7 is the handoff — start there; its top note now says §1 (inventory, including §1.9/§1.10 and `O-1`…`O-4`) is superseded by the count-based inventory design (`docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`)** — don't design inventory or costing from §1 anymore. §2–§4 (finance, calculations, UI/UX) remain live inputs. **§8 lists constraints that must not be "fixed"** — read it before changing any finance formula.
 - `docs/agent-plans/00-shared/decisions.md` — product/domain intent (roles, order lifecycle, bill math) and v1 scope exclusions. Labelled "locked", but **several claims have drifted from the code** — see `CURRENT_WORKFLOW.md` §12 before relying on it. Don't change it without explicit instruction.
 - `docs/agent-plans/00-shared/conventions.md` — code style and naming. Current.
 - `docs/FINANCE_IMPLEMENTATION_SPEC.md` — finance module spec. Current.
@@ -35,17 +35,34 @@ Master-specific (run inside `apps/master/`):
 pnpm prisma:generate                       # regenerate Prisma client
 pnpm exec prisma migrate dev --name <name> # create + apply a migration
 pnpm exec tsx prisma/seed.ts               # seed dev.db
-pnpm exec tsx scripts/smoke-e2e-flow.ts    # end-to-end flow (self-contained, no server needed)
-pnpm exec tsx scripts/smoke-fifo.ts        # FIFO peel/restore invariants
-pnpm exec tsx scripts/smoke-finance-pnl.ts # P&L + cash-drawer math
+pnpm exec tsx scripts/smoke-e2e-flow.ts    # end-to-end flow — HTTP against a running server
+pnpm exec tsx scripts/smoke-stock-count.ts # count-based stock invariants — same (HTTP)
+pnpm exec tsx scripts/smoke-finance-pnl.ts # P&L + cash-drawer math — same (HTTP)
 pnpm package:win                           # NSIS installer (Windows)
 pnpm build:printer                         # cross-build receipt.exe via mingw (Linux)
 pnpm build:printer:win                     # build receipt.exe via MSVC (Windows)
 ```
 
-Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (each runs real services against a throwaway SQLite) plus manual flows.
+Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-cashflow-reversal.ts` and `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows.
 
 ⚠ Not all scripts are live. `scripts/api-smoke.sh` is **dead legacy** — it still curls kitchen users, `request-bill` and `mark-paid`, none of which exist. Several `simulate-*.ts` scripts carry pre-v0.1.3 expectations and fail against current behaviour. Read a script before trusting a green run.
+
+### Headless dev server (Docker)
+
+Non-Windows dev hosts don't run Electron, so `dev:master` can't provide the server the HTTP smokes
+above need. `compose.dev.yaml` builds a container that installs, migrates, and runs
+`scripts/serve-headless.ts` — the same Express + Socket.io server `main/index.ts` starts, minus the
+Electron shell, Telegram bot, mDNS, scheduler, and printer init — on `localhost:4000`.
+
+```bash
+docker compose -f compose.dev.yaml up -d
+# fresh seed:
+docker compose -f compose.dev.yaml exec master-dev bash -lc \
+  "rm -f apps/master/prisma/dev.db && pnpm --filter @chayxana/master exec prisma migrate deploy && pnpm --filter @chayxana/master exec tsx prisma/seed.ts"
+docker compose -f compose.dev.yaml restart master-dev
+docker compose -f compose.dev.yaml exec master-dev pnpm --filter @chayxana/master exec tsx scripts/smoke-stock-count.ts
+docker compose -f compose.dev.yaml down
+```
 
 ## Architecture
 
@@ -55,10 +72,10 @@ Electron app where the **main process hosts the Express + Socket.io server**, an
 - `src/main/index.ts` — Electron bootstrap. Acquires single-instance lock, sets up Prisma runtime (`prisma-runtime.ts`), bootstraps packaged SQLite (`sqlite-bootstrap.ts`), then starts the HTTP server before opening the BrowserWindow. Heavy startup logging into `userData/`.
 - `src/main/server/` — backend in layered style:
   - `routes/*.routes.ts` → `controllers/` → `services/*.service.ts` → `repositories/` (only place that touches Prisma).
-  - `socket.ts` — Socket.io rooms `admin` and `waiter:{userId}`. There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
+  - `socket.ts` — Socket.io rooms `admin`, `waiter:{userId}`, and `all` (every authenticated socket joins `all`, for menu/availability broadcasts). There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }`.
   - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain.
-- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `Ingredient`, `Recipe`, `IngredientMovement`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. ⚠ "One active order per table" is **currently unenforced** — migration `20260607041034` rebuilt the `Order` table and did not recreate the partial unique index, so the `P2002` catch in `createDraft` can no longer fire.
+- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `StockEntry`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. `Ingredient`/`Recipe`/`Purchase`/`Stocktake`/`Waste` models remain in the schema for historical data but have no live code paths — inventory is count-based on `MenuItem` (see `docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`). ⚠ "One active order per table" is **currently unenforced** — migration `20260607041034` rebuilt the `Order` table and did not recreate the partial unique index, so the `P2002` catch in `createDraft` can no longer fire.
 - `src/renderer/` — React 19 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state. (Root `pnpm.overrides` pins react/react-dom to 19.1.0 workspace-wide; `apps/order/package.json` still *declares* ^18.3.0 but the override wins.)
 
 ### Order (`apps/order/`)
@@ -91,7 +108,7 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 
 - **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `SENT → WALKOUT` and `DRAFT|SENT → CANCELED` as terminal branches. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
 - **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. It atomically validates payments, snapshots totals, inserts `Payment`/`Debt` rows, prints the bill (blocking — failure rolls the whole transaction back), and flips the order to `CLOSED`.
-- **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line runs a FIFO peel (oldest active batch first) and is rejected atomically if any `Ingredient.currentStock` is insufficient. Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); only `WALKOUT` consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point.
+- **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line atomically decrements the item's `stockCount` and is rejected (`OUT_OF_STOCK`) if the count is 0 or `NULL` ("sanoq kiritilmagan" — never counted). Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); only `WALKOUT` consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point. See `docs/CURRENT_WORKFLOW.md` §4 for the full count/cost model.
 - **Roles**: OWNER sees finance/profit; ADMIN does not. WAITER is mobile/order-app only. Don't expose owner-only data to lower roles. ⚠ This is currently enforced client-side only for profit — `/api/finance/daily` is ADMIN+OWNER and still returns `pnl.profit` on the wire.
 - **v1 scope explicitly excludes**: split/merge bills, per-line discounts, Click/Payme, structured modifiers, multi-tenant. Don't add them speculatively.
 

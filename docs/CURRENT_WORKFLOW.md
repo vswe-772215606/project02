@@ -1,6 +1,6 @@
 # Chayxana POS — Current workflow (live state)
 
-**Snapshot:** 2026-08-03, commit `e8af3bf` (tag `v0.1.3`), clean tree.
+**Snapshot:** 2026-08-13, branch `feat/count-based-inventory` (off `audit/pos-review-and-prd-foundation`), clean tree.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -40,8 +40,9 @@ ADMIN (master admin UI)
 ```
 
 ★ **The most counter-intuitive fact in the codebase: stock and COGS move at line-add time, not at
-any status transition.** `send` touches no inventory. `confirm` touches no inventory
-(`order.service.ts:652-774`). Adding a line runs a FIFO peel inside a 30-second transaction.
+any status transition.** Adding a line decrements the item's `stockCount` atomically and books
+`costPrice × qty` into `cogsSnapshot`. `send`/`confirm` still touch no inventory
+(`order.service.ts:652-774`).
 
 ### Order state machine (enforced server-side, `order.service.ts`)
 
@@ -108,7 +109,7 @@ method** — avans is a repayable `Expense` on the outflow side, unrelated to th
 | Role | Surface | Can do |
 |---|---|---|
 | **OWNER** | master admin UI + Telegram | Everything. Only role that can reach `/api/reports/*`. Receives daily Telegram summary. |
-| **ADMIN** | master admin UI | Menu/tables/users/ingredients/recipes/purchases/discounts CRUD, confirm+pay, walkout, cancel, expenses, debts, audit read. Per `decisions.md` must NOT see profit — but see §11 defect #9. |
+| **ADMIN** | master admin UI | Menu/tables/users/stock (Ombor)/discounts CRUD, confirm+pay, walkout, cancel, expenses, debts, audit read. Per `decisions.md` must NOT see profit — but see §11 defect #8. |
 | **WAITER** | mobile or order app | PIN login, create/edit/send orders, transfer own orders, cancel own orders. |
 
 Role gating is server-side via `requireRole` on every router. The admin UI's 17 React routes are
@@ -117,77 +118,96 @@ navigation to a hidden page renders it, but the API behind it returns 403. Serve
 
 ---
 
-## 4. Inventory, FIFO and COGS
+## 4. Count-based inventory
 
-Stock lives on `Ingredient`, **scoped to exactly one parent dish** (`@@unique([parentMenuItemId, name])`).
-"Piyoz for plov" and "Piyoz for qiyma" are different rows and cannot share a pool.
+Refactored 2026-08-13 on `feat/count-based-inventory`, replacing the ingredient/recipe/FIFO model
+outright — no ingredients, no recipes, no batches, no unit conversions. Every `MenuItem` carries a
+count; a sale subtracts from it; margin is `price − costPrice`. Design doc:
+`docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`.
 
-Everything downstream of purchase is in `recipeUnit`:
-```
-quantityRecipeUnit    = quantityBuyUnit × conversionFactor
-unitCostPerRecipeUnit = totalCostUzs / quantityRecipeUnit
-```
+### Three modes, one item
 
-### The four menu-item creation modes
+`mode` (`SERVICE` / `COUNTED` / `UNCOUNTED`) is a create-time request field (`menu.service.ts`
+`CreateItemMode`) that writes `kind` + `counted` — both **persisted and editable later** via
+`PATCH /api/menu/items/:id`, unlike the old create-time-only discriminator. Toggling `counted`
+resets `stockCount` to `NULL` in either direction (`menu.service.ts:197-202`) — items are no
+longer locked to their creation mode.
 
-`CreateItemMode` is a **create-time-only** discriminator, never stored. Tracking behaviour is
-inferred afterwards purely from which relations exist:
-
-| Mode | `kind` | Rows created | Consumption behaviour |
+| Mode | `kind` | `counted` | Behaviour |
 |---|---|---|---|
-| `SERVICE` | SERVICE | none | never consumes; excluded from subtotal, added as service charge |
-| `SIMPLE` | FOOD | self-`Ingredient` (+ optional initial purchase) | 1 portion = 1 recipeUnit peeled |
-| `COMPOSITE` | FOOD | `Recipe` + N ingredients (+ initial purchases) | peels `RecipeIngredient.quantity × N` of each |
-| `UNTRACKED` | FOOD | **nothing** | no stock movement, **no COGS**, always available |
+| `SERVICE` | SERVICE | ignored | never counted, never costed, excluded from subtotal |
+| `COUNTED` | FOOD | `true` | `stockCount` gates availability; optional `costPrice` |
+| `UNCOUNTED` | FOOD | `false` | never runs out (choy); optional `costPrice` still books real COGS |
 
-`MenuItemKind` in the DB has only two values: `FOOD | SERVICE`.
+### `stockCount` / `costPrice` — independent
 
-### FIFO engine
+- `stockCount` `NULL` = "sanoq kiritilmagan" (never counted) — **blocks the sale exactly like 0**.
+  SQL `NULL >= n` is not-true, so the atomic decrement guard rejects it for free
+  (`menuRepo.decrementStockAtomic`, `menu.repo.ts:117-122`).
+- `costPrice` `NULL` → the sale still goes through, books **0 COGS**, admin UI shows "tan narxi
+  kiritilmagan". An uncounted item with a cost books real COGS — fixes the old UNTRACKED "100%
+  margin" bug (audit `M-64`).
+- Counts are whole numbers. Combos decrement each component's own count by its component quantity
+  (`order.service.ts:331-335`).
 
-- **Batch = one `Purchase` row.** Created with `remainingQty = quantityRecipeUnit`.
-- **Peel** (`consumption.service.ts:75-162`) takes oldest-first from `status='ACTIVE' AND remainingQty > 0`.
-  Per batch it writes an `OrderLineBatchConsumption` row + `IngredientMovement(CONSUME)` and
-  accumulates `OrderLine.cogsSnapshot`. `peelAtomic` is a conditional `updateMany`, so concurrent
-  peels cannot double-spend a batch.
-- **Restore** is **LIFO over that peel ledger**, at the frozen original prices
-  (`unwindRestore:168-227`). Past COGS is never restated — "honest history".
-- Insufficient stock throws `Errors.OutOfStock` → 409 → the whole line transaction rolls back.
+### Sale and restore (`stock.service.ts`, same two entry points `order.service.ts` calls)
 
-**Key invariant:** `Ingredient.currentStock == Σ Purchase.remainingQty WHERE status='ACTIVE'`.
-Defect #6 in §11 breaks it permanently, and there is no repair tool.
+`consume(line, portions, tx)`: `kind = SERVICE` → no-op. `counted = true` → one atomic conditional
+`updateMany` guarded by `stockCount >= portions`; no row matched → `Errors.OutOfStock`, the line
+transaction rolls back (`counted = false` skips straight past this). Then
+`cogsSnapshot += costPrice × portions` (0 when `costPrice` is NULL). Crossing to 0 emits
+`menu:itemAvailability` to `all` (§7) and fires the owner Telegram stock-out alert
+(`alertService.itemStockOut`).
 
-### When stock moves
+`restore(line, portions, tx)` fires on quantity decrease, line cancel, and order cancel from
+**both** `DRAFT` and `SENT` — `maybeRestoreLineStock` still never reads order status
+(`order.service.ts:123-136`, deliberate, commit `000e540`); `WALKOUT` never calls it.
+Unconditional atomic increment, guarded to non-NULL counts only (a line restored after `counted`
+was toggled off-then-on just leaves the item awaiting its first count). `cogsSnapshot` is
+recomputed **proportionally** — `new = old × remainingQty / quantity` — instead of unwinding a
+peel ledger; this preserves the frozen at-add-time cost even if `costPrice` changed since. A line
+already marked `isCanceled` keeps its snapshot (already excluded from every report).
 
-| Trigger | Effect |
-|---|---|
-| `addLine`, `addCombo`, quantity **increase** | consume |
-| quantity **decrease**, `cancelLine`, `cancelOrder` | restore |
-| `send`, `confirm` | **nothing** |
-| `markWalkout` | **nothing** — deliberate, food was eaten |
+### The two admin verbs — `POST /api/stock/*` (ADMIN+OWNER, `stock.routes.ts`)
 
-**Cancel restores stock from SENT as well as DRAFT.** `maybeRestoreLineStock` takes the order as
-`_order` and never reads its status (`order.service.ts:123-136`). This was a deliberate change
-(commit `000e540`); `decisions.md` and `CLAUDE.md` still claim otherwise and are stale.
+- **Keldi** (`restock`) `{ qty, paidUzs?, setCostFromPaid?, note? }` — `stockCount += qty`.
+  Optional `paidUzs` creates an excluded `Mahsulot xaridi` `Expense` (reason `Keldi: {name}`)
+  linked via `StockEntry.expenseId`, deriving `unitCost = paidUzs ÷ qty`; `setCostFromPaid` also
+  writes `costPrice = unitCost`.
+- **Sanoq** (`count`) `{ countedQty, note? }` — sets `stockCount` **absolutely**, not additive.
+  The only stock correction mechanism.
 
-### Movement types actually written
+Both write an append-only `StockEntry` (`RESTOCK`/`COUNT`, before/after) + `AuditLog`
+(`STOCK_RESTOCKED`/`STOCK_COUNT_SET`) — that pair is the whole detective control on count edits.
+Sales are **not** journaled in `StockEntry`; they're reconstructible from `OrderLine`s. A
+menu-create with an initial count journals one `StockEntry(COUNT)` with `countBefore` NULL.
 
-`PURCHASE` (+), `CONSUME` (+, magnitude only — the *type* carries direction), `RESTORE` (+),
-`ADJUST` (−, purchase reverse/delete). **`STOCKTAKE`, `WASTE`, `COST_ADJUST` are never written** —
-stocktake and waste are Phase-0 stubs whose every method throws
-(`stocktake.service.ts:13-38`, `waste.service.ts:11-25`). No routes, no UI, no repair path.
+**Corrections:** a wrong count → another Sanoq (overwrites). A wrong restock's *money* → the
+ordinary same-day `Expense` reverse (`expense.service.ts:405+`) — unwinds cash/expense only, does
+**not** touch `stockCount`; a wrong *quantity* needs its own Sanoq. §5's
+`dailyLedger.outflow.ingredientPurchases` sources these from `StockEntry` now — same formula,
+different query.
 
-`weightedAvgCost` is misnamed — it holds the **last** purchase's unit cost and is display-only.
-FIFO peel is the sole COGS authority.
+### Availability
 
-### Purchases
+`effectivelyAvailable = isAvailable && (kind === SERVICE || !counted || (stockCount ?? 0) > 0)`
+(`menu.service.ts:55-72`). `NULL` count is unavailable, same as 0. Waiter DTO field names are
+unchanged from before the refactor.
 
-- **Create** → one transaction: `Expense` (category `seed-cat-ingredients`) + `Purchase` batch +
-  stock up + `IngredientMovement(PURCHASE)` + audit. One event, two views: Xaridlar (inventory)
-  and Chiqimlar (cash), linked by `Expense.purchaseId`.
-- **Edit** → metadata only (`supplierNote`, `occurredAt`). Quantity/cost deliberately immutable.
-- **Reverse** → same Tashkent day only, and only if completely untouched.
-- **Delete** (soft) → any day, any consumption state. **This is the only producer of cross-day
-  reversals**, and cross-day reversals are exactly what the cash-drawer math has to special-case (§5).
+### Ombor (`/ombor`, ADMIN+OWNER) replaces Ingredients/Purchases/Recipes
+
+One list of counted `FOOD` items — count ("—" at NULL, red badge at 0), tan narx or
+"kiritilmagan", last entry date — with **+ Keldi** / **Sanoq** row actions and a per-item entry
+history drawer.
+
+### What's still in the schema but dead
+
+`Ingredient`, `Recipe`, `RecipeIngredient`, `RecipeEdit`, `Purchase`, `OrderLineBatchConsumption`,
+`WasteEvent`, `Stocktake`, `StocktakeEntry`, `IngredientMovement` are still **declared** in
+`schema.prisma`, and their DB tables and historical rows are untouched — but every service and
+repo that read or wrote them is deleted (§11's dead-code note). This is deliberate: dropping the
+tables needs a backup mechanism that doesn't exist yet. There is no live code path onto them —
+don't add one; inventory history predating 2026-08-13 is frozen in these tables, unqueried.
 
 ---
 
@@ -219,29 +239,29 @@ in `pendingRepayable` until returned or written off. Debts are created only from
 with a DEBT payment leg; repayments are append-only and belong to the day received.
 
 Reports are OWNER-only (`/api/reports/*`). `/api/finance/daily` is the ADMIN-safe daily view — but
-see §11 defect #9.
+see §11 defect #8.
 
 ---
 
 ## 6. API surface
 
-62 endpoints across 18 routers (`server/app.ts`). Middleware order: `cors()` (open) →
+69 endpoints across 17 routers (`server/app.ts`). Middleware order: `cors()` (open) →
 `cookieParser` → `express.json({limit:'1mb'})` → routers → `errorHandler`.
 
 | Mount | Auth | Roles |
 |---|---|---|
 | `/api/health` | **none** | — (`/` and `/server-info`, used for LAN discovery) |
 | `/api/auth` | mixed | `login`, `login-pin` (IP-limited), `logout`, `me` |
-| `/api/menu` | yes | reads **all roles**, writes + `/yield` ADMIN+OWNER |
+| `/api/menu` | yes | reads **all roles**, writes ADMIN+OWNER |
 | `/api/orders` | yes | see table in §2; `confirm` / `mark-walkout` / `reprint-bill` ADMIN+OWNER |
 | `/api/tables`, `/api/me` | yes | reads all roles |
 | `/api/reports` | yes | **OWNER only** |
 | `/api/finance`, `/api/audit` | yes | ADMIN + OWNER |
-| `/api/expenses`, `/expense-categories`, `/debts`, `/purchases`, `/ingredients`, `/discounts`, `/settings`, `/printers`, `/users` | yes | ADMIN + OWNER |
+| `/api/expenses`, `/expense-categories`, `/debts`, `/stock`, `/discounts`, `/settings`, `/printers`, `/users` | yes | ADMIN + OWNER |
 
 Errors: throw `AppError` / `Errors.*` from `lib/errors.ts` (20 codes). The central handler maps it
 to `{ error: { code, message, details } }`. **It has no `ZodError` branch** — validation failures
-return 500 `INTERNAL` (§11 defect #10).
+return 500 `INTERNAL` (§11 defect #9).
 
 ---
 
@@ -249,7 +269,8 @@ return 500 `INTERNAL` (§11 defect #10).
 
 Socket.io on the same HTTP server. Handshake auth is `auth: { token }` validated against `Session`.
 
-**Rooms joined:** `admin` (OWNER/ADMIN) and `waiter:{userId}` (WAITER) — `socket.ts:51-52`. That's all.
+**Rooms joined:** `admin` (OWNER/ADMIN), `waiter:{userId}` (WAITER), and `all` (every authenticated
+socket, unconditionally) — `socket.ts:51-53`.
 
 Emits are deferred through `AsyncLocalStorage` and flushed only after the transaction commits
 (`lib/socket-events.ts`), so a rolled-back transaction never emits. Payloads are minimal IDs;
@@ -260,11 +281,13 @@ clients re-fetch via REST and invalidate TanStack Query keys.
 | `order:updated` | admin, waiter | ✅ master + order app (**mobile does not subscribe**) |
 | `order:closed` / `order:walkout` / `order:transferred` | admin, waiter | ✅ all three |
 | `order:canceled` | admin, waiter | ❌ **no listener anywhere** |
-| `ingredient:stockChanged` | admin **only** | ✅ master only — waiter apps subscribe but never receive |
-| `menu:changed`, `menu:itemAvailability` | `'all'` | ❌ **room never joined — reaches nobody** |
+| `stock:changed` | admin | ✅ master only — Ombor/menu cache invalidation |
+| `menu:changed`, `menu:itemAvailability` | `'all'` (every authenticated socket) | ✅ all three — `socket.join('all')` shipped (`socket.ts:53`), the room now actually reaches clients |
 | `auth:kicked` | direct | ✅ all three force-logout |
 
-See §11 defect #11 — live menu/availability push is entirely dead.
+`ingredient:stockChanged` is no longer emitted anywhere server-side (the room-nobody-joined defect
+it used to illustrate is fixed by `join('all')` above); `order`/`mobile` still register a handler
+for it, which is harmless dead code. See §11 defect #10 — `order:canceled` is what's still dead.
 
 ---
 
@@ -295,10 +318,18 @@ dev hosts `executeBinary` is a stub that logs and returns success — printing a
 
 **Telegram bot:** `/bugun /kecha /sana /oldin /hafta /oy /oylik /umumiy /excel /pdf /qarzlar
 /xarajatlar /omborxona /ofitsiantlar /yordam`, plus six push alerts — walkout, large discount,
-debt sale, debt write-off, large expense, ingredient stock-out.
+debt sale, debt write-off, large expense, item stock-out (`alertService.itemStockOut`, fired from
+`stock.service.ts` when a counted item's `stockCount` crosses to 0 — see §4).
 
 **Scheduler:** stale-draft cleanup every 6 hours; the finance report scheduler polls **every 60
 seconds** for the configured send time.
+
+**Headless dev server for verification (Docker):** non-Windows dev hosts don't run Electron, so
+`dev:master` can't provide the server that the HTTP-driven smoke scripts need (see `CLAUDE.md`
+Commands). `scripts/serve-headless.ts` boots the same Express + Socket.io server
+`main/index.ts`'s `startServer()` does, minus the Electron shell, Telegram bot, mDNS, scheduler,
+and printer init. `compose.dev.yaml` runs it in a container on `:4000` — `docker compose -f
+compose.dev.yaml up -d`, `... exec master-dev <cmd>` to run a smoke against it, `... down` after.
 
 **Mobile monorepo invariants** (all currently holding — verify before touching):
 root `.npmrc` has `node-linker=hoisted` + `shamefully-hoist=true`; `apps/mobile/index.js` is the
@@ -311,19 +342,19 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
 
 | Symptom | File |
 |---|---|
-| Stock didn't move on order | `services/consumption.service.ts` (peel/restore), `order.service.ts:209-288` |
+| Stock didn't move on order | `services/stock.service.ts` (consume/restore), `order.service.ts:209-288` |
 | Bill total looks wrong | `services/billing.service.ts:54-130` |
 | Confirm rejected | `order.service.ts:652-688` (guards run before the transaction) |
-| Purchase didn't update cost/stock | `services/purchase.service.ts:73-190` |
+| Keldi/Sanoq didn't update count or cost | `services/stock.service.ts` `restock`/`setCount` (`:140-289`), `stock.routes.ts` |
 | Cash drawer disagrees | `reports.service.ts` `dailyLedger.cashflow.cashOut` — and read §5 |
-| Menu change didn't reach waiters | Expected — dead socket room, §11 defect #11 |
+| A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #10 |
 | Walkout cash doesn't reconcile | Expected — no Payment row by design; but also §11 defect #3 |
 | Print didn't fire | `services/print.service.ts`; check `admin_printer_name` setting |
 | Daily Telegram missing | `services/finance-report.service.ts` + `lib/scheduler.ts` |
 
 ---
 
-## 11. Known defects (verified at `e8af3bf`, ranked)
+## 11. Known defects (re-verified 2026-08-13 on `feat/count-based-inventory`, ranked)
 
 **Money-affecting**
 
@@ -339,7 +370,7 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
    pre-edit total while the receipt prints the post-edit lines. **Fix:** move the read +
    `computeTotals` inside the transaction.
 3. **Walkout loss is structurally always zero.** `orderRepo.applyTotals` has exactly one call site
-   — inside `confirm`. WALKOUT orders never get `totalSnapshot`, so `finance.service.ts:119-122`
+   — inside `confirm`. WALKOUT orders never get `totalSnapshot`, so `finance.service.ts:109-112`
    sums `?? 0`. The audit `amount` and the Telegram alert amount are `'0'` too. COGS also filters
    on `status = CLOSED`, so a walkout is invisible on **both** sides of the P&L while the food is
    physically gone.
@@ -353,40 +384,44 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
 
 **Correctness / data integrity**
 
-6. **`restoreToBatch` has no status check** (`purchase.repo.ts:128-133` — its own docstring admits
-   it) while `peelAtomic` correctly guards on ACTIVE. Restoring into a soft-deleted batch
-   permanently inflates `currentStock` above `Σ ACTIVE remainingQty` → phantom sellable stock, then
-   spurious `OUT_OF_STOCK` at sale time. **No repair path exists** — stocktake is a stub, yet
-   `purchase.service.ts:285` tells the admin to fix it via stocktake.
-7. **`isAvailable` is never enforced server-side.** `order.service.ts` checks only `isActive`;
-   `Errors.ItemUnavailable` has zero throw sites. Availability is a client-side hint.
-8. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
+6. **`isAvailable` (the manual admin toggle) is never enforced server-side.** `order.service.ts`'s
+   `addLine`/`addCombo` check only `isActive`; `Errors.ItemUnavailable` has zero throw sites — a
+   waiter can add a line for an item an admin marked unavailable. This is distinct from stock
+   exhaustion, which **is** enforced (`stockService.consume`'s CAS decrement throws `OutOfStock`
+   at `stockCount` 0 or NULL — §4); `effectivelyAvailable` folds both into one client-facing flag,
+   but only the stock half has a server-side guard behind it.
+7. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
    table and recreated only the plain indexes — the partial unique index from migration 2 is gone.
    `createDraft` relies on a `P2002` that can no longer fire.
 
 **Contract / UX**
 
-9. **ADMIN can read owner-only profit.** `/api/finance/daily` is ADMIN+OWNER and returns
-   `pnl.profit` (`finance.service.ts:302-306`); the comment at `:34` says the renderer hides it.
+8. **ADMIN can read owner-only profit.** `/api/finance/daily` is ADMIN+OWNER and returns
+   `pnl.profit` (`finance.service.ts:292-296`); the comment above it says the renderer hides it.
    Client-side only — curl or devtools reads it off the wire. Violates `decisions.md`.
-10. **Zod validation failures return 500 `INTERNAL`, not 400** — `errorHandler.ts` has no
-    `ZodError` branch, so malformed bodies surface with no field detail.
-11. **Live menu push is dead.** `menu:changed` / `menu:itemAvailability` emit to room `'all'`,
-    which nobody joins. `ingredient:stockChanged` goes only to `admin`, so waiter clients that
-    subscribe never receive it. `order:canceled` has no listener in any client.
-12. **Customer receipts don't add up** on any order with a service charge — the item list prints
+9. **Zod validation failures return 500 `INTERNAL`, not 400** — `errorHandler.ts` has no
+   `ZodError` branch, so malformed bodies surface with no field detail. Covers the new
+   `/api/stock` `restock`/`count` schemas too.
+10. **`order:canceled` has no listener in any client.** The `join('all')` fix (§7) means
+    `menu:changed`/`menu:itemAvailability` now reach every socket, and `ingredient:stockChanged`
+    is simply gone (no longer emitted server-side — `order`/`mobile` still register a handler for
+    it, harmless dead code, not a defect). `order:canceled` is what's left dead: no app
+    subscribes, so canceling an order pushes no live refresh to other open screens.
+11. **Customer receipts don't add up** on any order with a service charge — the item list prints
     SERVICE lines but the printed subtotal is FOOD-only, and there is no service-charge line
     (`printer/receipt-builder.ts:44,56-77`).
-13. **A fully-comped order can never be closed.** `canSubmit` requires `previewTotal > 0`
+12. **A fully-comped order can never be closed.** `canSubmit` requires `previewTotal > 0`
     (`ConfirmModal.tsx:131`) though the server would accept a zero total. The order is stuck at
     SENT; cancelling it restores stock for food that was eaten.
-14. **Decimal payment amounts produce an opaque failure.** `isBalanced` uses a `< 1` tolerance
+13. **Decimal payment amounts produce an opaque failure.** `isBalanced` uses a `< 1` tolerance
     (`ConfirmModal.tsx:129`) while the server requires exact `!==`, so a decimal shows a green ✓
-    then fails server zod → 500 (defect #10) → generic "Buyurtmani tasdiqlab bo'lmadi".
+    then fails server zod → 500 (defect #9) → generic "Buyurtmani tasdiqlab bo'lmadi".
 
 **Dead code worth knowing:** `MenuItem.unitCostSnapshot` and `OrderLine.consumptionSnapshot` are
-never written or read; `orderRepo.setStatus`, `yieldService.effectivelyAvailable`, all of
-`stocktakeRepo` / `wasteEventRepo`, and most of `ingredientMovementRepo` have zero callers.
+still declared and still never written or read (they pre-date the count model too);
+`orderRepo.setStatus` has zero callers. `yieldService`, `stocktakeRepo`, `wasteEventRepo`,
+`ingredientMovementRepo` and the rest of the old ingredient/FIFO layer are gone outright, not
+merely dead — §4 lists what is still declared in the schema with no code path left onto it.
 
 ---
 
@@ -394,7 +429,7 @@ never written or read; `orderRepo.setStatus`, `yieldService.effectivelyAvailable
 
 | Doc | Verdict |
 |---|---|
-| **This file** | Current as of `e8af3bf`. |
+| **This file** | Current as of 2026-08-13, `feat/count-based-inventory` (see header). |
 | `agent-plans/00-shared/decisions.md` | Labelled "locked" but **partly stale** — see below. Still authoritative on intent and on v1 scope exclusions. |
 | `agent-plans/00-shared/conventions.md` | Current. Follow it. |
 | `FINANCE_IMPLEMENTATION_SPEC.md`, `MOLIYA_KASSA_HISOBLASH_XATOSI.md` | Current and load-bearing for finance work. |
@@ -411,13 +446,14 @@ never written or read; `orderRepo.setStatus`, `yieldService.effectivelyAvailable
 - ❌ "Cancelling from SENT does not restore stock" → it **does** (commit `000e540`, deliberate).
 - ❌ Expense categories "Go'sht / Sabzavot / Avans / …" → in practice just `Mahsulot xaridi`
   (auto for purchases) and `Operatsion` (default).
-- ⚠ "One active order per table, enforced by partial unique index" → index was dropped, §11 #8.
-- ⚠ "ADMIN cannot see profit totals" → true in the UI only, §11 #9.
+- ⚠ "One active order per table, enforced by partial unique index" → index was dropped, §11 #7.
+- ⚠ "ADMIN cannot see profit totals" → true in the UI only, §11 #8.
 
-**Claims in `CLAUDE.md` that are wrong:** `scripts/simulate-flow.ts` does not exist (the real one
-is `simulate-confirm-flow.ts`, itself stale); `api-smoke.sh` is dead legacy referencing kitchen
-users and removed endpoints; renderers run **React 19**, not 18; the SENT-stock-restore claim is
-stale as above.
+**Claims in `CLAUDE.md` that are wrong:** none open as of this pass (2026-08-13). The entries
+previously listed here (a nonexistent `simulate-flow.ts`, React 18, the SENT-stock-restore claim)
+no longer match the file — `CLAUDE.md` already states React 19, the both-DRAFT-and-SENT restore
+rule, and the `api-smoke.sh`/`simulate-*.ts` staleness warning correctly. Re-verify `CLAUDE.md`
+against this file's §2/§4 whenever either changes; don't assume this stays empty.
 
 ---
 
