@@ -14,7 +14,8 @@ function StockCell({ item }: { item: MenuItem }) {
 }
 
 /**
- * Items for the selected category, right column.
+ * Items for the selected category, right column — or, while searching, every
+ * matching item across every category.
  *
  * Every mutating action — edit, availability, deactivate — used to be a raw
  * icon button crammed into the row's last cell. A clickable Row cannot host
@@ -23,19 +24,28 @@ function StockCell({ item }: { item: MenuItem }) {
  */
 export function ItemList({
   items,
-  categoryName,
+  title,
+  categoryNameById,
   selectedId,
   onSelect,
+  emptyMessage,
 }: {
   items: MenuItem[];
-  categoryName: string;
+  /** Header caption — the active category's name, or a result count while searching. */
+  title: string;
+  /**
+   * When set, each row's second line names the item's own category instead
+   * of its description — the useful context once results span categories.
+   */
+  categoryNameById?: Map<string, string>;
   selectedId: string | null;
   onSelect: (item: MenuItem) => void;
+  emptyMessage?: string;
 }) {
   return (
     <Seam className="content-start">
       <RowHeader columns={COLUMNS}>
-        <span className="truncate">{categoryName}</span>
+        <span className="truncate">{title}</span>
         <span className="text-right">Narxi</span>
         <span className="text-center">Qoldiq</span>
         <span className="text-center">Holati</span>
@@ -51,7 +61,11 @@ export function ItemList({
         >
           <span className="min-w-0 truncate">
             {item.name}
-            {item.description ? <RowSub>{item.description}</RowSub> : null}
+            {categoryNameById ? (
+              <RowSub>{categoryNameById.get(item.categoryId) ?? '—'}</RowSub>
+            ) : item.description ? (
+              <RowSub>{item.description}</RowSub>
+            ) : null}
           </span>
           <RowMoney>{formatMoney(item.price)}</RowMoney>
           <span className="flex justify-center">
@@ -67,7 +81,7 @@ export function ItemList({
 
       {items.length === 0 ? (
         <div className="bg-field px-pad py-3 text-center text-[13px] text-muted-foreground">
-          Ushbu kategoriyada mahsulot yo'q
+          {emptyMessage ?? "Ushbu kategoriyada mahsulot yo'q"}
         </div>
       ) : null}
     </Seam>

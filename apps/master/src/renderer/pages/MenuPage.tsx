@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { X } from 'lucide-react';
 
 import { menuApi, type Category, type CreateItemPayload } from '@/api/menu';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Screen } from '@/components/layout/Screen';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { CategoryList } from '@/components/menu/CategoryList';
 import { CategoryPanel } from '@/components/menu/CategoryPanel';
 import { NewCategoryPanel } from '@/components/menu/NewCategoryPanel';
@@ -49,6 +51,7 @@ export function MenuPage() {
 
   const [view, setView] = useState<View>('items');
   const [showInactive, setShowInactive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [itemsMode, setItemsMode] = useState<ItemsMode>(null);
   const [comboMode, setComboMode] = useState<ComboMode>(null);
@@ -74,12 +77,34 @@ export function MenuPage() {
     return counts;
   }, [items]);
 
+  const categoryNameById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories],
+  );
+
   const effectiveCategoryId = activeCategoryId ?? categories[0]?.id ?? null;
   const activeCategory = categories.find((c) => c.id === effectiveCategoryId) ?? null;
-  const visibleItems = useMemo(
-    () => (effectiveCategoryId ? items.filter((item) => item.categoryId === effectiveCategoryId) : []),
-    [items, effectiveCategoryId],
-  );
+
+  // A dozen categories deep, "browse to the right category, then scan" stops
+  // being glanceable well before the list ends — search finds the dish by
+  // name (or its category's name) across every category at once, the same
+  // combined match the old page made, just flattened into one result list
+  // instead of a two-tier category-then-item filter.
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const isSearching = normalizedQuery.length > 0;
+  const searchResults = useMemo(() => {
+    if (!isSearching) return [];
+    return items.filter((item) => {
+      if (item.name.toLowerCase().includes(normalizedQuery)) return true;
+      const categoryName = categoryNameById.get(item.categoryId);
+      return categoryName ? categoryName.toLowerCase().includes(normalizedQuery) : false;
+    });
+  }, [items, isSearching, normalizedQuery, categoryNameById]);
+
+  const visibleItems = useMemo(() => {
+    if (isSearching) return searchResults;
+    return effectiveCategoryId ? items.filter((item) => item.categoryId === effectiveCategoryId) : [];
+  }, [items, effectiveCategoryId, isSearching, searchResults]);
 
   // Selections and toggles are independent state — the list they point at
   // can shrink out from under them (the showInactive toggle, or a socket
@@ -301,6 +326,25 @@ export function MenuPage() {
       title="Menyu"
       status={
         <>
+          {view === 'items' ? (
+            <>
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Mahsulot yoki kategoriya nomi"
+                className="w-[220px]"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={!searchQuery}
+                onClick={() => setSearchQuery('')}
+                aria-label="Qidiruvni tozalash"
+              >
+                <X />
+              </Button>
+            </>
+          ) : null}
           <Button size="sm" variant={view === 'items' ? 'default' : 'secondary'} onClick={() => setView('items')}>
             Mahsulotlar
           </Button>
@@ -334,6 +378,10 @@ export function MenuPage() {
                 itemCounts={itemCounts}
                 selectedId={itemsMode?.kind === 'category' ? itemsMode.id : null}
                 onSelect={(category) => {
+                  // Picking a category is "take me there" — it wins over an
+                  // in-progress search rather than leaving the right column
+                  // stuck on results while the click appears to do nothing.
+                  setSearchQuery('');
                   setActiveCategoryId(category.id);
                   setItemsMode({ kind: 'category', id: category.id });
                 }}
@@ -352,7 +400,9 @@ export function MenuPage() {
             <div className="min-h-0 flex-1 overflow-auto">
               <ItemList
                 items={visibleItems}
-                categoryName={activeCategory?.name ?? 'Mahsulotlar'}
+                title={isSearching ? `${searchResults.length} ta natija` : (activeCategory?.name ?? 'Mahsulotlar')}
+                categoryNameById={isSearching ? categoryNameById : undefined}
+                emptyMessage={isSearching ? 'Topilmadi' : undefined}
                 selectedId={itemsMode?.kind === 'item' ? itemsMode.id : null}
                 onSelect={(item) => setItemsMode({ kind: 'item', id: item.id })}
               />
