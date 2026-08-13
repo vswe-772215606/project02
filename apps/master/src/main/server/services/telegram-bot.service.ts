@@ -2,7 +2,7 @@ import { settingsService } from './settings.service';
 import { reportsService } from './reports.service';
 import { debtService } from './debt.service';
 import { expenseService } from './expense.service';
-import { ingredientService } from './ingredient.service';
+import { stockService } from './stock.service';
 import {
   localDayKey,
   localDayRangeFor,
@@ -243,8 +243,8 @@ export const telegramBotService = {
       const sendLowStock = async (ctx: any) => {
         try {
           try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
-          const ingredients = await ingredientService.list({ isActive: true });
-          const message = this.formatStockMessage(ingredients);
+          const items = await stockService.listCounted();
+          const message = this.formatStockMessage(items);
           await ctx.replyWithHTML(message, mainMenu);
         } catch (error) {
           console.error('[TelegramBot] Omborxona ma\'lumotida xatolik:', error);
@@ -967,36 +967,26 @@ export const telegramBotService = {
   },
 
   /**
-   * Inventory low-stock view. Sorted by absolute currentStock ascending; the
-   * "alert" threshold compares currentStock against variance × some buffer —
-   * here we just surface the bottom 12 by raw quantity, with the threshold
-   * shown alongside so the owner can judge urgency.
+   * Inventory view — counted FOOD items sorted by stockCount ascending
+   * (uncounted items, stockCount NULL, sort first via the -1 sentinel).
+   * Replaces the old FIFO ingredient view (currentStock/varianceThreshold)
+   * now that stock is a per-item porsiya count (count-based inventory
+   * refactor).
    */
-  formatStockMessage(ingredients: Array<any>): string {
-    const lines: string[] = [];
-    lines.push(`📦 <b>Omborxona — eng kam mahsulotlar</b>`);
-    lines.push('');
-    if (!Array.isArray(ingredients) || ingredients.length === 0) {
-      lines.push('Mahsulotlar topilmadi.');
-      return lines.join('\n');
+  formatStockMessage(
+    items: Array<{ name: string; categoryName: string; stockCount: number | null; costPrice: string | null }>,
+  ): string {
+    if (items.length === 0) {
+      return '📦 <b>Omborxona</b>\n\nSanaladigan taom yo\'q.';
     }
-    const sorted = [...ingredients]
-      .filter((i: any) => i.isActive !== false)
-      .sort((a: any, b: any) => Number(a.currentStock) - Number(b.currentStock))
-      .slice(0, 12);
-    lines.push('━━━━━━━━━━━━━━━━━━━━');
-    sorted.forEach((ing: any) => {
-      const stock = Number(ing.currentStock ?? 0);
-      const unit = ing.recipeUnit ?? '';
-      const dish = ing.parentMenuItem?.name ?? ing.parentMenuItemName ?? '';
-      const dishLabel = dish ? ` · ${dish}` : '';
-      const warning = stock <= 0 ? '🔴 ' : stock <= Number(ing.varianceThreshold ?? 0) ? '🟡 ' : '';
-      lines.push(`  ${warning}<b>${ing.name}</b>${dishLabel}`);
-      lines.push(`     ${stock} ${unit}`);
+    const sorted = [...items].sort((a, b) => (a.stockCount ?? -1) - (b.stockCount ?? -1));
+    const lines = sorted.map((i) => {
+      const count = i.stockCount === null ? '— (sanoq kiritilmagan)' : `${i.stockCount} porsiya`;
+      const flag = i.stockCount !== null && i.stockCount <= 0 ? '⚠️ ' : '';
+      const cost = i.costPrice ? ` · tan narx ${Number(i.costPrice).toLocaleString('ru-RU')} so'm` : '';
+      return `${flag}<b>${i.name}</b> (${i.categoryName}) — ${count}${cost}`;
     });
-    lines.push('');
-    lines.push(`Jami faol mahsulotlar: <b>${ingredients.length}</b> ta`);
-    return lines.join('\n');
+    return `📦 <b>Omborxona qoldig'i</b>\n\n${lines.join('\n')}`;
   },
 
   /**

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { MenuItemKind, Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 
 type Tx = Prisma.TransactionClient;
@@ -86,6 +86,15 @@ export const menuRepo = {
     });
   },
 
+  /** Ombor page data source: every counted FOOD item, with category name. */
+  async listCountedFoodItems(tx?: Tx) {
+    return (tx ?? getPrisma()).menuItem.findMany({
+      where: { kind: MenuItemKind.FOOD, counted: true, isActive: true },
+      include: { category: { select: { id: true, name: true } } },
+      orderBy: [{ category: { displayOrder: 'asc' } }, { displayOrder: 'asc' }, { name: 'asc' }],
+    });
+  },
+
   async updateItem(id: string, data: Prisma.MenuItemUpdateInput, tx?: Tx) {
     return (tx ?? getPrisma()).menuItem.update({
       where: { id },
@@ -97,6 +106,38 @@ export const menuRepo = {
     return (tx ?? getPrisma()).menuItem.update({
       where: { id },
       data: { isAvailable },
+    });
+  },
+
+  /**
+   * Atomic sale-side decrement: matches only counted items with enough stock.
+   * SQL `NULL >= n` is not-true, so a never-counted item (stockCount NULL)
+   * fails the guard and the caller treats it as out of stock.
+   */
+  async decrementStockAtomic(id: string, qty: number, tx?: Tx) {
+    return (tx ?? getPrisma()).menuItem.updateMany({
+      where: { id, counted: true, stockCount: { gte: qty } },
+      data: { stockCount: { decrement: qty } },
+    });
+  },
+
+  /**
+   * Restore-side increment. Guarded to counted items with a non-NULL count:
+   * incrementing NULL would keep NULL (SQLite NULL + n = NULL), so a line
+   * restored after `counted` was re-toggled simply leaves the item awaiting
+   * its first count — the desired outcome.
+   */
+  async incrementStockCounted(id: string, qty: number, tx?: Tx) {
+    return (tx ?? getPrisma()).menuItem.updateMany({
+      where: { id, counted: true, stockCount: { not: null } },
+      data: { stockCount: { increment: qty } },
+    });
+  },
+
+  async setStock(id: string, count: number, tx?: Tx) {
+    return (tx ?? getPrisma()).menuItem.update({
+      where: { id },
+      data: { stockCount: count },
     });
   },
 

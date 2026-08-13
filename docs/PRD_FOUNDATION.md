@@ -944,6 +944,12 @@ Beyond the per-area decisions:
 
 ## 7. Status — READ THIS FIRST IF YOU ARE A NEW SESSION
 
+> **Superseded (2026-08-13):** §1 (inventory) including §1.9/§1.10 and open
+> questions `O-1`…`O-4` is superseded by the count-based inventory design —
+> `docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`,
+> implemented on `feat/count-based-inventory`. §2–§4 (finance, calculations,
+> UI/UX) remain live inputs.
+
 **Last worked: 2026-08-04 (second session).** Branch `audit/pos-review-and-prd-foundation`, clean
 tree, two commits ahead of `main` and unpushed: `13e44dd` (the `F-5` fix) and `b50115c` (this file,
 `AUDIT_FINDINGS.md`, `POS_STANDARDS.md`, rewritten `CURRENT_WORKFLOW.md`, `CLAUDE.md`).
@@ -1003,8 +1009,9 @@ read it before touching costing.
   consequence.
 - **Bazaar entry takes quantity + total paid**, unit price derived — matches how they buy and matches
   `purchaseService.record`'s existing signature.
-- The FIFO costing engine itself is correct and stays. `R1–R7` change what feeds it and what reads it,
-  never the peel.
+- ~~The FIFO costing engine itself is correct and stays. `R1–R7` change what feeds it and what reads
+  it, never the peel.~~ **Reopened 2026-08-13** — see the supersession note above; the FIFO engine
+  was removed and replaced by the count-based design, at the developer's explicit direction.
 - **Units are a property of the ingredient, not the dish** — a dish is sold per porsiya and has no
   unit (§1.9 `S-1`).
 - **Exactly three units, as an immutable enum**: `KG` · `LITR` · `DONA`. No `conversionFactor`

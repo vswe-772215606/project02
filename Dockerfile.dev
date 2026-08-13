@@ -1,0 +1,8 @@
+FROM node:22-bookworm
+# ELECTRON_OVERRIDE_DIST_PATH: plain-Node requires of 'electron' must not throw in a container without the binary; prisma-runtime's existing `!app` guard handles the rest, same as on dev hosts.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
+    PUPPETEER_SKIP_DOWNLOAD=1 \
+    CI=1 \
+    ELECTRON_OVERRIDE_DIST_PATH=/opt/electron-not-installed
+RUN corepack enable && corepack prepare pnpm@9 --activate
+WORKDIR /app

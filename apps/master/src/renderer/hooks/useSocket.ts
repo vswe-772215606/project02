@@ -70,13 +70,11 @@ export function useSocket() {
     nextSocket.on('order:walkout', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('order:transferred', () => queryClientRef.current.invalidateQueries({ queryKey: ['orders'] }));
     nextSocket.on('menu:itemAvailability', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));
-    nextSocket.on('ingredient:stockChanged', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['ingredients'] });
+    nextSocket.on('stock:changed', () => {
+      queryClientRef.current.invalidateQueries({ queryKey: ['stock'] });
       queryClientRef.current.invalidateQueries({ queryKey: ['menu'] });
-      queryClientRef.current.invalidateQueries({ queryKey: ['yield'] });
     });
-    nextSocket.on('ingredient:changed', () => queryClientRef.current.invalidateQueries({ queryKey: ['ingredients'] }));
-    nextSocket.on('recipe:changed', () => queryClientRef.current.invalidateQueries({ queryKey: ['recipes'] }));
+    nextSocket.on('menu:changed', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));
 
     return () => {
       if (getSocketClient() === nextSocket) {

@@ -2,10 +2,10 @@
 // and that the totals don't double-count purchases against COGS.
 //
 // Scenario (all today):
-//   1. Create a composite dish (Lag'mon) with known ingredients & costs.
+//   1. Create a counted dish (Lag'mon) with a fixed per-portion cost.
 //   2. Sell N portions through to CLOSED — known revenue + known COGS.
-//   3. Record an extra ingredient purchase (zaxira to'ldirish, separate from
-//      the initial purchases done by menu-create).
+//   3. Record an extra money-restock (zaxira to'ldirish, separate from the
+//      item's initial count at menu-create — that entry carries no money).
 //   4. Record an operating expense (e.g. "Yorug'lik haqi") — NOT ingredient cat.
 //   5. Open a debt and immediately collect a partial repayment.
 //   6. GET /api/finance/daily and assert:
@@ -116,25 +116,21 @@ async function main() {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  step('1', 'CREATE composite dish (Lag\'mon) with 2 ingredients');
+  step('1', 'CREATE counted dish (Lag\'mon) with a fixed per-portion cost');
   const dishName = `Lag'mon PNL ${suffix}`;
+  // costPrice 9,200 mirrors the old composite calc (100g×80 + 200g×6) so every
+  // downstream numeric assertion in this script stays unchanged.
   const { body: dish } = await http<{ id: string; price: number }>(
     'POST', '/api/menu/items',
     {
       token: adminToken,
       body: {
-        mode: 'COMPOSITE',
+        mode: 'COUNTED',
         categoryId,
         name: dishName,
         price: 45000,
-        composite: {
-          ingredients: [
-            // Go'sht: 100g/portion × 5 portions = 500g; cost = 500 × 80 = 40,000
-            { name: `Go'sht-pnl-${suffix}`, unit: 'kg', quantityPerPortion: 100, initialQty: 2, initialUnitCost: 80000 },
-            // Xamir: 200g/portion × 5 portions = 1000g; cost = 1000 × 6 = 6,000
-            { name: `Xamir-pnl-${suffix}`, unit: 'kg', quantityPerPortion: 200, initialQty: 3, initialUnitCost: 6000 },
-          ],
-        },
+        costPrice: 9200,
+        initialCount: 20,
       },
     },
   );
@@ -163,29 +159,19 @@ async function main() {
   });
   ok('order CLOSED with 225,000 cash');
 
-  // Expected COGS per portion: 100g × 80 + 200g × 6 = 8,000 + 1,200 = 9,200
+  // Expected COGS per portion: dish.costPrice = 9,200 (fixed at create time)
   // 5 portions → revenue 225,000; COGS 46,000; profit 179,000
   const expectedRevenue = 225000;
   const expectedCogs = 5 * 9200;
   const expectedDishProfit = expectedRevenue - expectedCogs;
 
   // ─────────────────────────────────────────────────────────────────────
-  step('3', 'Record an extra ingredient purchase today (zaxira to\'ldirish)');
-  const goshtIng = await prisma.ingredient.findFirst({
-    where: { name: `Go'sht-pnl-${suffix}` },
-  });
-  if (!goshtIng) fail('Go\'sht ingredient not found');
-  await http('POST', '/api/purchases', {
+  step('3', 'Record an extra stock restock today (zaxira to\'ldirish) — money only, cost unchanged');
+  await http('POST', `/api/stock/${dish.id}/restock`, {
     token: adminToken,
-    body: {
-      ingredientId: goshtIng.id,
-      quantityBuyUnit: 1,
-      totalCostUzs: 85000,
-      occurredAt: todayISO(),
-      supplierNote: 'pnl-extra',
-    },
+    body: { qty: 10, paidUzs: 85000, note: 'pnl-extra' },
   });
-  ok('extra Go\'sht purchase 85,000');
+  ok('extra restock 85,000 (costPrice left at 9,200 — no setCostFromPaid)');
 
   // ─────────────────────────────────────────────────────────────────────
   step('4', 'Record an operating expense (NOT ingredient category)');

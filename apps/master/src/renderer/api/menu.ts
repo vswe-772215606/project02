@@ -10,6 +10,9 @@ export interface MenuItem {
   kind: 'FOOD' | 'SERVICE';
   isAvailable: boolean;
   isActive: boolean;
+  counted: boolean;
+  stockCount: number | null;
+  costPrice: string | null;
   // Present on the GET /api/menu client payload: isAvailable AND in stock
   // (or untracked). Absent on the flat /items admin list.
   effectivelyAvailable?: boolean;
@@ -39,44 +42,19 @@ export interface Combo {
   components: ComboComponent[];
 }
 
-// Discriminated payload for POST /api/menu/items. `mode` decides whether the
-// item carries its own stock (SIMPLE), is composed from ingredients with
-// per-portion quantities (COMPOSITE), or is a non-tracked service charge (SERVICE).
-export type CreateItemUnit = 'dona' | 'kg' | 'l';
-
+// Payload for POST /api/menu/items. `mode` decides whether the item's stock
+// is counted (COUNTED), untracked and always available (UNCOUNTED), or the
+// item is a non-stock service charge (SERVICE).
 export type CreateItemPayload = {
   categoryId: string;
   name: string;
   price: number;
   description?: string;
   displayOrder?: number;
-} & (
-  | { mode: 'SERVICE' }
-  // Untracked FOOD: no recipe, no self-ingredient, no starting number —
-  // always available (e.g. choy). Same payload shape as SERVICE (name/price only).
-  | { mode: 'UNTRACKED' }
-  | {
-      mode: 'SIMPLE';
-      simple: {
-        unit: CreateItemUnit;
-        unitCost: number;     // so'm per buyUnit
-        initialQty?: number;  // optional, in buyUnit
-      };
-    }
-  | {
-      mode: 'COMPOSITE';
-      composite: {
-        notes?: string | null;
-        ingredients: Array<{
-          name: string;
-          unit: CreateItemUnit;
-          quantityPerPortion: number; // in recipeUnit per portion
-          initialQty: number;         // in buyUnit
-          initialUnitCost: number;    // so'm per buyUnit
-        }>;
-      };
-    }
-);
+  mode: 'SERVICE' | 'COUNTED' | 'UNCOUNTED';
+  costPrice?: number | null;
+  initialCount?: number | null;
+};
 
 export const menuApi = {
   getMenu: (includeInactive = false) => api.get<{ categories: Category[] }>(`/api/menu${includeInactive ? '?includeInactive=true' : ''}`),
@@ -89,7 +67,7 @@ export const menuApi = {
   listItems: (includeInactive = false) => api.get<MenuItem[]>(`/api/menu/items${includeInactive ? '?includeInactive=true' : ''}`),
   createItem: (data: CreateItemPayload) =>
     api.post<MenuItem>('/api/menu/items', data),
-  updateItem: (id: string, data: Partial<MenuItem>) => 
+  updateItem: (id: string, data: Partial<MenuItem> & { costPrice?: string | number | null; counted?: boolean }) =>
     api.patch<MenuItem>(`/api/menu/items/${id}`, data),
   toggleAvailability: (id: string, isAvailable: boolean) => 
     api.patch<MenuItem>(`/api/menu/items/${id}/availability`, { isAvailable }),

@@ -1,18 +1,25 @@
-// End-to-end smoke: full chayxana inventory cycle, post-FIFO + new menu UX.
+// End-to-end smoke: full chayxana count-based inventory cycle (2026-08
+// refactor). Drives the running master via HTTP + verifies the resulting DB
+// state directly, same style as smoke-stock-count.ts.
 //
 // Lifecycle:
-//   1. Admin creates a composite dish in ONE call (new menu-create API).
-//   2. Waiter sells some — FIFO peels initial batches.
-//   3. Admin restocks one ingredient via Xaridlar (new FIFO batch with a
-//      DIFFERENT unit cost).
-//   4. Waiter sells enough to drain the old batch and bite into the new —
-//      verify COGS reflects the per-batch mix (the "honest history" rule).
-//   5. Admin edits the recipe (portion qty) via Retseptlar.
-//   6. Waiter sells again — verify the new per-portion qty and that COGS
-//      uses the new batch's unit cost.
-//   7. List ingredients (Mahsulotlar page data) — verify the new ones show.
-//   8. List purchases — verify both batches are visible with the expected
-//      consumed/remaining split.
+//   1. Admin creates a COUNTED dish in ONE call — mode: 'COUNTED', a tan
+//      narx (costPrice), and an initialCount — the new menu-create API.
+//   2. Waiter opens a TAKEAWAY draft and sells some — stockCount decrements
+//      1:1 and the line's cogsSnapshot books costPrice × qty.
+//   3. Admin restocks via Ombor ("+ Keldi") with money paid and
+//      setCostFromPaid: a StockEntry(RESTOCK) journals qty/paid/unitCost,
+//      links an Expense in "Mahsulot xaridi", and refreshes costPrice.
+//   4. Waiter sells more of the SAME dish on the SAME order — addLine merges
+//      into the existing line instead of opening a second one, and the
+//      extra portions accrue COGS at the then-current (post-restock)
+//      costPrice — the "blended at time of sale" rule.
+//   5. Waiter sends, admin confirms with an exact CASH payment — order goes
+//      SENT → CLOSED, and the day's finance ledger books the line's
+//      cogsSnapshot into pnl.cogs.
+//   6. Admin corrects the count via Ombor ("Sanoq") — a StockEntry(COUNT)
+//      journals countBefore/countAfter. This is the only stock-correction
+//      mechanism; there is no batch history to reconcile against.
 //
 // Prereq: dev:master running on $BASE_URL (default http://localhost:4000).
 
@@ -70,24 +77,6 @@ async function pickCategoryId(): Promise<string> {
   if (!cat) fail('No active category');
   return cat.id;
 }
-async function findFreeTable(): Promise<string> {
-  const t = await prisma.table.findFirst({
-    where: { isActive: true, orders: { none: { status: { in: ['DRAFT', 'SENT'] } } } },
-  });
-  if (!t) fail('No free table');
-  return t.id;
-}
-async function newOrderAndAdd(token: string, menuItemId: string, qty: number) {
-  // TAKEAWAY — no table needed, so smoke can open many orders back-to-back
-  // without exhausting the seeded tables (DINE_IN orders lock a table while DRAFT).
-  const { body: order } = await http<{ id: string }>('POST', '/api/orders', {
-    token, body: { orderType: 'TAKEAWAY' },
-  });
-  await http('POST', `/api/orders/${order.id}/items`, {
-    token, body: { menuItemId, quantity: qty },
-  });
-  return order.id;
-}
 async function lineFor(orderId: string) {
   const lines = await prisma.orderLine.findMany({ where: { orderId, isCanceled: false } });
   if (lines.length === 0) fail(`No line in order ${orderId}`);
@@ -95,7 +84,7 @@ async function lineFor(orderId: string) {
 }
 
 async function main() {
-  console.log(c(35, '\n=== Full chayxana flow smoke ===\n'));
+  console.log(c(35, '\n=== Full chayxana flow smoke (count-based inventory) ===\n'));
 
   const adminToken = await loginAdmin();
   const waiterToken = await loginWaiter();
@@ -103,156 +92,119 @@ async function main() {
   const suffix = Date.now().toString().slice(-5);
 
   // ─────────────────────────────────────────────────────────────────────────
-  step('1', 'CREATE composite dish in one shot — Lag\'mon');
-  const dishName = `Lag'mon E2E ${suffix}`;
-  const goshtName = `Go'sht E2E ${suffix}`;
-  const xamirName = `Xamir E2E ${suffix}`;
+  step('1', "CREATE a COUNTED dish in one shot — Osh, costPrice 18 000, initialCount 10");
+  const dishName = `Osh E2E ${suffix}`;
   const { body: dish } = await http<{ id: string }>(
     'POST', '/api/menu/items',
     {
       token: adminToken,
       body: {
-        mode: 'COMPOSITE',
+        mode: 'COUNTED',
         categoryId,
         name: dishName,
-        price: 45000,
-        composite: {
-          ingredients: [
-            // Go'sht: 100g/portion, 1 kg @ 80,000 so'm/kg (unit cost per gram = 80)
-            { name: goshtName, unit: 'kg', quantityPerPortion: 100, initialQty: 1, initialUnitCost: 80000 },
-            // Xamir: 200g/portion, 2 kg @ 6,000 so'm/kg (unit cost per gram = 6)
-            { name: xamirName, unit: 'kg', quantityPerPortion: 200, initialQty: 2, initialUnitCost: 6000 },
-          ],
-        },
+        price: 30000,
+        costPrice: 18000,
+        initialCount: 10,
       },
     },
   );
   ok(`created dish id=${dish.id}`);
-  // Sanity: recipe + 2 ingredients + 2 purchases exist.
-  const goshtIng = await prisma.ingredient.findFirst({ where: { name: goshtName }, include: { purchases: true } });
-  const xamirIng = await prisma.ingredient.findFirst({ where: { name: xamirName }, include: { purchases: true } });
-  if (!goshtIng || !xamirIng) fail('Missing ingredients after create');
-  assertEq('Go\'sht initial batch remaining (g)', goshtIng.purchases[0].remainingQty.toFixed(0), '1000');
-  assertEq('Xamir initial batch remaining (g)', xamirIng.purchases[0].remainingQty.toFixed(0), '2000');
+  const dishCreated = await prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+  assertEq('counted flag on create', dishCreated.counted, true);
+  assertEq('stockCount after initialCount 10', dishCreated.stockCount, 10);
+  assertEq('costPrice after create', dishCreated.costPrice?.toFixed(0), '18000');
 
   // ─────────────────────────────────────────────────────────────────────────
-  step('2', 'Sell 3 portions — verify FIFO COGS = portions × (100×80 + 200×6) = portions × 9200');
-  const order1 = await newOrderAndAdd(waiterToken, dish.id, 3);
-  const line1 = await lineFor(order1);
-  // Expected COGS = 3 × (100×80 + 200×6) = 3 × (8000 + 1200) = 3 × 9200 = 27600
-  assertEq('order1 line cogsSnapshot', Number(line1.cogsSnapshot).toFixed(0), '27600');
-  const goshtAfter1 = await prisma.ingredient.findUnique({ where: { id: goshtIng.id }, include: { purchases: true } });
-  const xamirAfter1 = await prisma.ingredient.findUnique({ where: { id: xamirIng.id }, include: { purchases: true } });
-  // Go'sht: 1000g - 3×100 = 700g; Xamir: 2000g - 3×200 = 1400g
-  assertEq('Go\'sht stock after 3 portions', goshtAfter1?.currentStock.toFixed(0), '700');
-  assertEq('Xamir stock after 3 portions', xamirAfter1?.currentStock.toFixed(0), '1400');
+  step('2', 'Waiter opens a TAKEAWAY draft, sells 4 — stockCount 10 → 6, line cogs 4 × 18 000');
+  const { body: order } = await http<{ id: string }>('POST', '/api/orders', {
+    token: waiterToken, body: { orderType: 'TAKEAWAY' },
+  });
+  await http('POST', `/api/orders/${order.id}/items`, {
+    token: waiterToken, body: { menuItemId: dish.id, quantity: 4 },
+  });
+  const afterSale = await prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+  assertEq('stockCount after selling 4 of 10', afterSale.stockCount, 6);
+  const line1 = await lineFor(order.id);
+  assertEq('line cogsSnapshot (18000 × 4)', line1.cogsSnapshot?.toFixed(0), '72000');
 
   // ─────────────────────────────────────────────────────────────────────────
-  step('3', 'Restock both ingredients via /api/purchases — Go\'sht at HIGHER price');
-  // New Go'sht batch: 1 kg @ 90,000 so'm/kg (was 80,000). Per-gram cost = 90.
-  await http('POST', '/api/purchases', {
+  step('3', "Admin restocks 20 via Ombor, paid 300 000 with setCostFromPaid — cost refreshes to 15 000");
+  await http('POST', `/api/stock/${dish.id}/restock`, {
     token: adminToken,
-    body: {
-      ingredientId: goshtIng.id,
-      quantityBuyUnit: 1,
-      totalCostUzs: 90000,
-      occurredAt: new Date().toISOString(),
-      supplierNote: 'restock-gosht-e2e',
-    },
+    body: { qty: 20, paidUzs: 300000, setCostFromPaid: true, note: 'e2e restock' },
   });
-  // New Xamir batch: 2 kg @ 6,000 so'm/kg (same price). Just to give us headroom.
-  await http('POST', '/api/purchases', {
+  const afterRestock = await prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+  assertEq('stockCount after restock (6 + 20)', afterRestock.stockCount, 26);
+  assertEq('costPrice refreshed to 300000/20', afterRestock.costPrice?.toFixed(0), '15000');
+  const restockEntry = await prisma.stockEntry.findFirstOrThrow({
+    where: { menuItemId: dish.id, kind: 'RESTOCK' },
+    orderBy: { createdAt: 'desc' },
+    include: { expense: true },
+  });
+  assertEq('restock entry unitCost', restockEntry.unitCost?.toFixed(0), '15000');
+  if (!restockEntry.expense) fail('restock expense missing');
+  assertEq('expense category (Mahsulot xaridi)', restockEntry.expense.categoryId, 'seed-cat-ingredients');
+  assertEq('expense amount', restockEntry.expense.amount.toFixed(0), '300000');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  step('4', 'Waiter sells 2 more of the same dish — addLine merges into line1, blended cost');
+  await http('POST', `/api/orders/${order.id}/items`, {
+    token: waiterToken, body: { menuItemId: dish.id, quantity: 2 },
+  });
+  const afterMerge = await prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+  assertEq('stockCount after merge-add 2 (26 - 2)', afterMerge.stockCount, 24);
+  const line2 = await lineFor(order.id);
+  assertEq('merge reused the same line (no second line opened)', line2.id, line1.id);
+  assertEq('merged line quantity (4 + 2)', line2.quantity, 6);
+  assertEq('merged line cogsSnapshot (72000 + 2×15000)', line2.cogsSnapshot?.toFixed(0), '102000');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  step('5', 'Send + confirm with exact CASH — order CLOSED, finance daily books the COGS');
+  await http('POST', `/api/orders/${order.id}/send`, { token: waiterToken });
+  const orderRow = await prisma.order.findUniqueOrThrow({
+    where: { id: order.id },
+    include: { lines: { where: { isCanceled: false } } },
+  });
+  const due = orderRow.lines.reduce((sum, l) => sum + Number(l.unitPriceSnapshot) * l.quantity, 0);
+  assertEq('order due (price 30000 × qty 6)', due, 180000);
+  await http('POST', `/api/orders/${order.id}/confirm`, {
     token: adminToken,
-    body: {
-      ingredientId: xamirIng.id,
-      quantityBuyUnit: 2,
-      totalCostUzs: 12000,
-      occurredAt: new Date().toISOString(),
-      supplierNote: 'restock-xamir-e2e',
-    },
+    body: { payments: [{ method: 'CASH', amount: due }] },
   });
-  const goshtAfterRestock = await prisma.ingredient.findUnique({
-    where: { id: goshtIng.id },
-    include: { purchases: { orderBy: { occurredAt: 'asc' } } },
-  });
-  assertEq('Go\'sht batches count after restock', goshtAfterRestock?.purchases.length, 2);
-  assertEq('Go\'sht stock after restock (700 + 1000)', goshtAfterRestock?.currentStock.toFixed(0), '1700');
-  assertEq('Go\'sht batch 1 remaining (oldest)', goshtAfterRestock?.purchases[0].remainingQty.toFixed(0), '700');
-  assertEq('Go\'sht batch 2 remaining (newest)', goshtAfterRestock?.purchases[1].remainingQty.toFixed(0), '1000');
+  const closedOrder = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+  assertEq('order status', closedOrder.status, 'CLOSED');
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tashkent' });
+  const daily = (await http<{
+    pnl: { cogs: string };
+    ledger: { outflow: { ingredientPurchases: string } };
+  }>('GET', `/api/finance/daily?date=${today}`, { token: adminToken })).body;
+  if (Number(daily.pnl.cogs) < 102000) {
+    fail(`daily pnl.cogs ${daily.pnl.cogs} does not include this order's 102000`);
+  }
+  ok(`daily pnl.cogs (${daily.pnl.cogs}) includes this order's 102000`);
+  if (Number(daily.ledger.outflow.ingredientPurchases) < 300000) {
+    fail(`ledger ingredientPurchases ${daily.ledger.outflow.ingredientPurchases} missing the 300000 restock`);
+  }
+  ok(`ledger ingredientPurchases (${daily.ledger.outflow.ingredientPurchases}) includes 300000`);
 
   // ─────────────────────────────────────────────────────────────────────────
-  step('4', 'Sell 10 portions — drain old Go\'sht batch (700g/100 = 7 portions) and bite into new (3 × 100g = 300g from new)');
-  const order2 = await newOrderAndAdd(waiterToken, dish.id, 10);
-  const line2 = await lineFor(order2);
-  // Go'sht COGS: 700 × 80 (old batch) + 300 × 90 (new batch) = 56000 + 27000 = 83000
-  // Xamir COGS: 10 × 200g × 6 = 12000
-  // Total: 83000 + 12000 = 95000
-  assertEq('order2 line cogsSnapshot (mixed batches)', Number(line2.cogsSnapshot).toFixed(0), '95000');
-  const goshtAfter2 = await prisma.ingredient.findUnique({
-    where: { id: goshtIng.id },
-    include: { purchases: { orderBy: { occurredAt: 'asc' } } },
+  step('6', "Admin corrects the count via Sanoq — 24 → 3");
+  await http('POST', `/api/stock/${dish.id}/count`, {
+    token: adminToken, body: { countedQty: 3, note: 'e2e count-set' },
   });
-  assertEq('Go\'sht batch 1 fully consumed', goshtAfter2?.purchases[0].remainingQty.toFixed(0), '0');
-  assertEq('Go\'sht batch 2 remaining (1000 - 300)', goshtAfter2?.purchases[1].remainingQty.toFixed(0), '700');
-
-  // ─────────────────────────────────────────────────────────────────────────
-  step('5', 'Edit recipe — bump Go\'sht per-portion qty from 100g to 120g');
-  // PUT /api/menu/items/:id/recipe expects ingredients array
-  const recipe = await prisma.recipe.findUnique({
-    where: { menuItemId: dish.id },
-    include: { ingredients: true },
+  const afterCount = await prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+  assertEq('stockCount after Sanoq', afterCount.stockCount, 3);
+  const countEntry = await prisma.stockEntry.findFirstOrThrow({
+    where: { menuItemId: dish.id, kind: 'COUNT' },
+    orderBy: { createdAt: 'desc' },
   });
-  if (!recipe) fail('No recipe');
-  await http('PUT', `/api/menu/items/${dish.id}/recipe`, {
-    token: adminToken,
-    body: {
-      ingredients: recipe.ingredients.map((ri) => ({
-        ingredientId: ri.ingredientId,
-        quantity: ri.ingredientId === goshtIng.id ? 120 : Number(ri.quantity),
-      })),
-    },
-  });
-  const recipeAfter = await prisma.recipe.findUnique({
-    where: { menuItemId: dish.id },
-    include: { ingredients: true },
-  });
-  const goshtRi = recipeAfter?.ingredients.find((ri) => ri.ingredientId === goshtIng.id);
-  assertEq('Go\'sht per-portion qty after edit', Number(goshtRi?.quantity).toFixed(0), '120');
-
-  // ─────────────────────────────────────────────────────────────────────────
-  step('6', 'Sell 2 more — should consume 2 × 120g = 240g Go\'sht @ new batch 90/g + 2 × 200g Xamir');
-  const order3 = await newOrderAndAdd(waiterToken, dish.id, 2);
-  const line3 = await lineFor(order3);
-  // Go'sht: 240 × 90 = 21600; Xamir: 2 × 200 × 6 = 2400; Total: 24000
-  assertEq('order3 line cogsSnapshot (new portion qty + new batch price)', Number(line3.cogsSnapshot).toFixed(0), '24000');
-  const goshtAfter3 = await prisma.ingredient.findUnique({
-    where: { id: goshtIng.id },
-    include: { purchases: { orderBy: { occurredAt: 'asc' } } },
-  });
-  assertEq('Go\'sht batch 2 remaining (700 - 240)', goshtAfter3?.purchases[1].remainingQty.toFixed(0), '460');
-
-  // ─────────────────────────────────────────────────────────────────────────
-  step('7', 'Mahsulotlar (GET /api/ingredients) shows our new ingredients');
-  const { body: ingsList } = await http<Array<{ id: string; name: string }>>(
-    'GET', '/api/ingredients', { token: adminToken },
-  );
-  const haveGosht = ingsList.find((i) => i.id === goshtIng.id);
-  const haveXamir = ingsList.find((i) => i.id === xamirIng.id);
-  if (!haveGosht) fail('Go\'sht not in ingredients list');
-  if (!haveXamir) fail('Xamir not in ingredients list');
-  ok(`both ingredients listed (${ingsList.length} total)`);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  step('8', 'Xaridlar (GET /api/purchases) shows both Go\'sht batches');
-  const { body: purchasesList } = await http<Array<{ id: string; ingredientId: string; remainingQty: string; status: string }>>(
-    'GET', `/api/purchases?ingredientId=${goshtIng.id}`, { token: adminToken },
-  );
-  const myGoshtPurchases = purchasesList.filter((p) => p.ingredientId === goshtIng.id);
-  assertEq('Go\'sht ACTIVE batch rows in list', myGoshtPurchases.filter((p) => p.status === 'ACTIVE').length, 2);
+  assertEq('StockEntry(COUNT) countBefore', countEntry.countBefore, 24);
+  assertEq('StockEntry(COUNT) countAfter', countEntry.countAfter, 3);
 
   console.log(c(32, '\n=== Full flow smoke passed ===\n'));
-  note('Manual UI check next: open Menu → "Qo\'shish", switch modes, verify live cost preview;');
-  note('open Xaridlar to see the new Go\'sht batches with the consumed/remaining counts.');
+  note('Manual UI check next: open Menu → "Qo\'shish", pick COUNTED, verify live availability;');
+  note('open Ombor to see the restock + Sanoq entries against this dish.');
 }
 
 main()

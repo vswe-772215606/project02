@@ -121,17 +121,12 @@ export const alertService = {
     );
   },
 
-  /** A sale drove an ingredient's stock to zero. Gated by alert_low_stock_enabled. */
-  async ingredientStockOut(p: {
-    ingredientName: string;
-    dishName: string;
-    unit: string;
-  }): Promise<void> {
+  /** A sale drove an item's counted stock to zero. Gated by alert_low_stock_enabled. */
+  async itemStockOut(p: { itemName: string }): Promise<void> {
     if (!boolSetting('alert_low_stock_enabled', true)) return;
-    const forDish = p.dishName ? ` (${p.dishName} uchun)` : '';
     await send(
-      `📦 <b>Mahsulot tugadi</b>\n` +
-        `<b>${p.ingredientName}</b>${forDish} — zaxira 0 ${p.unit}`.trim(),
+      `📦 <b>Taom tugadi</b>\n` +
+        `<b>${p.itemName}</b> — qoldiq 0`,
     );
   },
 };
