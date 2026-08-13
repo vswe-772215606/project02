@@ -59,7 +59,7 @@ export function ComponentsPage() {
   };
 
   return (
-    <div className="min-h-full bg-seam p-pad">
+    <div className="h-full overflow-auto bg-seam p-pad">
       <Seam className="mx-auto max-w-[1000px]">
         <Field>
           <div className="text-[24px] font-semibold tracking-[-0.015em]">Blocks C1</div>
@@ -78,7 +78,7 @@ export function ComponentsPage() {
         </Section>
 
         <Section title="Field tones" note="The same surface in each state fill. Every tone pairs with a word — the fill never carries the meaning alone.">
-          <Seam direction="row" wrap className="w-max">
+          <Seam direction="row" wrap>
             <Field className="w-[150px]"><FieldLabel>Default</FieldLabel><div className="mt-1">Bo'sh</div></Field>
             <Field tone="raised" className="w-[150px]"><FieldLabel>Raised</FieldLabel><div className="mt-1">Sarlavha</div></Field>
             <Field tone="live" className="w-[150px]"><FieldLabel>Live</FieldLabel><div className="mt-1">Band</div></Field>

@@ -18,7 +18,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full w-full overflow-hidden bg-seam p-seam text-foreground">
       <NavRail />
-      <div className="ml-seam flex min-w-0 flex-1 flex-col gap-seam">
+      {/* min-h-0 so a tall screen scrolls inside the shell rather than
+          stretching it past the display. */}
+      <div className="ml-seam flex min-h-0 min-w-0 flex-1 flex-col gap-seam">
         <ConnectionBanner />
         {children}
       </div>

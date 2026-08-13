@@ -30,10 +30,15 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
 });
 
+/**
+ * App screens carry their real Uzbek names because that is what the operator
+ * sees. The last entry is a developer reference — the component sheet — and is
+ * labelled in English and set apart, so it never reads as a screen of the app.
+ */
 const VIEWS = [
-  { id: 'tasdiqlash', label: 'Tasdiqlash', path: '/approval-queue' },
-  { id: 'ombor', label: 'Ombor', path: '/ombor' },
-  { id: 'primitivlar', label: 'Primitivlar', path: '/components' },
+  { id: 'tasdiqlash', label: 'Tasdiqlash', path: '/approval-queue', app: true },
+  { id: 'ombor', label: 'Ombor', path: '/ombor', app: true },
+  { id: 'design', label: 'Design system', path: '/components', app: false },
 ] as const;
 
 type ViewId = (typeof VIEWS)[number]['id'];
@@ -82,17 +87,22 @@ function Preview() {
             key={v.id}
             type="button"
             onClick={() => setView(v.id)}
+            style={!v.app ? { marginLeft: 16 } : undefined}
             className={
               v.id === view
                 ? 'h-control bg-selected px-5 text-[15px] font-semibold text-selected-foreground'
-                : 'h-control bg-field px-5 text-[15px] font-semibold text-foreground'
+                : v.app
+                  ? 'h-control bg-field px-5 text-[15px] font-semibold text-foreground'
+                  : 'h-control bg-field-raised px-5 text-[15px] font-semibold text-muted-foreground'
             }
           >
             {v.label}
           </button>
         ))}
         <span className="ml-3 text-[13px] text-muted-foreground">
-          1366 × 768 · haqiqiy komponentlar, soxta ma'lumot
+          {active.app
+            ? "1366 × 768 · haqiqiy sahifa, soxta ma'lumot"
+            : '1366 × 768 · developer reference, not an app screen'}
         </span>
       </div>
 

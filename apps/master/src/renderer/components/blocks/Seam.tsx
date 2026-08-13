@@ -23,17 +23,25 @@ type SeamProps = React.HTMLAttributes<HTMLDivElement> & {
  * consistent 2px grid across the whole screen.
  */
 export const Seam = React.forwardRef<HTMLDivElement, SeamProps>(
-  ({ className, direction = 'column', columns, wrap = false, style, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn(
-        'grid gap-seam bg-seam',
-        !columns && direction === 'row' && (wrap ? 'grid-flow-col auto-cols-max' : 'grid-flow-col'),
-        className,
-      )}
-      style={columns ? { gridTemplateColumns: columns, ...style } : style}
-      {...props}
-    />
-  ),
+  ({ className, direction = 'column', columns, wrap = false, style, ...props }, ref) => {
+    // A grid with `grid-flow-col` never wraps, whatever you ask it — a wrapping
+    // row has to be flex. Getting this wrong ran a row of fields off the right
+    // edge of the screen instead of onto a second line.
+    const wrapping = !columns && direction === 'row' && wrap;
+
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          'gap-seam bg-seam',
+          wrapping ? 'flex flex-wrap' : 'grid',
+          !columns && direction === 'row' && !wrap && 'grid-flow-col auto-cols-max',
+          className,
+        )}
+        style={columns ? { gridTemplateColumns: columns, ...style } : style}
+        {...props}
+      />
+    );
+  },
 );
 Seam.displayName = 'Seam';
