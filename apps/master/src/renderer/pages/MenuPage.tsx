@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,13 +12,11 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Package,
   RotateCcw,
   X,
   Search,
 } from 'lucide-react';
-import { menuApi, Category, MenuItem, Combo, CreateItemPayload, CreateItemUnit } from '../api/menu';
-import { yieldApi } from '../api/yield';
+import { menuApi, Category, MenuItem, Combo, CreateItemPayload } from '../api/menu';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -28,6 +26,10 @@ import { EmptyState } from '@/components/feedback/EmptyState';
 import { MoneyCell } from '@/components/data/MoneyCell';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 const categorySchema = z.object({
@@ -58,6 +60,8 @@ type ItemEditSubmit = {
   description?: string;
   displayOrder: number;
   kind: 'FOOD' | 'SERVICE';
+  costPrice: number | null;
+  counted: boolean;
 };
 
 export function MenuPage() {
@@ -105,12 +109,6 @@ export function MenuPage() {
     queryFn: () => menuApi.listCombos(showInactive),
   });
 
-  const { data: yieldRows = [] } = useQuery({
-    queryKey: ['yield'],
-    queryFn: () => yieldApi.list(),
-  });
-  const yieldMap = new Map(yieldRows.map((row) => [row.menuItemId, row]));
-
   // Category Mutations
   const createCategoryMutation = useMutation({
     mutationFn: (data: any) => menuApi.createCategory(data),
@@ -133,9 +131,6 @@ export function MenuPage() {
     mutationFn: (data: CreateItemPayload) => menuApi.createItem(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['menu'] });
-      queryClient.invalidateQueries({ queryKey: ['ingredients'] });
-      queryClient.invalidateQueries({ queryKey: ['purchases'] });
-      queryClient.invalidateQueries({ queryKey: ['yield'] });
       setIsAddingItem(false);
     }
   });
@@ -327,15 +322,13 @@ export function MenuPage() {
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px] tracking-widest border-b border-slate-100">
                     <th className="px-6 py-3">Nomi</th>
                     <th className="px-6 py-3">Narxi</th>
-                    <th className="px-6 py-3 text-center">Yetadi (porsiya)</th>
+                    <th className="px-6 py-3 text-center">Qoldiq</th>
                     <th className="px-6 py-3 text-center">Holati</th>
                     <th className="px-6 py-3 text-right">Amallar</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {items.map((item) => {
-                    const y = yieldMap.get(item.id);
-                    return (
+                  {items.map((item) => (
                     <tr key={item.id} className={`hover:bg-slate-50/50 transition-colors ${!item.isActive ? 'bg-slate-50/50' : ''}`}>
                       <td className="px-6 py-4">
                         <div className={`font-bold ${!item.isActive ? 'text-slate-400 italic line-through' : 'text-slate-800'}`}>{item.name}</div>
@@ -345,20 +338,12 @@ export function MenuPage() {
                         <MoneyCell value={item.price} className={!item.isActive ? 'text-slate-400' : undefined} />
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {!y || y.kind === 'UNTRACKED' ? (
-                          <span className="text-slate-300" title="Zaxira hisoblanmaydi">—</span>
-                        ) : (y.possiblePortions ?? 0) === 0 ? (
-                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-red-50 text-red-600 border-red-100" title={y.bottleneckIngredientName ? `Tugadi: ${y.bottleneckIngredientName}` : 'Tugadi'}>
-                            <Package size={12} className="mr-1" />Tugadi
-                          </span>
-                        ) : (y.possiblePortions ?? 0) <= 5 ? (
-                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-100" title={y.bottleneckIngredientName ? `Kam: ${y.bottleneckIngredientName}` : ''}>
-                            <Package size={12} className="mr-1" />{y.possiblePortions}
-                          </span>
+                        {item.kind === 'SERVICE' || !item.counted ? (
+                          <Badge variant="outline">Doim mavjud</Badge>
+                        ) : item.stockCount === null ? (
+                          <Badge variant="outline">Sanoq kiritilmagan</Badge>
                         ) : (
-                          <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-100" title={y.bottleneckIngredientName ? `Cheklov: ${y.bottleneckIngredientName}` : ''}>
-                            <Package size={12} className="mr-1" />{y.possiblePortions}
-                          </span>
+                          <span className="tabular-nums">{item.stockCount} dona</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -391,8 +376,7 @@ export function MenuPage() {
                         </div>
                       </td>
                     </tr>
-                    );
-                  })}
+                  ))}
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
@@ -488,9 +472,10 @@ function CategoryModal({ category, onClose, onSave }: any) {
 }
 
 // ─── Edit existing item ──────────────────────────────────────────────────────
-// Kept slim by design: stock/cost edits go through PurchasesPage (FIFO batches),
-// recipe edits through RecipesPage. The single-form-with-modes UX is for
-// CREATE only; once an item exists, its mode is implicit in the data model.
+// Cost edits happen here, inline, for non-SERVICE items. Stock counts are
+// managed on the Ombor page — toggling `counted` here resets the count to
+// NULL server-side, so the admin re-enters it there. Mode itself (whether an
+// item is SERVICE vs counted/uncounted FOOD) is not switchable post-creation.
 function ItemEditModal({
   item,
   categories,
@@ -502,6 +487,7 @@ function ItemEditModal({
   onClose: () => void;
   onSave: (data: ItemEditSubmit) => void;
 }) {
+  const isService = item.kind === 'SERVICE';
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: zodResolver(itemEditSchema),
     defaultValues: {
@@ -510,13 +496,21 @@ function ItemEditModal({
       price: item.price,
       description: item.description ?? '',
       displayOrder: item.displayOrder,
-      isService: item.kind === 'SERVICE',
+      isService,
     },
   });
 
+  const [costPrice, setCostPrice] = useState(item.costPrice ?? '');
+  const [counted, setCounted] = useState(item.counted);
+
   const submit = handleSubmit((data: any) => {
-    const { isService, ...rest } = data;
-    onSave({ ...rest, kind: isService ? 'SERVICE' : 'FOOD' });
+    const { isService: _isService, ...rest } = data;
+    onSave({
+      ...rest,
+      kind: isService ? 'SERVICE' : 'FOOD',
+      costPrice: costPrice.trim() ? Number(costPrice) : null,
+      counted,
+    });
   });
 
   return (
@@ -564,11 +558,26 @@ function ItemEditModal({
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
-            Zaxira yoki tannarx tahriri uchun <strong>Xaridlar</strong> sahifasiga, retsept tahriri uchun{' '}
-            <strong>Retseptlar</strong> sahifasiga o'ting.
-          </div>
         </div>
+
+        {!isService && (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-cost">Tan narx (so'm)</Label>
+              <Input id="edit-cost" type="number" step="1" min={1} value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
+            </div>
+            <div className="flex items-start gap-3 rounded-md border border-input bg-muted/30 p-3">
+              <Checkbox id="edit-counted" checked={counted} onCheckedChange={(v) => setCounted(v === true)} />
+              <div className="space-y-0.5">
+                <Label htmlFor="edit-counted" className="cursor-pointer">Sanaladigan</Label>
+                <p className="text-xs text-muted-foreground">
+                  Yoqilsa qoldiq NULL bo'ladi — Ombor sahifasida sanoq kiritilguncha sotilmaydi.
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+
         <div className="flex space-x-3 pt-4">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Bekor qilish</button>
           <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700">Saqlash</button>
@@ -579,27 +588,7 @@ function ItemEditModal({
 }
 
 // ─── Create new item: three-mode form ────────────────────────────────────────
-type Mode = 'SIMPLE' | 'COMPOSITE' | 'UNTRACKED' | 'SERVICE';
-
-type IngRow = {
-  name: string;
-  unit: CreateItemUnit;
-  quantityPerPortion: string; // recipe-unit per portion (g, ml, dona)
-  initialQty: string;         // in buyUnit
-  initialUnitCost: string;    // so'm per buyUnit
-};
-
-function freshIngRow(): IngRow {
-  return { name: '', unit: 'kg', quantityPerPortion: '', initialQty: '', initialUnitCost: '' };
-}
-
-// Each unit preset implies a recipe-unit and conversion factor. Used both for
-// the unit dropdown labels and for the live cost preview math.
-const UNIT_DISPLAY: Record<CreateItemUnit, { buy: string; recipe: string; conv: number }> = {
-  dona: { buy: 'dona', recipe: 'dona', conv: 1 },
-  kg:   { buy: 'kg',   recipe: 'gramm', conv: 1000 },
-  l:    { buy: 'l',    recipe: 'ml',    conv: 1000 },
-};
+type Mode = 'COUNTED' | 'UNCOUNTED' | 'SERVICE';
 
 function ItemCreateModal({
   categories,
@@ -616,38 +605,17 @@ function ItemCreateModal({
   isPending?: boolean;
   errorMessage?: string | null;
 }) {
-  const [mode, setMode] = useState<Mode>('SIMPLE');
+  const [mode, setMode] = useState<Mode>('COUNTED');
   const [name, setName] = useState('');
   const [categoryId, setCategoryId] = useState(initialCategoryId || '');
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
 
-  // SIMPLE fields
-  const [simpleUnit, setSimpleUnit] = useState<CreateItemUnit>('dona');
-  const [simpleCost, setSimpleCost] = useState('');
-  const [simpleInitialQty, setSimpleInitialQty] = useState('');
-
-  // COMPOSITE fields
-  const [recipeNotes, setRecipeNotes] = useState('');
-  const [ingredients, setIngredients] = useState<IngRow[]>([freshIngRow()]);
+  // COUNTED / UNCOUNTED fields
+  const [costPrice, setCostPrice] = useState('');
+  const [initialCount, setInitialCount] = useState('');
 
   const [formError, setFormError] = useState<string | null>(null);
-
-  // Live computed cost for COMPOSITE: sum of (per-portion qty × per-recipeUnit cost).
-  // We normalise via UNIT_DISPLAY.conv: user types cost per buyUnit but
-  // quantityPerPortion is in recipeUnit (e.g. gramm), so we divide by conv.
-  const compositePortionCost = useMemo(() => {
-    let total = 0;
-    for (const row of ingredients) {
-      const qpp = Number(row.quantityPerPortion);
-      const cost = Number(row.initialUnitCost);
-      const conv = UNIT_DISPLAY[row.unit].conv;
-      if (qpp > 0 && cost > 0 && conv > 0) {
-        total += qpp * (cost / conv);
-      }
-    }
-    return Math.round(total);
-  }, [ingredients]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -670,79 +638,23 @@ function ItemCreateModal({
       return;
     }
 
-    // Untracked FOOD — nothing to collect beyond name/category/price.
-    if (mode === 'UNTRACKED') {
-      onSave({ ...base, mode: 'UNTRACKED' });
-      return;
-    }
-
-    if (mode === 'SIMPLE') {
-      const costNum = Number(simpleCost);
-      if (!Number.isFinite(costNum) || costNum <= 0) return setFormError('Tan narxi 0 dan katta bo\'lsin');
-      const qtyStr = simpleInitialQty.trim();
-      const qtyNum = qtyStr === '' ? undefined : Number(qtyStr);
-      if (qtyNum !== undefined && (!Number.isFinite(qtyNum) || qtyNum < 0)) {
-        return setFormError('Boshlang\'ich soni noto\'g\'ri');
-      }
-      onSave({
-        ...base,
-        mode: 'SIMPLE',
-        simple: {
-          unit: simpleUnit,
-          unitCost: costNum,
-          ...(qtyNum !== undefined && qtyNum > 0 ? { initialQty: qtyNum } : {}),
-        },
-      });
-      return;
-    }
-
-    // COMPOSITE
-    const cleanRows = ingredients
-      .map((r) => ({ ...r, name: r.name.trim() }))
-      .filter((r) => r.name || r.quantityPerPortion || r.initialQty || r.initialUnitCost);
-    if (cleanRows.length === 0) return setFormError('Kamida bitta mahsulot kiriting');
-    const seen = new Set<string>();
-    for (const row of cleanRows) {
-      if (!row.name) return setFormError('Mahsulot nomini kiriting');
-      if (seen.has(row.name.toLowerCase())) return setFormError(`"${row.name}" ikki marta kiritildi`);
-      seen.add(row.name.toLowerCase());
-      const qpp = Number(row.quantityPerPortion);
-      const iq = Number(row.initialQty);
-      const cost = Number(row.initialUnitCost);
-      if (!(qpp > 0)) return setFormError(`"${row.name}" — porsiyaga miqdor noto'g'ri`);
-      if (!(iq > 0)) return setFormError(`"${row.name}" — boshlang'ich zaxira noto'g'ri`);
-      if (!(cost > 0)) return setFormError(`"${row.name}" — birlik narxi noto'g'ri`);
-    }
     onSave({
       ...base,
-      mode: 'COMPOSITE',
-      composite: {
-        notes: recipeNotes.trim() || null,
-        ingredients: cleanRows.map((r) => ({
-          name: r.name,
-          unit: r.unit,
-          quantityPerPortion: Number(r.quantityPerPortion),
-          initialQty: Number(r.initialQty),
-          initialUnitCost: Number(r.initialUnitCost),
-        })),
-      },
+      mode,
+      costPrice: costPrice.trim() ? Number(costPrice) : null,
+      initialCount: mode === 'COUNTED' && initialCount.trim() ? Number(initialCount) : null,
     });
-  };
-
-  const updateIng = (idx: number, patch: Partial<IngRow>) => {
-    setIngredients((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
   return (
     <Modal title="Yangi mahsulot" onClose={onClose} maxWidth="max-w-2xl">
       <form onSubmit={submit} className="space-y-5">
-        {/* Mode picker — four radio cards (2×2) */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Mode picker — three radio cards */}
+        <div className="grid grid-cols-3 gap-2">
           {([
-            { id: 'SIMPLE', label: 'Oddiy', hint: "O'z zaxirasi va tan narxi (Pepsi, baklava)" },
-            { id: 'COMPOSITE', label: 'Mahsulotlardan tayyorlanadi', hint: 'Retsept asosida (plov, lag\'mon)' },
-            { id: 'UNTRACKED', label: 'Sanoqsiz (doim mavjud)', hint: "Zaxira sanalmaydi, doim sotuvda (choy)" },
-            { id: 'SERVICE', label: 'Xizmat haqi', hint: "Zaxira yo'q, retsept yo'q" },
+            { id: 'COUNTED', label: 'Sanaladigan', hint: "Qoldiq soni yuritiladi (plov, Pepsi, somsa)" },
+            { id: 'UNCOUNTED', label: 'Sanoqsiz (doim mavjud)', hint: 'Qoldiq sanalmaydi, doim sotuvda (choy)' },
+            { id: 'SERVICE', label: 'Xizmat haqi', hint: "Ovqat emas — hisobga xizmat qatori" },
           ] as const).map((opt) => (
             <button
               key={opt.id}
@@ -802,161 +714,38 @@ function ItemCreateModal({
           </div>
         </div>
 
-        {/* SIMPLE block */}
-        {mode === 'SIMPLE' && (
-          <div className="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-3">
-            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Oddiy mahsulot — o'z zaxirasi</div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Birlik</label>
-                <select
-                  value={simpleUnit}
-                  onChange={(e) => setSimpleUnit(e.target.value as CreateItemUnit)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="dona">Dona</option>
-                  <option value="kg">Kilogramm</option>
-                  <option value="l">Litr</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Tan narxi (so'm / {UNIT_DISPLAY[simpleUnit].buy})
-                </label>
-                <input
+        {mode !== 'SERVICE' && (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="item-cost">Tan narx (so'm, ixtiyoriy)</Label>
+              <Input
+                id="item-cost"
+                type="number"
+                step="1"
+                min={1}
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Kiritilmasa foyda hisobotida bu taom uchun xarajat 0 bo'ladi.
+              </p>
+            </div>
+            {mode === 'COUNTED' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="item-initial-count">Boshlang'ich sanoq (ixtiyoriy)</Label>
+                <Input
+                  id="item-initial-count"
                   type="number"
-                  step="100"
-                  value={simpleCost}
-                  onChange={(e) => setSimpleCost(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  step="1"
+                  min={0}
+                  value={initialCount}
+                  onChange={(e) => setInitialCount(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Kiritilmasa taom sanoq kiritilguncha sotilmaydi.
+                </p>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Boshlang'ich soni ({UNIT_DISPLAY[simpleUnit].buy})
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="ixtiyoriy"
-                  value={simpleInitialQty}
-                  onChange={(e) => setSimpleInitialQty(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Soni kiritilsa, shu miqdor narx bilan ombor partiyasi sifatida yoziladi. Har sotuvda 1 {UNIT_DISPLAY[simpleUnit].buy} ayriladi.
-            </p>
-          </div>
-        )}
-
-        {/* COMPOSITE block */}
-        {mode === 'COMPOSITE' && (
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Mahsulotlardan tayyorlanadi — retsept</div>
-              <button
-                type="button"
-                onClick={() => setIngredients((rows) => [...rows, freshIngRow()])}
-                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
-              >
-                <Plus size={14} /> Mahsulot qo'shish
-              </button>
-            </div>
-
-            {ingredients.map((row, idx) => (
-              <div key={idx} className="bg-white border border-emerald-200/60 rounded-lg p-3 space-y-2 relative">
-                <div className="grid grid-cols-12 gap-2">
-                  <div className="col-span-5">
-                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Mahsulot nomi</label>
-                    <input
-                      value={row.name}
-                      onChange={(e) => updateIng(idx, { name: e.target.value })}
-                      placeholder="masalan: Tovuq go'shti"
-                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">Birlik</label>
-                    <select
-                      value={row.unit}
-                      onChange={(e) => updateIng(idx, { unit: e.target.value as CreateItemUnit })}
-                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
-                      <option value="dona">Dona</option>
-                      <option value="kg">Kg → gramm</option>
-                      <option value="l">L → ml</option>
-                    </select>
-                  </div>
-                  <div className="col-span-3">
-                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
-                      1 porsiyaga ({UNIT_DISPLAY[row.unit].recipe})
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={row.quantityPerPortion}
-                      onChange={(e) => updateIng(idx, { quantityPerPortion: e.target.value })}
-                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div className="col-span-1 flex items-end justify-end">
-                    {ingredients.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setIngredients((rows) => rows.filter((_, i) => i !== idx))}
-                        className="text-slate-400 hover:text-red-500 p-1"
-                        aria-label="O'chirish"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
-                      Boshlang'ich zaxira ({UNIT_DISPLAY[row.unit].buy})
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={row.initialQty}
-                      onChange={(e) => updateIng(idx, { initialQty: e.target.value })}
-                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">
-                      Birlik narxi (so'm / {UNIT_DISPLAY[row.unit].buy})
-                    </label>
-                    <input
-                      type="number"
-                      step="100"
-                      value={row.initialUnitCost}
-                      onChange={(e) => updateIng(idx, { initialUnitCost: e.target.value })}
-                      className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <div className="flex justify-between items-center pt-1 px-1">
-              <span className="text-xs text-slate-500">Bir porsiya tannarxi</span>
-              <span className="text-base font-bold text-emerald-700 tabular-nums">
-                {compositePortionCost > 0 ? `${compositePortionCost.toLocaleString('uz-UZ')} so'm` : '—'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* UNTRACKED block */}
-        {mode === 'UNTRACKED' && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            Sanoqsiz mahsulot — zaxira hisoblanmaydi, boshlang'ich son kiritilmaydi va doim
-            sotuvda bo'ladi (masalan choy). Tan narxi kuzatilmaydi.
+            )}
           </div>
         )}
 
