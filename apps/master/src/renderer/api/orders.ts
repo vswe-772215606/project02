@@ -102,8 +102,6 @@ export const ordersApi = {
     api.post<Order>(`/api/orders/${id}/cancel`, { reason }),
   confirm: (id: string, body: ConfirmBody) =>
     api.post<Order>(`/api/orders/${id}/confirm`, body),
-  markWalkout: (id: string, reason: string) =>
-    api.post<Order>(`/api/orders/${id}/mark-walkout`, { reason }),
   reprintBill: (id: string, reason?: string) =>
     api.post<{ id: string }>(`/api/orders/${id}/reprint-bill`, { reason }),
 };

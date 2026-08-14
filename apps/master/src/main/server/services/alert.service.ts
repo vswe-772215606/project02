@@ -1,7 +1,7 @@
 import { settingsService } from './settings.service';
 
 /**
- * Owner-facing Telegram alerts for notable business events: walkout, large
+ * Owner-facing Telegram alerts for notable business events: large
  * discount, large expense, nasiya (debt) sale, debt write-off, and ingredient
  * stock-out.
  *
@@ -43,24 +43,6 @@ async function send(text: string): Promise<void> {
 }
 
 export const alertService = {
-  /** Customer left a SENT order without paying. Always alerts (no threshold). */
-  async orderWalkout(p: {
-    orderNumber: string;
-    tableName: string | null;
-    amount: string | number;
-    waiterName: string | null;
-    reason: string;
-  }): Promise<void> {
-    const where = p.tableName ? ` · ${p.tableName}` : '';
-    const who = p.waiterName ? `\nOfitsiant: ${p.waiterName}` : '';
-    const why = p.reason?.trim() ? `\nSabab: ${p.reason.trim()}` : '';
-    await send(
-      `🚨 <b>To'lamay ketildi</b>\n` +
-        `Buyurtma #${p.orderNumber}${where}\n` +
-        `Summa: <b>${money(p.amount)}</b> so'm${who}${why}`,
-    );
-  },
-
   /** Discount applied at confirm, alerts only when >= alert_discount_threshold. */
   async largeDiscount(p: {
     orderNumber: string;

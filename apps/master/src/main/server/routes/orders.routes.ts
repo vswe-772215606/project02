@@ -19,5 +19,4 @@ ordersRouter.post('/:id/send', requireRole(['WAITER', 'OWNER']), ordersControlle
 ordersRouter.post('/:id/transfer', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.transfer);
 ordersRouter.post('/:id/cancel', requireRole(['WAITER', 'ADMIN', 'OWNER']), ordersController.cancelOrder);
 ordersRouter.post('/:id/confirm', requireRole(['ADMIN', 'OWNER']), ordersController.confirm);
-ordersRouter.post('/:id/mark-walkout', requireRole(['ADMIN', 'OWNER']), ordersController.markWalkout);
 ordersRouter.post('/:id/reprint-bill', requireRole(['ADMIN', 'OWNER']), ordersController.reprintBill);

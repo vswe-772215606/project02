@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { ordersApi, type ConfirmBody, type Order } from '@/api/orders';
+import { ordersApi, type ConfirmBody } from '@/api/orders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Screen } from '@/components/layout/Screen';
 import { Chip } from '@/components/blocks';
 import { QueueList } from '@/components/approval/QueueList';
 import { OrderTicket } from '@/components/approval/OrderTicket';
-import { WalkoutOrderDialog } from '@/components/approval/WalkoutOrderDialog';
 
 /**
  * The confirm loop: queue on the left, the order in hand on the right.
@@ -21,7 +20,6 @@ export function ApprovalQueuePage() {
   usePageTitle('Tasdiqlash');
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [walkoutOrder, setWalkoutOrder] = useState<Order | null>(null);
 
   const { data: orders = [] } = useQuery({
     queryKey: ['orders', 'sent'],
@@ -71,7 +69,6 @@ export function ApprovalQueuePage() {
               submitting={confirmMutation.isPending}
               error={confirmMutation.error?.message ?? null}
               onConfirm={(body) => confirmMutation.mutate(body)}
-              onWalkout={() => setWalkoutOrder(ticketOrder)}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center bg-field px-pad text-center text-[14px] text-muted-foreground">
@@ -84,12 +81,6 @@ export function ApprovalQueuePage() {
       >
         <QueueList orders={orders} selectedId={selectedId} onSelect={(order) => setSelectedId(order.id)} />
       </Screen>
-
-      <WalkoutOrderDialog
-        order={walkoutOrder}
-        open={!!walkoutOrder}
-        onClose={() => setWalkoutOrder(null)}
-      />
     </>
   );
 }

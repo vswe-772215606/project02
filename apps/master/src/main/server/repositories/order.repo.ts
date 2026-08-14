@@ -201,25 +201,6 @@ export const orderRepo = {
     return client.order.findUnique({ where: { id }, include: LIST_INCLUDE });
   },
 
-  /**
-   * Atomic SENT → WALKOUT transition that stamps `walkoutAt` and `walkoutById`.
-   * Returns the updated order or null if the row wasn't in SENT.
-   */
-  async setWalkout(
-    id: string,
-    walkoutById: string,
-    walkoutAt = new Date(),
-    tx?: Tx,
-  ) {
-    const client = tx ?? getPrisma();
-    const result = await client.order.updateMany({
-      where: { id, status: OrderStatus.SENT },
-      data: { status: OrderStatus.WALKOUT, walkoutAt, walkoutById },
-    });
-    if (result.count === 0) return null;
-    return client.order.findUnique({ where: { id }, include: LIST_INCLUDE });
-  },
-
   async setClosed(id: string, closedAt = new Date(), tx?: Tx) {
     return (tx ?? getPrisma()).order.update({
       where: { id },

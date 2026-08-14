@@ -117,8 +117,7 @@ async function getOrderOrThrow(orderId: string, tx?: Tx): Promise<OrderWithDetai
  * Restore ingredient stock for a single line on cancel.
  *
  * Qoida: DRAFT yoki SENT buyurtmadagi qator bekor qilinsa, ingredientlar
- * omborga qaytariladi. WALKOUT bu yo'lga kirmaydi (mehmon taom yegan deb
- * hisoblanadi) — markWalkout shu funksiyani chaqirmaydi.
+ * omborga qaytariladi — DRAFT va SENT ikkalasida ham.
  */
 async function maybeRestoreLineStock(
   line: OrderWithDetails['lines'][number],
@@ -421,7 +420,7 @@ export const orderService = {
         throw Errors.NotFound('OrderLine');
       }
 
-      // Notes can be edited any time before the order is closed/walkout/canceled.
+      // Notes can be edited any time before the order is closed or canceled.
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, 'EDIT_NOTE');
       }
@@ -770,57 +769,6 @@ export const orderService = {
 
         return mapToDto(updated);
       }, { timeout: 30_000, maxWait: 10_000 });
-    });
-  },
-
-  async markWalkout(input: { orderId: string; adminUserId: string; reason: string }) {
-    return completeEmitContext(async () => {
-      const order = await getOrderOrThrow(input.orderId);
-      if (order.status !== OrderStatus.SENT) {
-        throw Errors.IllegalStateTransition(order.status, OrderStatus.WALKOUT);
-      }
-
-      return getPrisma().$transaction(async (tx) => {
-        const updated = await orderRepo.setWalkout(
-          order.id,
-          input.adminUserId,
-          new Date(),
-          tx,
-        );
-
-        if (!updated) {
-          throw Errors.IllegalStateTransition(OrderStatus.SENT, OrderStatus.WALKOUT);
-        }
-
-        // Stock is NOT restored — the food was prepared/consumed.
-
-        await auditService.log({
-          userId: input.adminUserId,
-          action: 'WALKOUT_MARKED',
-          entityType: 'Order',
-          entityId: order.id,
-          metadata: {
-            orderId: order.id,
-            amount: order.totalSnapshot?.toString() ?? '0',
-            reason: input.reason,
-          },
-        }, tx);
-
-        deferEmit('admin', 'order:walkout', { orderId: order.id });
-        deferEmit(`waiter:${order.waiterId}`, 'order:walkout', { orderId: order.id });
-
-        deferAfterCommit(() =>
-          alertService.orderWalkout({
-            orderNumber: order.id.slice(-6).toUpperCase(),
-            tableName: order.table?.name ?? null,
-            amount: order.totalSnapshot?.toString() ?? '0',
-            waiterName: order.waiter?.fullName ?? null,
-            reason: input.reason,
-          }),
-        );
-
-        return mapToDto(updated);
-      });
     });
   },
 

@@ -59,10 +59,6 @@ const confirmSchema = z.object({
   }).optional(),
 });
 
-const markWalkoutSchema = z.object({
-  reason: z.string().min(1),
-});
-
 function requester(req: Request) {
   return {
     id: req.user!.id,
@@ -226,19 +222,6 @@ export const ordersController = {
         waiveServiceCharge: body.waiveServiceCharge ?? false,
         payments: body.payments,
         debt: body.debt,
-      }));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async markWalkout(req: Request, res: Response, next: NextFunction) {
-    try {
-      const body = markWalkoutSchema.parse(req.body);
-      res.json(await orderService.markWalkout({
-        orderId: req.params.id,
-        adminUserId: req.user!.id,
-        reason: body.reason,
       }));
     } catch (error) {
       next(error);

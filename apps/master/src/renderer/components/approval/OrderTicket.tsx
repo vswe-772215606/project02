@@ -39,13 +39,11 @@ export function OrderTicket({
   submitting,
   error,
   onConfirm,
-  onWalkout,
 }: {
   order: Order;
   submitting: boolean;
   error?: string | null;
   onConfirm: (body: ConfirmBody) => void;
-  onWalkout: () => void;
 }) {
   const food = order.subtotalSnapshot ?? order.totalAmount;
   const [discount, setDiscount] = useState(0);
@@ -192,9 +190,6 @@ export function OrderTicket({
                 + {METHOD_LABEL[method]}
               </Button>
             ))}
-          <Button variant="ghost" size="sm" className="ml-moat text-owed" onClick={onWalkout}>
-            To'lamay ketdi
-          </Button>
         </div>
       </Seam>
     </Panel>
