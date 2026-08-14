@@ -380,6 +380,7 @@ The renderer's display paths and the fixtures that feed them change together —
 - Modify: `apps/master/src/renderer/components/reports/SalesSummary.tsx:13-14`
 - Modify: `apps/master/src/renderer/components/reports/GrandSummarySection.tsx:31,98`
 - Modify: `apps/master/src/renderer/components/reports/report-helpers.tsx:135,148`
+- Modify: `apps/master/src/renderer/pages/SettingsPage.tsx:203`
 - Modify: `apps/master/gallery/fixtures/orders.ts:232-246,304-311`
 - Modify: `apps/master/gallery/fixtures/finance.ts:21,96,160-165,219,232,254,267,286,298,338,355,357,395,401,508,518`
 - Modify: `apps/master/gallery/fixtures/reports.ts:18,45,89-91,135,190-191,217,248`
@@ -502,6 +503,20 @@ In `apps/master/src/renderer/components/reports/IncidentsSection.tsx`, delete th
 
 The section now renders only the cancellations table. If removing the walkout block leaves the component rendering a single child where it previously had two, keep the existing `Seam` / section wrapper — do not restructure the layout. Blocks C1 rules apply: no borders, no radius, no hover.
 
+- [ ] **Step 6b: Correct the Telegram alert setting's description**
+
+Task 1 deleted `alertService.orderWalkout`, so the Sozlamalar copy now promises an alert that can never fire. In `apps/master/src/renderer/pages/SettingsPage.tsx:203`, change:
+
+```tsx
+description="Muhim hodisalarda darhol xabar: to'lamay ketish, katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
+```
+to:
+```tsx
+description="Muhim hodisalarda darhol xabar: katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
+```
+
+There is no separate settings key to remove — the walkout alert was unconditional, with no threshold of its own. Only this string is stale.
+
 - [ ] **Step 7: Strip walkout from the gallery fixtures**
 
 `gallery/fixtures/orders.ts` — delete the three seeded WALKOUT orders (lines 232-246, the block starting at the `// ── WALKOUT — left without paying ──` comment) and the `mark-walkout` route handler (lines 304-311).
@@ -531,9 +546,11 @@ Open `gallery-dist/blocks-c1-gallery.html` and check, at 1366×768: **Tasdiqlash
 
 ```bash
 cd /Users/uzmacbook/dev/lab/project02
-grep -rin "walkout" apps/master/src/renderer apps/master/gallery
+grep -rn "WALKOUT" apps/master/src/renderer apps/master/gallery
 ```
-Expected: **exactly one match** — the deliberately-kept historical label and its comment in `lib/audit-labels.ts`. Anything else is a miss.
+Expected: **exactly one match** — the deliberately-kept `WALKOUT_MARKED` label in `lib/audit-labels.ts`.
+
+Grep case-**sensitively** here. A case-insensitive sweep also catches the explanatory comment Step 3 mandates above that label, so it can never return one line and tells you nothing.
 
 - [ ] **Step 11: Commit**
 
