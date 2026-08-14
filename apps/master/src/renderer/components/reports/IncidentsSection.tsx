@@ -33,7 +33,7 @@ export function IncidentsSection({ report }: { report: DailyReport }) {
   ];
 
   return (
-    <Section title="Bekor va to'lamay ketgan">
+    <Section title="Bekor qilingan">
       <div className="space-y-5">
         <div>
           <FieldLabel className="mb-2">Bekor qilingan ({report.cancellations.length} ta)</FieldLabel>

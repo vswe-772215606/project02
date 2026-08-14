@@ -174,7 +174,7 @@ function DailyView({ report }: { report: DailyReport }) {
         </Collapsible>
 
         <Collapsible
-          title="Bekor / To'lamay ketgan"
+          title="Bekor qilingan"
           count={`${report.cancellations.length} ta hodisa`}
         >
           <IncidentsSection report={report} />

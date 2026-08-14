@@ -12,7 +12,7 @@ export function SalesSummary({ report }: { report: DailyReport }) {
         hint={
           report.sales.canceledOrders > 0
             ? `${report.sales.canceledOrders} bekor`
-            : 'Bekor yoki to\'lamagan yo\'q'
+            : 'Bekor yo\'q'
         }
         icon={ShoppingBag}
       />
