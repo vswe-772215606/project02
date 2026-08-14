@@ -762,7 +762,10 @@ Line 344 — delete `walkoutOrders: ledger.sales.walkoutCount,`.
 
 Lines 417-421 — delete the whole `walkouts: ledger.incidents.walkouts.map(...)` block.
 
-- [ ] **Step 3: Clean dailyLedger**
+- [ ] **Step 3: Clean `monthly()`**
+
+> **Function names in Steps 3 and 4 were wrong in the first version of this plan** and are corrected here. This step's target is `monthly()`, not `dailyLedger()`. Step 4's target is `dailyLedger()`, not "the range report builder". The actual range report is `summary()` — it never held a walkout reference and is not touched by this task at all. Work from the line numbers, which were always correct.
+
 
 Line 452 — drop `walkoutOrders` from the destructured `Promise.all` result and delete its query (lines 468-469).
 
@@ -778,7 +781,7 @@ for (const order of walkoutOrders) {
 
 Line 651 — delete `walkoutOrders: number;` from the returned `sales` type. Line 720 — delete `walkoutOrders: agg.walkoutCount,`. Line 759 — delete `totals.walkoutCount += agg.walkoutCount;`. Line 792 — delete `walkoutOrders: totals.walkoutCount,`.
 
-- [ ] **Step 4: Clean the range report builder**
+- [ ] **Step 4: Clean `dailyLedger()`**
 
 Line 1121 — drop `walkoutOrders` from the destructured result and delete its query (lines 1143-1145).
 
@@ -814,6 +817,8 @@ docker compose -f compose.dev.yaml exec master-dev \
   pnpm --filter @chayxana/master exec tsx scripts/smoke-finance-pnl.ts
 ```
 Expected: both pass. If `smoke-summary-report.ts` asserts on a walkout field, fix the assertion here rather than deferring — record it in the commit body.
+
+**Run them in that order, and never `smoke-summary-report.ts` alone.** A bare seed has no closed orders, so on its own the summary smoke passes with every figure at zero and its identity assertions (`profit=0`, `cash farq=0`) hold trivially — a green run that proves nothing. `smoke-finance-pnl.ts` creates the closed orders it needs. Measured on the real sequence after this task: `per-category revenue = 270000`, `7-day P&L profit = 184800`, 1 menu-category row, 1 expense-category row, 2 cash rows. Those figures agreeing with the daily P&L is the actual evidence that the builders still compute correctly.
 
 - [ ] **Step 7: Commit**
 
