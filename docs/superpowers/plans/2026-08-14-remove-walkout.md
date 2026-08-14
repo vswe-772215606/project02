@@ -1146,6 +1146,29 @@ Line 357 — delete `@@index([walkoutAt])`.
 
 **Leave `WALKOUT_MARKED` in `enum AuditAction` (line 95).** `AuditLog` is append-only and historical rows were written with that value; removing the vocabulary would make the log unreadable. This is deliberate and is specified in the design doc §2.
 
+- [ ] **Step 1b: Check the new migration sorts AFTER Task 1's**
+
+Prisma applies migrations in folder-name order. Task 1's `20260814111159_convert_walkout_orders` **reads `walkoutAt`** in its `COALESCE`. If the migration you are about to generate sorts before it, the column is dropped first and the conversion reads a column that no longer exists.
+
+**SQLite does not error on that.** A double-quoted identifier that resolves to nothing is silently reinterpreted as a string literal — a documented legacy misfeature. Reproduced in an empty in-memory database:
+
+```sql
+CREATE TABLE t (id TEXT, canceledAt TEXT, updatedAt TEXT, status TEXT);
+INSERT INTO t VALUES ('a', NULL, '2026-01-01', 'WALKOUT');
+UPDATE t SET canceledAt = COALESCE(canceledAt, "walkoutAt", updatedAt) WHERE status='WALKOUT';
+-- canceledAt -> [walkoutAt]
+```
+
+So on any database carrying historical walkout rows, the wrong order writes the literal text `walkoutAt` into a `DateTime` column. Silently.
+
+This is not hypothetical — it happened on the real run. Prisma generated `20260814082857`, four hours *before* Task 1's `20260814111159`, because Task 1's migration was created on the host and this one inside the Docker container, and the two clocks disagree. **Any migration generated in the container is liable to sort before host-generated ones.**
+
+```bash
+ls apps/master/prisma/migrations/ | sort | tail -5
+```
+
+If your new folder does not sort last, rename it (`20260814120000_drop_walkout` or later). Renaming an unapplied migration is safe; renaming one already applied anywhere is not, so do it before `migrate deploy` and wipe any dev database that saw the old name.
+
 - [ ] **Step 2: Generate the migration**
 
 ```bash
@@ -1226,6 +1249,14 @@ done
 docker compose -f compose.dev.yaml down
 ```
 Expected: all five pass. Any failure blocks this task — do not commit past it.
+
+- [ ] **Step 5b: Prove the migration chain with data present**
+
+Every `rm -f dev.db` reseed leaves zero `WALKOUT` rows, so Task 1's conversion acts on nothing and the ordering bug from Step 1b **cannot show itself** on a clean seed. A green run here proves the chain is syntactically fine, not that it is correct.
+
+Insert a synthetic order with `status = 'WALKOUT'` and a known `walkoutAt`, run the full `migrate deploy` chain from an empty database, and confirm the row lands as `CANCELED` with `canceledAt` equal to that timestamp — **not** the string `walkoutAt`, and not `updatedAt`. Then delete the synthetic row.
+
+This is the only check that exercises what Step 1b guards against.
 
 - [ ] **Step 6: Commit**
 
