@@ -1067,12 +1067,45 @@ closedAt and canceledAt legs still pass."
 Everything above is gone, so nothing references the columns or the enum member. Do this last.
 
 **Files:**
+- Modify: `apps/master/src/main/server/repositories/order.repo.ts:74`
+- Modify: `apps/master/src/main/server/services/order.service.ts:777`
 - Modify: `apps/master/prisma/schema.prisma:35,170,336-337,345,357`
 - Create: `apps/master/prisma/migrations/<timestamp>_drop_walkout/migration.sql`
 
 **Interfaces:**
-- Consumes: Tasks 1-6 — no code references `OrderStatus.WALKOUT`, `Order.walkoutAt`, `Order.walkoutById`, or the `OrderWalkoutMarker` relation.
+- Consumes: Tasks 1-6 removed every *reader* of the walkout columns and DTO fields. **Two code references to `OrderStatus.WALKOUT` deliberately survive into this task** and must go before the enum member can be dropped — see Step 0.
 - Produces: `OrderStatus` is `DRAFT | SENT | CLOSED | CANCELED`. `Order` has no walkout columns.
+
+- [ ] **Step 0: Remove the last two enum references**
+
+Task 1 left both of these on purpose, because they were still valid while the enum member existed. Drop the enum member without fixing them first and `tsc -b` gains two errors.
+
+`apps/master/src/main/server/repositories/order.repo.ts:74` — the terminal-status exclusion for "does this table have a live order":
+```ts
+          notIn: [OrderStatus.CLOSED, OrderStatus.WALKOUT, OrderStatus.CANCELED],
+```
+becomes
+```ts
+          notIn: [OrderStatus.CLOSED, OrderStatus.CANCELED],
+```
+
+`apps/master/src/main/server/services/order.service.ts:777` — `reprintBill`'s guard, which allowed reprinting a bill for a closed or walked-out order:
+```ts
+    if (order.status !== OrderStatus.CLOSED && order.status !== OrderStatus.WALKOUT) {
+```
+becomes
+```ts
+    if (order.status !== OrderStatus.CLOSED) {
+```
+
+A walkout never had a printed bill to reprint — `applyTotals` only ever ran inside `confirm` — so narrowing this guard removes a branch that could never usefully fire.
+
+Verify before touching the schema:
+```bash
+cd /Users/uzmacbook/dev/lab/project02
+grep -rn "OrderStatus.WALKOUT" apps/master/src
+```
+Expected: **no matches.** Only then proceed to Step 1.
 
 - [ ] **Step 1: Edit the schema**
 
@@ -1292,7 +1325,7 @@ After all eight tasks:
 
 | Gate | Command | Expected |
 |---|---|---|
-| Main process | `cd apps/master && npx tsc -b 2>&1 \| grep -cE "error TS"` | ≤ 49, all pre-existing, none in touched files beyond baseline |
+| Main process | `cd apps/master && npx tsc -b 2>&1 \| grep -cE "error TS"` | **49**, all pre-existing. Measured: the 50-error baseline dropped to 49 in Task 5 because one of `pdf-report.ts`'s nine pre-existing errors lived inside the walkout table that Task 5 deleted (that file went 9 → 8). Never higher than 49 after Task 5. |
 | Renderer | `cd apps/master && pnpm run typecheck:renderer` | clean |
 | Gallery | `cd apps/master && pnpm run typecheck:gallery` | clean |
 | Build | `cd apps/master && pnpm exec electron-vite build` | succeeds |
