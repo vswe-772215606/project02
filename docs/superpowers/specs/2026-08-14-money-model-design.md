@@ -1,6 +1,6 @@
 # Money model — design
 
-**Date:** 2026-08-14 · **Status:** designed, not implemented
+**Date:** 2026-08-14 · **Status:** slice 1 (WALKOUT removal) implemented 2026-08-14; slices 2-5 outstanding
 **Branch:** to be cut from `feat/c1-design-system`
 **Scope:** discount, waiter pay, order-line editing, walkout removal, cost discipline. One
 decisions document over the whole money loop; each section below becomes its own
@@ -263,8 +263,10 @@ No test runner exists. Each slice is verified by:
 
 Each is independently shippable, in this order. The first two clear surface the rest sits on.
 
-1. **WALKOUT removal.** Pure deletion, no new behaviour, largest file count. Doing it first
-   stops every later slice from having to carry walkout branches.
+1. **WALKOUT removal — done 2026-08-14.** Pure deletion, no new behaviour, largest file count.
+   Doing it first stops every later slice from having to carry walkout branches. Implemented on
+   `feat/remove-walkout` (branched from `feat/c1-design-system` at `d37d6cd`), commits
+   `d37d6cd..2abe93a`.
 2. **Discount simplification.** Deletion plus one column and one validation.
 3. **Order-line editing.** The shared `OrderLineEditor`, plus the audit rows and
    `canceledById`.

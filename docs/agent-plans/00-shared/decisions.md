@@ -56,6 +56,11 @@ Server-side drafts:
 - Drafts are persisted to the database immediately. Every "add item" hits the API.
 - Old drafts (>12 hours, status `DRAFT`) are cleaned up by a daily scheduled task. There is no ticket-presence guard any more — only the timestamp.
 
+**Amended 2026-08-14:** `WALKOUT` is removed from the product. The lifecycle is
+`DRAFT → SENT → CLOSED` with `DRAFT|SENT → CANCELED` as the only terminal branch.
+An unpaid bill is closed as nasiya or as a full discount with a mandatory reason.
+See `docs/superpowers/specs/2026-08-14-money-model-design.md` §7.
+
 ## Tables
 
 - One active order per table at a time. Enforced by partial unique index on `Order(tableId)` where status NOT IN (`CLOSED`, `WALKOUT`, `CANCELED`) AND `tableId IS NOT NULL`.
