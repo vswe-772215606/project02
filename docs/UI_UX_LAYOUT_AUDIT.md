@@ -1,5 +1,12 @@
 # Chayxana POS — layout and UI/UX audit (master admin)
 
+> **Stale as of 2026-08-14 — read [`design/RENDERER_REBUILD.md`](./design/RENDERER_REBUILD.md)
+> first.** These 158 findings were scored against the renderer *before* the Blocks C1 rebuild.
+> The rebuild addressed much of the list structurally — below-fold actions, touch targets, the
+> shell — but the audit was never re-run and no finding was individually ticked off, so the
+> counts below no longer describe the code. Use this as the rationale for the rebuild, not as
+> a tracker. Re-auditing against the current tree is a clean next task.
+
 **Date:** 2026-08-13 · **Branch:** `feat/c1-design-system` · **Scope:** every route in
 `apps/master/src/renderer` — 15 product screens, the login gate, the shell, and the shared
 list/dialog/feedback primitives. 30+ files.
