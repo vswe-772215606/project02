@@ -193,7 +193,7 @@ export function MyDayScreen() {
           <StatTile
             label="Yopilgan buyurtmalar"
             value={`${ordersClosed}`}
-            hint={`${dayStats?.ordersCanceled ?? 0} bekor · ${dayStats?.ordersWalkout ?? 0} to'lamagan`}
+            hint={`${dayStats?.ordersCanceled ?? 0} bekor`}
             tone="primary"
             style={styles.halfTile}
           />

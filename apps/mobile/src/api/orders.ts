@@ -1,6 +1,6 @@
 import { api } from './client';
 
-export type OrderStatus = 'DRAFT' | 'SENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+export type OrderStatus = 'DRAFT' | 'SENT' | 'CLOSED' | 'CANCELED';
 export type OrderType = 'DINE_IN' | 'TAKEAWAY';
 
 export type OrderLine = {
@@ -78,6 +78,5 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lamay ketdi",
   CANCELED: 'Bekor qilingan',
 };

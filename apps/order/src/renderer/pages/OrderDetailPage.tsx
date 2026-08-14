@@ -25,7 +25,6 @@ const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 
   DRAFT: 'secondary',
   SENT: 'default',
   CLOSED: 'outline',
-  WALKOUT: 'destructive',
   CANCELED: 'outline',
 };
 

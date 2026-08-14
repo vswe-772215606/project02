@@ -6,7 +6,6 @@ export type TodayStats = {
   orderCount: number;
   ordersClosed: number;
   ordersCanceled: number;
-  ordersWalkout: number;
   foodRevenue: string;
   serviceEarned: string;
   totalBilled: string;

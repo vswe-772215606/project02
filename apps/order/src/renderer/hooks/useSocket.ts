@@ -117,10 +117,6 @@ export function useSocket(): void {
       queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
       showToastRef.current('Buyurtma yopildi', 'success');
     });
-    nextSocket.on('order:walkout', () => {
-      queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
-      showToastRef.current("Buyurtma to'lamay yopildi", 'warning');
-    });
     nextSocket.on('order:transferred', () => {
       queryClientRef.current.invalidateQueries({ queryKey: ['orders'] });
       queryClientRef.current.invalidateQueries({ queryKey: ['tables'] });

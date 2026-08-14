@@ -85,7 +85,6 @@ export function useSocket() {
     });
 
     socket.on('order:closed', () => qc.invalidateQueries({ queryKey: ['orders'] }));
-    socket.on('order:walkout', () => qc.invalidateQueries({ queryKey: ['orders'] }));
     socket.on('order:transferred', () => {
       void qc.invalidateQueries({ queryKey: ['orders'] });
       void qc.invalidateQueries({ queryKey: ['tables'] });

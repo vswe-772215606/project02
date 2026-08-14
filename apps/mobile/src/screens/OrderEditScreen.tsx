@@ -29,7 +29,6 @@ const STATUS_VARIANTS: Record<string, 'warning' | 'primary' | 'info' | 'slate' |
   DRAFT: 'warning',
   SENT: 'primary',
   CLOSED: 'success',
-  WALKOUT: 'danger',
   CANCELED: 'slate',
 };
 

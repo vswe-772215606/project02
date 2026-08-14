@@ -23,7 +23,6 @@ const STATUS_VARIANTS: Record<OrderStatus, 'default' | 'secondary' | 'destructiv
   DRAFT: 'secondary',
   SENT: 'default',
   CLOSED: 'outline',
-  WALKOUT: 'destructive',
   CANCELED: 'outline',
 };
 
@@ -31,7 +30,6 @@ const STATUS_LABEL_SHORT: Record<OrderStatus, string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lamay",
   CANCELED: 'Bekor',
 };
 
