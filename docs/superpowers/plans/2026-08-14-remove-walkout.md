@@ -1030,7 +1030,12 @@ This script proves order lifecycle timestamps come from the server clock, not th
 
 Lines 66-68 — delete the `// d) SENT → WALKOUT` step and both lines that call `orderRepo.setWalkout` and check its result. Line 81 — delete `{ field: 'walkoutAt', value: row.walkoutAt },` from the checked-field list. Line 7 — the header comment lists `sentAt, closedAt, walkoutAt` — remove `walkoutAt`. Lines 104-107 — the trailing note tells a future reader to grep for `closedAt\|walkoutAt` in the controller; drop `walkoutAt` from that grep string.
 
-The remaining legs (sentAt, closedAt, canceledAt) must still run and pass — this script's job is unchanged.
+The remaining legs must still run and pass — this script's job is unchanged.
+
+**Two things measured while doing this, both pre-existing and neither caused by this branch:**
+
+- The script **failed before this task** with `orderRepo.setWalkout is not a function` — Task 1 deleted that method, and nothing re-ran this smoke until now. Removing the walkout leg is what makes it pass again. Run it before you edit so you can tell the difference.
+- Its executable checks cover only **`createdAt` and `sentAt`**. The header prose claims to prove `sentAt`, `closedAt`, `canceledAt` and `Payment.createdAt` are all server-stamped, but no assertion for the last three exists. Do not add them — that is a separate piece of work — but do not repeat the claim either.
 
 - [ ] **Step 5: Verify the clock-isolation smoke still passes**
 
@@ -1260,6 +1265,11 @@ Update §2 (the money path) and §11 (known defects):
 - **Delete defect 3** ("Walkout loss is structurally always zero") — it no longer exists. Note in §13's changelog that it was removed by deletion, not fixed.
 - **Mark defect 12 stale** ("A fully-comped order can never be closed"): it cites `ConfirmModal.tsx:131`, a file the C1 rebuild deleted. `OrderTicket.tsx:56-58` gates on `paid === due`, so a fully-discounted order closes today. Replace the defect text with a one-line note saying it was verified fixed on 2026-08-14.
 - Renumber the remaining defects and update the header count.
+
+Add two facts measured during this branch, both about verification honesty:
+
+- **`tsc -b` compiles nothing under `apps/master/scripts`.** Verified with `npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`. Every smoke and simulate script in this repo is entirely untypechecked; running them is the only check they get. Worth stating wherever the file describes the verification story.
+- **`smoke-prd13-clock-isolation.ts` overclaims.** Its header says it proves `sentAt`, `closedAt`, `canceledAt` and `Payment.createdAt` are all server-stamped; its assertions cover only `createdAt` and `sentAt`. Record it as a known gap rather than fixing it here.
 
 - [ ] **Step 3: docs/agent-plans/00-shared/decisions.md**
 
