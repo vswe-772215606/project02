@@ -343,7 +343,7 @@ async function main() {
   step('3.0', 'Pull /api/reports/daily as OWNER');
   const today = new Date().toISOString().slice(0, 10);
   const { body: report } = await http<{
-    sales: { closedOrders: number; canceledOrders: number; walkoutOrders: number; grossSales: string; discounts: string; netSales: string; debtSales: string; serviceCharge: string };
+    sales: { closedOrders: number; canceledOrders: number; grossSales: string; discounts: string; netSales: string; debtSales: string; serviceCharge: string };
     cashflow: { orderCash: string; orderCard: string; debtRepaymentsCash: string; debtRepaymentsCard: string; realCashIn: string };
     expenses: { gross: string; reversal: string; net: string; operating: string; pendingRepayable: string };
     results: { salesBasedProfit: string; cashflowBasedNet: string };
@@ -353,7 +353,6 @@ async function main() {
   step('3.1', 'Sales totals');
   eq('sales.closedOrders', report.sales.closedOrders, 2);
   eq('sales.canceledOrders', report.sales.canceledOrders, 0);
-  eq('sales.walkoutOrders', report.sales.walkoutOrders, 0);
   eq('sales.grossSales', report.sales.grossSales, '80000');         // 50k + 30k
   eq('sales.discounts', report.sales.discounts, '0');
   eq('sales.netSales', report.sales.netSales, '80000');

@@ -1,6 +1,5 @@
 // End-to-end production smoke for the post-refactor lifecycle:
 //   DRAFT → SENT → CLOSED (via the new single-step /confirm flow)
-//   DRAFT → SENT → WALKOUT
 //   DRAFT → CANCELED (waiter, stock restored)
 //   SENT → CANCELED (admin only, stock retained)
 //
@@ -122,13 +121,6 @@ async function confirm(orderId: string, body: unknown, opts: { expectStatus?: nu
     token: adminToken,
     body,
     expectStatus: opts.expectStatus,
-  });
-}
-
-async function walkout(orderId: string, reason: string) {
-  await http('POST', `/api/orders/${orderId}/mark-walkout`, {
-    token: adminToken,
-    body: { reason },
   });
 }
 
@@ -284,23 +276,8 @@ async function scenarioPaymentMismatch() {
   await cancelOrder(order.id, adminToken);
 }
 
-async function scenarioWalkout() {
-  step('F', 'Walkout: SENT → WALKOUT');
-  const items = await menu();
-  const somsa = items.find((i) => i.name === 'Somsa')!;
-  const table = await pickFreeTable();
-  const order = await createDraft(table.id);
-  await addItem(order.id, somsa.id, 4); // 48000
-  await send(order.id);
-
-  await walkout(order.id, 'mijoz to\'lovsiz ketdi');
-  const after = await getOrder(order.id, adminToken);
-  if (after.status !== 'WALKOUT') fail(`Expected WALKOUT, got ${after.status}`);
-  ok(`Order marked WALKOUT`);
-}
-
 async function scenarioCancelRules() {
-  step('G', 'Cancel rules: waiter DRAFT ok, waiter SENT forbidden, admin SENT ok');
+  step('F', 'Cancel rules: waiter DRAFT ok, waiter SENT forbidden, admin SENT ok');
 
   const items = await menu();
   const choy = items.find((i) => i.name === "Ko'k choy")!;
@@ -361,11 +338,10 @@ async function main() {
   await scenarioWithDiscount();
   await scenarioDebtPayment();
   await scenarioPaymentMismatch();
-  await scenarioWalkout();
   await scenarioCancelRules();
 
   console.log(`\n${c(32, '════════════════════════════════════════')}`);
-  console.log(`${c(32, '  All 7 scenarios passed.')}`);
+  console.log(`${c(32, '  All 6 scenarios passed.')}`);
   console.log(`${c(32, '════════════════════════════════════════')}\n`);
 }
 

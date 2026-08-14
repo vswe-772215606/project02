@@ -4,7 +4,7 @@
  * Question: agar ofitsiantning telefoni yoki order-monoblokining vaqti xato
  * bo'lsa, moliyaviy hisobotga ta'sir qiladimi?
  *
- * Javob: yo'q. Order lifecycle vaqtlari (sentAt, closedAt, walkoutAt,
+ * Javob: yo'q. Order lifecycle vaqtlari (sentAt, closedAt,
  * canceledAt, Payment.createdAt) — barchasi master server tomonida
  * `new Date()` orqali yoziladi. Buyurtma APIlari (POST /api/orders,
  * addLine, send, confirm) hech qanday timestamp QABUL QILMAYDI.
@@ -63,10 +63,6 @@ async function main() {
   const sent = await orderRepo.setSent(order.id);
   if (!sent) throw new Error('setSent returned null');
 
-  // d) SENT → WALKOUT (skipping confirm path for brevity). walkoutAt server.
-  const flipped = await orderRepo.setWalkout(order.id, admin.id);
-  if (!flipped) throw new Error('setWalkout returned null');
-
   // ─── 3. Snapshot after ───────────────────────────────────────────────
   const after = new Date();
   const tolerance = 60_000; // 60 s — generous for slow CI.
@@ -78,7 +74,6 @@ async function main() {
   const checks: Array<{ field: string; value: Date | null }> = [
     { field: 'createdAt', value: row.createdAt },
     { field: 'sentAt', value: row.sentAt },
-    { field: 'walkoutAt', value: row.walkoutAt },
   ];
 
   let bad = 0;
@@ -101,10 +96,10 @@ async function main() {
 
   // ─── 5. Negative check: confirm the order API has no timestamp params ──
   // (read controllers/orders.controller.ts → no zod schema accepts a
-  // createdAt/closedAt/walkoutAt from the client). If a future change adds
+  // createdAt/closedAt from the client). If a future change adds
   // one, this test will keep passing but a grep below will fail loudly:
   //
-  //   grep "occurredAt\|paidAt\|closedAt\|walkoutAt" apps/master/src/main/server/controllers/orders.controller.ts
+  //   grep "occurredAt\|paidAt\|closedAt" apps/master/src/main/server/controllers/orders.controller.ts
   //
   // Currently: zero matches. That's the structural guarantee.
 
