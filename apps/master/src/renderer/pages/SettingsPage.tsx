@@ -200,7 +200,7 @@ export function SettingsPage() {
                 <SettingsGroup title="Tezkor ogohlantirishlar (Telegram)" icon={AlertCircle}>
                   <SettingField
                     label="Ogohlantirishlar"
-                    description="Muhim hodisalarda darhol xabar: to'lamay ketish, katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
+                    description="Muhim hodisalarda darhol xabar: katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
                     readonly={!isOwner}
                   >
                     <SettingsToggle
