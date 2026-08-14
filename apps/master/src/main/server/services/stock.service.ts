@@ -98,7 +98,7 @@ export const stockService = {
 
   /**
    * Restore for N portions (quantity decrease, line cancel, order cancel from
-   * DRAFT and SENT — same rules as before; WALKOUT never calls this).
+   * DRAFT and SENT — same rules as before).
    * cogsSnapshot is recomputed proportionally from the line's own snapshot,
    * which preserves the frozen at-add-time cost even if costPrice changed.
    * A line already marked isCanceled keeps its snapshot (reports filter it).

@@ -5,7 +5,6 @@ type Tx = Prisma.TransactionClient;
 
 const TERMINAL_ORDER_STATUSES: OrderStatus[] = [
   OrderStatus.CLOSED,
-  OrderStatus.WALKOUT,
   OrderStatus.CANCELED,
 ];
 

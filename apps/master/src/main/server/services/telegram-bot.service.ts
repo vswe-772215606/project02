@@ -726,7 +726,6 @@ export const telegramBotService = {
     const sales = L ? {
       closedOrders: L.sales.closedCount,
       canceledOrders: L.sales.canceledCount,
-      walkoutOrders: L.sales.walkoutCount,
       grossSales: L.sales.gross,
       discounts: L.sales.discount,
       netSales: L.sales.netSales,
@@ -771,9 +770,6 @@ export const telegramBotService = {
     }
     lines.push(`  Sof sotuv: <b>${formatMoney(sales.netSales)}</b> so'm`);
     lines.push(`  ✨ Xizmat haqi (ofitsiantlarga): <b>${formatMoney(sales.serviceCharge)}</b> so'm`);
-    if (sales.walkoutOrders > 0) {
-      lines.push(`  ⚠ To'lamay ketgan: <b>${sales.walkoutOrders}</b> ta`);
-    }
     if (sales.canceledOrders > 0) {
       lines.push(`  Bekor qilinganlar: <b>${sales.canceledOrders}</b> ta`);
     }
@@ -838,9 +834,6 @@ export const telegramBotService = {
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push(`🍽 <b>Sotuv</b>`);
     lines.push(`  Yopilgan buyurtmalar: <b>${totals.closedOrders}</b> ta`);
-    if (totals.walkoutOrders > 0) {
-      lines.push(`  ⚠ To'lamay ketgan: <b>${totals.walkoutOrders}</b> ta`);
-    }
     if (totals.canceledOrders > 0) {
       lines.push(`  Bekor qilinganlar: <b>${totals.canceledOrders}</b> ta`);
     }
@@ -1044,7 +1037,6 @@ export const telegramBotService = {
     let totalProfit = 0;
     let totalServiceCharge = 0;
     let totalOrders = 0;
-    let totalWalkouts = 0;
 
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push('<b>Kun           Savdo · Foyda</b>');
@@ -1056,7 +1048,6 @@ export const telegramBotService = {
         : Number(report?.sales?.netSales ?? 0) + Number(report?.sales?.serviceCharge ?? 0);
       const profit = L ? Number(L.pnl.profit) : Number(report?.results?.salesBasedProfit ?? 0);
       const orders = L ? L.sales.closedCount : (report?.sales?.closedOrders ?? 0);
-      const walkouts = L ? L.sales.walkoutCount : (report?.sales?.walkoutOrders ?? 0);
       const cashIn = L ? Number(L.cashflow.realCashIn) : Number(report?.cashflow?.realCashIn ?? 0);
       const operating = L ? Number(L.outflow.operatingExpense) : Number(report?.expenses?.operating ?? 0);
       const serviceCharge = L ? Number(L.sales.serviceCharge) : Number(report?.sales?.serviceCharge ?? 0);
@@ -1067,7 +1058,6 @@ export const telegramBotService = {
       totalProfit += profit;
       totalServiceCharge += serviceCharge;
       totalOrders += orders;
-      totalWalkouts += walkouts;
 
       const dayLabel = formatDateLabel(date).padEnd(11, ' ');
       const profitSign = profit < 0 ? '−' : '+';
@@ -1080,7 +1070,7 @@ export const telegramBotService = {
     lines.push('');
     lines.push('━━━━━━━━━━━━━━━━━━━━');
     lines.push('<b>📊 Jami</b>');
-    lines.push(`  Buyurtmalar: <b>${totalOrders}</b> ta` + (totalWalkouts > 0 ? ` · to'lamay ketgan: ${totalWalkouts}` : ''));
+    lines.push(`  Buyurtmalar: <b>${totalOrders}</b> ta`);
     lines.push(`  Sotuv: <b>${formatMoney(totalSales)}</b> so'm`);
     lines.push(`  ✨ Xizmat haqi (jami): <b>${formatMoney(totalServiceCharge)}</b> so'm`);
     lines.push(`  Kassaga kelgan: <b>${formatMoney(totalCashIn)}</b> so'm`);

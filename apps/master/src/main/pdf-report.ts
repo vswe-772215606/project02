@@ -56,7 +56,6 @@ function fmtDateTimeShort(iso: string | Date | null): string {
 const STATUS_LABEL_UZ: Record<string, string> = {
   CLOSED: 'Yopilgan',
   CANCELED: 'Bekor',
-  WALKOUT: "To'lamagan",
   OPEN: 'Ochiq',
   PARTIAL: 'Qisman',
   PAID: 'Yopilgan',
@@ -425,7 +424,6 @@ export async function generateDailyReportPdf(opts: {
   kvBlock(doc, 'Buyurtmalar', [
     { label: 'Yopilgan', value: `${data.sales.closedOrders} ta` },
     { label: 'Bekor qilingan', value: `${data.sales.canceledOrders} ta`, tone: data.sales.canceledOrders > 0 ? 'warn' : 'muted' },
-    { label: 'To\'lamay ketgan', value: `${data.sales.walkoutOrders} ta`, tone: data.sales.walkoutOrders > 0 ? 'danger' : 'muted' },
   ]);
   kvBlock(doc, 'Summalar', [
     { label: 'Yalpi sotuv', value: fmtUZSDecimal(data.sales.grossSales) + ' so\'m' },
@@ -645,9 +643,9 @@ export async function generateDailyReportPdf(opts: {
       .text('Bu sana uchun taom sotuvi topilmadi', { align: 'left' });
   }
 
-  // ─── 8. Bekor / Walkout ───────────────────────────────────────────
+  // ─── 8. Bekor qilingan ─────────────────────────────────────────────
   doc.addPage();
-  sectionTitle(doc, 'Bekor qilingan va to\'lamay ketgan buyurtmalar');
+  sectionTitle(doc, 'Bekor qilingan buyurtmalar');
   doc.fillColor(COLOR_MUTED).font('Helvetica-Bold').fontSize(9)
     .text(`Bekor qilingan — ${data.cancellations.length} ta`);
   doc.moveDown(0.2);
@@ -666,30 +664,6 @@ export async function generateDailyReportPdf(opts: {
       c.reason || '—',
     ]),
     { emptyMessage: 'Bu sana uchun bekor qilingan buyurtmalar yo\'q' },
-  );
-
-  doc.moveDown(0.3);
-  const walkoutTotal = sumStrings(data.walkouts.map((w) => w.amount));
-  doc.fillColor(COLOR_MUTED).font('Helvetica-Bold').fontSize(9)
-    .text(`To'lamay ketgan — ${data.walkouts.length} ta · Yo'qotilgan summa: ${fmtUZSDecimal(walkoutTotal)} so'm`);
-  doc.moveDown(0.2);
-  table(
-    doc,
-    [
-      { header: 'Vaqti', width: 1.4 },
-      { header: 'Buyurtma ID', width: 1.4 },
-      { header: 'Kim belgiladi', width: 2 },
-      { header: 'Summa', width: 1.5, align: 'right' },
-      { header: 'Sabab', width: 3.5 },
-    ],
-    data.walkouts.map((w) => [
-      fmtDateTimeShort(w.markedAt),
-      w.orderId.slice(-6).toUpperCase(),
-      w.markedBy,
-      { text: fmtUZSDecimal(w.amount), tone: 'danger', bold: true },
-      w.reason || '—',
-    ]),
-    { emptyMessage: 'Bu sana uchun to\'lamay ketgan buyurtmalar yo\'q' },
   );
 
   // ─── 9. Nasiya ledger ─────────────────────────────────────────────

@@ -50,7 +50,6 @@ export const financeService = {
       expenseSummary,
       operatingExpenseSummary,
       closedOrderRows,
-      walkoutOrderRows,
       outstandingDebtsAsOfDay,
     ] = await Promise.all([
       stockEntryRepo.listMoneyForRange(dayStart, dayEnd),
@@ -68,10 +67,6 @@ export const financeService = {
           table: { select: { name: true } },
         },
         orderBy: [{ closedAt: 'asc' }],
-      }),
-      prisma.order.findMany({
-        where: { status: OrderStatus.WALKOUT, walkoutAt: { gte: dayStart, lt: dayEnd } },
-        select: { id: true, totalSnapshot: true },
       }),
       // Outstanding-as-of-EOD for the *selected* day, not the current lifetime.
       // Pre-fix this used sumOutstanding() (current snapshot), so admin viewing
@@ -106,11 +101,6 @@ export const financeService = {
     );
     const mealsCogs = new Prisma.Decimal(ledger.pnl.cogs);
 
-    const walkoutLoss = walkoutOrderRows.reduce(
-      (sum, o) => sum.plus(o.totalSnapshot ?? 0),
-      new Prisma.Decimal(0),
-    );
-
     // Drawer math: real cash that crossed the till today.
     //   totalIn  = sales-cash + sales-card + debt-repaid + expense-returns
     //   totalOut = cashOut (gross − same-day reversals). Purchases live inside
@@ -124,13 +114,11 @@ export const financeService = {
       date: ledger.date,
       sales: {
         closedOrders: ledger.sales.closedCount,
-        walkoutOrders: ledger.sales.walkoutCount,
         grossSales: ledger.sales.gross,
         discounts: ledger.sales.discount,
         netFood: ledger.sales.netSales,
         serviceCharge: ledger.sales.serviceCharge,
         billedTotal: decStr(netSales.plus(serviceCharge)),
-        walkoutLoss: decStr(walkoutLoss),
       },
       cashflow: {
         cashIn: ledger.cashflow.orderCash,

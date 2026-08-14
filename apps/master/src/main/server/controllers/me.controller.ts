@@ -28,7 +28,7 @@ export const meController = {
 
       const userId = req.user!.id;
 
-      const [closedOrders, canceledOrders, walkoutOrders] = await Promise.all([
+      const [closedOrders, canceledOrders] = await Promise.all([
         getPrisma().order.findMany({
           where: {
             status: OrderStatus.CLOSED,
@@ -47,13 +47,6 @@ export const meController = {
           where: {
             status: OrderStatus.CANCELED,
             canceledAt: { gte: dayStart, lt: dayEnd },
-            waiterId: userId,
-          },
-        }),
-        getPrisma().order.count({
-          where: {
-            status: OrderStatus.WALKOUT,
-            walkoutAt: { gte: dayStart, lt: dayEnd },
             waiterId: userId,
           },
         }),
@@ -77,7 +70,6 @@ export const meController = {
         orderCount: closedOrders.length,
         ordersClosed: closedOrders.length,
         ordersCanceled: canceledOrders,
-        ordersWalkout: walkoutOrders,
         foodRevenue: foodRevenue.toFixed(0),
         serviceEarned: serviceEarned.toFixed(0),
         totalBilled: totalBilled.toFixed(0),
