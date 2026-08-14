@@ -334,12 +334,20 @@ Then confirm zero rows remain. `prisma db execute` cannot do this — it needs `
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
-  `SELECT COUNT(*) AS n FROM "Order" WHERE status = 'WALKOUT'`,
-);
-console.log('walkout rows:', rows[0]?.n ?? 'unknown');
-await prisma.$disconnect();
+
+async function main() {
+  const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
+    `SELECT COUNT(*) AS n FROM "Order" WHERE status = 'WALKOUT'`,
+  );
+  console.log('walkout rows:', rows[0]?.n ?? 'unknown');
+}
+
+main()
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });
 ```
+
+**Wrap it in `main()` — top-level `await` does not work in these scripts.** `src/main` is CommonJS and every script in `apps/master/scripts` ends with `main().catch(...)` for that reason.
 
 ```bash
 docker compose -f compose.dev.yaml exec master-dev \
@@ -1163,16 +1171,24 @@ docker compose -f compose.dev.yaml exec master-dev bash -lc \
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const columns = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
-  'PRAGMA table_info("Order")',
-);
-const indexes = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
-  'PRAGMA index_list("Order")',
-);
-console.log('columns:', columns.map((c) => c.name).sort().join(', '));
-console.log('indexes:', indexes.map((i) => i.name).sort().join(', '));
-await prisma.$disconnect();
+
+async function main() {
+  const columns = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    'PRAGMA table_info("Order")',
+  );
+  const indexes = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    'PRAGMA index_list("Order")',
+  );
+  console.log('columns:', columns.map((c) => c.name).sort().join(', '));
+  console.log('indexes:', indexes.map((i) => i.name).sort().join(', '));
+}
+
+main()
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });
 ```
+
+**Wrap it in `main()` exactly like this — top-level `await` does not work here.** Every script in `apps/master/scripts` follows the same shape (`smoke-finance-pnl.ts`, `smoke-stock-count.ts` and the rest all end with `main().catch(...)`), because `src/main` is CommonJS. A probe written with top-level await fails before it prints anything.
 
 Run it, read the output, then **delete the file before committing** — it is a probe, not a fixture:
 
