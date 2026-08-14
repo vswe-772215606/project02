@@ -1,6 +1,6 @@
 # Chayxana POS — Current workflow (live state)
 
-**Snapshot:** 2026-08-13, branch `feat/count-based-inventory` (off `audit/pos-review-and-prd-foundation`), clean tree.
+**Snapshot:** 2026-08-14, branch `feat/remove-walkout` (continues `feat/c1-design-system`), clean tree.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -36,7 +36,7 @@ WAITER (mobile or order app)
   taps items → POST /api/orders/:id/items                       → ★ STOCK LEAVES HERE
   taps "Yuborish" → POST /api/orders/:id/send                   → SENT
 ADMIN (master admin UI)
-  "Tasdiqlash" queue → ConfirmModal → POST /api/orders/:id/confirm → CLOSED
+  "Tasdiqlash" queue → OrderTicket → POST /api/orders/:id/confirm → CLOSED
 ```
 
 ★ **The most counter-intuitive fact in the codebase: stock and COGS move at line-add time, not at
@@ -52,9 +52,10 @@ DRAFT ──send──► SENT ──confirm──► CLOSED        (terminal)
   └──cancel───────┴──cancel───────► CANCELED     (terminal)
 ```
 
-There is no `WALKOUT` (removed 2026-08-14 — see §11 and §13), no `BILL_REQUESTED`, no
-`PENDING_PAYMENT`, no `KitchenTicket`. Nothing leaves a terminal state. Line mutations (add /
-adjust / remove / note / transfer) are legal in **both** DRAFT and SENT.
+There is no `WALKOUT` (removed 2026-08-14 — see §11 and §13; an unpaid order is *meant* to close
+as nasiya or a full discount instead, but §11 #1 documents why neither reliably works today), no
+`BILL_REQUESTED`, no `PENDING_PAYMENT`, no `KitchenTicket`. Nothing leaves a terminal state. Line
+mutations (add / adjust / remove / note / transfer) are legal in **both** DRAFT and SENT.
 
 | Transition | Function | Repo write | Guard |
 |---|---|---|---|
@@ -63,8 +64,8 @@ adjust / remove / note / transfer) are legal in **both** DRAFT and SENT.
 | SENT → CLOSED | `confirm` `:651` | `setClosed` — **no CAS** ⚠ | status===SENT; payments sum exactly; print OK |
 | DRAFT\|SENT → CANCELED | `cancelOrder` `:585` | `setCanceled` — **no CAS** ⚠ | waiter owns it, or ADMIN/OWNER |
 
-⚠ See §11 defect #1 — the missing compare-and-swap on `setClosed`/`setCanceled` is the most
-serious open bug.
+⚠ See §11 defect #2 — the missing compare-and-swap on `setClosed`/`setCanceled` is the most
+serious concurrency bug (defect #1 is a bigger operational blocker, but it isn't a race).
 
 ### Confirm, step by step (`order.service.ts:652-774`)
 
@@ -107,7 +108,7 @@ method** — avans is a repayable `Expense` on the outflow side, unrelated to th
 | Role | Surface | Can do |
 |---|---|---|
 | **OWNER** | master admin UI + Telegram | Everything. Only role that can reach `/api/reports/*`. Receives daily Telegram summary. |
-| **ADMIN** | master admin UI | Menu/tables/users/stock (Ombor)/discounts CRUD, confirm+pay, cancel, expenses, debts, audit read. Per `decisions.md` must NOT see profit — but see §11 defect #7. |
+| **ADMIN** | master admin UI | Menu/tables/users/stock (Ombor)/discounts CRUD, confirm+pay, cancel, expenses, debts, audit read. Per `decisions.md` must NOT see profit — but see §11 defect #8. |
 | **WAITER** | mobile or order app | PIN login, create/edit/send orders, transfer own orders, cancel own orders. |
 
 Role gating is server-side via `requireRole` on every router. The admin UI's 17 React routes are
@@ -238,7 +239,7 @@ in `pendingRepayable` until returned or written off. Debts are created only from
 with a DEBT payment leg; repayments are append-only and belong to the day received.
 
 Reports are OWNER-only (`/api/reports/*`). `/api/finance/daily` is the ADMIN-safe daily view — but
-see §11 defect #7.
+see §11 defect #8.
 
 ---
 
@@ -260,7 +261,7 @@ see §11 defect #7.
 
 Errors: throw `AppError` / `Errors.*` from `lib/errors.ts` (20 codes). The central handler maps it
 to `{ error: { code, message, details } }`. **It has no `ZodError` branch** — validation failures
-return 500 `INTERNAL` (§11 defect #8).
+return 500 `INTERNAL` (§11 defect #9).
 
 ---
 
@@ -286,7 +287,7 @@ clients re-fetch via REST and invalidate TanStack Query keys.
 
 `ingredient:stockChanged` is no longer emitted anywhere server-side (the room-nobody-joined defect
 it used to illustrate is fixed by `join('all')` above); `order`/`mobile` still register a handler
-for it, which is harmless dead code. See §11 defect #9 — `order:canceled` is what's still dead.
+for it, which is harmless dead code. See §11 defect #10 — `order:canceled` is what's still dead.
 
 ---
 
@@ -351,71 +352,97 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
 | Confirm rejected | `order.service.ts:652-688` (guards run before the transaction) |
 | Keldi/Sanoq didn't update count or cost | `services/stock.service.ts` `restock`/`setCount` (`:140-289`), `stock.routes.ts` |
 | Cash drawer disagrees | `reports.service.ts` `dailyLedger.cashflow.cashOut` — and read §5 |
-| A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #9 |
+| A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #10 |
 | Print didn't fire | `services/print.service.ts`; check `admin_printer_name` setting |
 | Daily Telegram missing | `services/finance-report.service.ts` + `lib/scheduler.ts` |
 
 ---
 
-## 11. Known defects (re-verified 2026-08-13 on `feat/count-based-inventory`, ranked; renumbered 2026-08-14 after walkout removal — see §13)
+## 11. Known defects (re-verified 2026-08-13 on `feat/count-based-inventory`, ranked; renumbered
+2026-08-14 after walkout removal, renumbered again 2026-08-14 when the final branch review added
+defect #1 — see §13)
 
 **Money-affecting**
 
-1. **Duplicate confirm is reachable.** `setClosed`/`setCanceled` use plain `update` with no status
+1. **The documented nasiya/full-discount close path cannot execute on an order carrying a service
+   line.** `OrderTicket.tsx:52` declares `const [debtorName, setDebtorName] = useState('')`;
+   `setDebtorName` has no caller anywhere in the renderer, so `debtorName` stays `''` forever.
+   `needsDebtor` (`:57`) is therefore permanently `true` once any `DEBT` leg is added, and
+   TASDIQLASH (`:125`, `disabled={!balanced || needsDebtor || submitting}`) is permanently
+   disabled — the nasiya close is dead in the admin UI. Separately, `waiveServiceCharge` exists
+   only as a type field (`api/orders.ts:17`) with zero senders; `due = Math.max(food − discount,
+   0) + serviceChargeSnapshot` (`OrderTicket.tsx:54`), so on any order carrying a `Xizmat haqi`
+   (SERVICE-kind) line, a 100% food discount still leaves `due > 0` and `balanced = paid === due`
+   (`:56`) never holds. **Net effect: an unpaid `SENT` order with a service line cannot be closed
+   by any path** — not nasiya, not a full discount. The admin's only remaining action is
+   `Bekor qilish`, which restores stock for food already eaten (both `DRAFT` and `SENT` restore,
+   §4) — exactly what `20260814111159_convert_walkout_orders/migration.sql` says must not happen.
+   Both gaps pre-date this branch (C1-rebuild remnants), but this branch deleted `WALKOUT`, the
+   last working escape hatch, and documented this non-working replacement as live fact — see §12.
+   Wiring the debtor input is slice 2/3 work and needs a product decision first.
+2. **Duplicate confirm is reachable.** `setClosed`/`setCanceled` use plain `update` with no status
    precondition, while `setSent` uses CAS `updateMany` (`order.repo.ts:204,214`). Two
    concurrent confirms both pass the `status===SENT` check and both commit → duplicate payments,
-   second bill printed. *Currently latent* because ConfirmModal disables its button while the
-   mutation is in flight — two windows or a post-timeout retry defeats that. The
-   `if (!updated) throw` guards at `order.service.ts:729` are unreachable dead code.
-   **Fix:** make both repo methods CAS like their siblings.
-2. **Confirm computes totals outside the transaction it commits** (`:668-682` vs `:690`). A
+   second bill printed. *Currently latent* because `OrderTicket` disables its button while the
+   mutation is in flight (`OrderTicket.tsx:125`, `disabled={... || submitting}`) — two windows or
+   a post-timeout retry defeats that. The `if (!updated) throw` guards at `order.service.ts:729`
+   are unreachable dead code. **Fix:** make both repo methods CAS like their siblings.
+3. **Confirm computes totals outside the transaction it commits** (`:668-682` vs `:690`). A
    concurrent line edit on a SENT order lands between them; payments get recorded against the
    pre-edit total while the receipt prints the post-edit lines. **Fix:** move the read +
    `computeTotals` inside the transaction.
-3. **Payment amounts are not validated non-negative** (`orders.controller.ts:52`) — the adjacent
-   `discountAmount` on `:48` does have `.nonnegative()`, so this is an oversight. Reachable from
-   the UI: the payment input is `type="number" min="0"` with a bare `Number()` in `onChange`
-   (`ConfirmModal.tsx:479-488`), and `min` does not block typed negatives.
-4. **Ad-hoc discount bypasses both settings caps.** Only the preset-`discountId` path enforces
+4. **Payment amounts are not validated non-negative** (`orders.controller.ts:52`) — the adjacent
+   `discountAmount` on `:48` does have `.nonnegative()`, so this is an oversight. Server-side
+   only: `OrderTicket.applyKey` (`OrderTicket.tsx:20-27`) only ever multiplies an already
+   non-negative accumulator by 10 and adds a digit, floor-divides it on backspace, or multiplies
+   it by 1000 — the current UI cannot type a negative amount. A negative is reachable only from
+   curl/devtools; the server still accepts one.
+5. **Ad-hoc discount bypasses both settings caps.** Only the preset-`discountId` path enforces
    `max_discount_percent` / `max_discount_amount` (`billing.service.ts:82-115`). A 100% discount is
    a valid request from any ADMIN.
 
 **Correctness / data integrity**
 
-5. **`isAvailable` (the manual admin toggle) is never enforced server-side.** `order.service.ts`'s
+6. **`isAvailable` (the manual admin toggle) is never enforced server-side.** `order.service.ts`'s
    `addLine`/`addCombo` check only `isActive`; `Errors.ItemUnavailable` has zero throw sites — a
    waiter can add a line for an item an admin marked unavailable. This is distinct from stock
    exhaustion, which **is** enforced (`stockService.consume`'s CAS decrement throws `OutOfStock`
    at `stockCount` 0 or NULL — §4); `effectivelyAvailable` folds both into one client-facing flag,
    but only the stock half has a server-side guard behind it.
-6. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
+7. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
    table and recreated only the plain indexes — the partial unique index from migration 2 is gone.
    `createDraft` relies on a `P2002` that can no longer fire.
 
 **Contract / UX**
 
-7. **ADMIN can read owner-only profit.** `/api/finance/daily` is ADMIN+OWNER and returns
+8. **ADMIN can read owner-only profit.** `/api/finance/daily` is ADMIN+OWNER and returns
    `pnl.profit` (`finance.service.ts:292-296`); the comment above it says the renderer hides it.
    Client-side only — curl or devtools reads it off the wire. Violates `decisions.md`.
-8. **Zod validation failures return 500 `INTERNAL`, not 400** — `errorHandler.ts` has no
+9. **Zod validation failures return 500 `INTERNAL`, not 400** — `errorHandler.ts` has no
    `ZodError` branch, so malformed bodies surface with no field detail. Covers the new
    `/api/stock` `restock`/`count` schemas too.
-9. **`order:canceled` has no listener in any client.** The `join('all')` fix (§7) means
-   `menu:changed`/`menu:itemAvailability` now reach every socket, and `ingredient:stockChanged`
-   is simply gone (no longer emitted server-side — `order`/`mobile` still register a handler for
-   it, harmless dead code, not a defect). `order:canceled` is what's left dead: no app
-   subscribes, so canceling an order pushes no live refresh to other open screens.
-10. **Customer receipts don't add up** on any order with a service charge — the item list prints
+10. **`order:canceled` has no listener in any client.** The `join('all')` fix (§7) means
+    `menu:changed`/`menu:itemAvailability` now reach every socket, and `ingredient:stockChanged`
+    is simply gone (no longer emitted server-side — `order`/`mobile` still register a handler for
+    it, harmless dead code, not a defect). `order:canceled` is what's left dead: no app
+    subscribes, so canceling an order pushes no live refresh to other open screens.
+11. **Customer receipts don't add up** on any order with a service charge — the item list prints
     SERVICE lines but the printed subtotal is FOOD-only, and there is no service-charge line
     (`printer/receipt-builder.ts:44,56-77`).
-11. **Verified fixed 2026-08-14.** ~~A fully-comped order can never be closed~~ — the old citation
+12. **Verified fixed 2026-08-14.** ~~A fully-comped order can never be closed~~ — the old citation
     (`ConfirmModal.tsx:131`, `canSubmit` requiring `previewTotal > 0`) no longer exists; that
     component was deleted by the C1 renderer rebuild. The live gate is `OrderTicket.tsx:56-58`,
     `balanced = paid === due`, which is satisfied at `paid = due = 0` — a fully-discounted order
-    closes today.
-12. **Decimal payment amounts produce an opaque failure.** `isBalanced` uses a `< 1` tolerance
-    (`ConfirmModal.tsx:129`) while the server requires exact `!==`, so a decimal shows a green ✓
-    then fails server zod → 500 (defect #8) → generic "Buyurtmani tasdiqlab bo'lmadi".
+    with no service line closes today. (Add a service line and it stops being that simple —
+    defect #1.)
+13. **A non-integer payment amount produces an opaque failure server-side.** The confirm schema's
+    `amount: z.union([z.number().int(), z.string().min(1)])` (`orders.controller.ts:52`) rejects a
+    non-integer JS number with no `ZodError` branch to catch it (defect #9) → 500 `INTERNAL`, generic
+    "Buyurtmani tasdiqlab bo'lmadi". Not reachable from the current UI: `applyKey` treats the
+    `'decimal'` key as a no-op (`OrderTicket.tsx:22`), so no on-screen payment amount can ever be
+    non-integer, and `balanced = paid === due` (`:56`) is exact — there is no client-side tolerance
+    that could hide a fractional amount behind a false green check. The server gap is real only
+    for a non-UI caller (curl, a future client).
 
 **Dead code worth knowing:** `MenuItem.unitCostSnapshot` and `OrderLine.consumptionSnapshot` are
 still declared and still never written or read (they pre-date the count model too);
@@ -429,7 +456,7 @@ merely dead — §4 lists what is still declared in the schema with no code path
 
 | Doc | Verdict |
 |---|---|
-| **This file** | Current as of 2026-08-13, `feat/count-based-inventory` (see header). |
+| **This file** | Current as of 2026-08-14, `feat/remove-walkout` (see header). |
 | `agent-plans/00-shared/decisions.md` | Labelled "locked" but **partly stale** — see below. Still authoritative on intent and on v1 scope exclusions. |
 | `agent-plans/00-shared/conventions.md` | Current. Follow it. |
 | `FINANCE_IMPLEMENTATION_SPEC.md`, `MOLIYA_KASSA_HISOBLASH_XATOSI.md` | Current and load-bearing for finance work. |
@@ -448,6 +475,24 @@ merely dead — §4 lists what is still declared in the schema with no code path
   (auto for purchases) and `Operatsion` (default).
 - ⚠ "One active order per table, enforced by partial unique index" → index was dropped, §11 #7.
 - ⚠ "ADMIN cannot see profit totals" → true in the UI only, §11 #8.
+- ❌ "mark walkout" listed as an ADMIN capability (Roles table) → the action, the button and the
+  status are all gone; see §11 #1 for what actually happens to an unpaid order today.
+- ❌ The lifecycle diagram's `SENT ─"Walkout"─► WALKOUT` branch and the `SENT → WALKOUT`
+  transition row (Order lifecycle) → both deleted. The 2026-08-14 amendment below them states the
+  real graph, but the original diagram and transition table above it were never struck.
+- ❌ "Never from `CLOSED`, `WALKOUT`, or `CANCELED`" (cancellation rules) → `WALKOUT` doesn't
+  exist; the terminal states are `CLOSED` and `CANCELED`.
+- ❌ Partial unique index "where status NOT IN (`CLOSED`, `WALKOUT`, `CANCELED`)" (Tables) →
+  `WALKOUT` doesn't exist, and the index itself is gone regardless — see §11 #7.
+- ❌ "No restore ... on walkout" (Stock tracking, consumption flow) → the whole surrounding
+  per-dish ingredient model is superseded by count-based inventory (§4); the walkout clause is
+  additionally dead on its own terms.
+- ❌ Daily report "order count broken down by `CLOSED`, `CANCELED`, `WALKOUT`" and "Walkouts log"
+  (Reports), and the Telegram summary's "canceled and walkout counts" (Reports) → none of these
+  fields exist; reports carry `CLOSED`/`CANCELED` only.
+- ❌ `WALKOUT_MARKED` listed among currently-tracked audit actions (Audit log) → no code path
+  produces it any more; it survives only as historical vocabulary on old rows
+  (`lib/audit-labels.ts`).
 
 **Claims in `CLAUDE.md` that are wrong:** none open as of this pass (2026-08-13). The entries
 previously listed here (a nonexistent `simulate-flow.ts`, React 18, the SENT-stock-restore claim)
@@ -472,6 +517,17 @@ against this file's §2/§4 whenever either changes; don't assume this stays emp
   `docs/superpowers/specs/2026-08-14-money-model-design.md` §7. §11 defect #12 was also renumbered
   in this pass (was #13) and defect #11 (was #12) was verified fixed, not deleted — its content
   says why.
+- **2026-08-14 (final branch review, second renumbering the same day):** a new defect #1 was
+  inserted at the top of the money-affecting group — the nasiya/full-discount close path
+  documented in §2 above, in `CLAUDE.md`, and in `decisions.md`'s amendment does not execute on an
+  order carrying a service line (`OrderTicket.tsx:52-57`, `api/orders.ts:17`). Pre-existing, not
+  introduced by this branch, but newly the *only* path left since this branch removed `WALKOUT`.
+  Every defect from the old #1 onward shifted down by one, for 13 total; every `§11 defect #N` and
+  `§11 #N` cross-reference in the file was re-checked against the new numbers, not just
+  incremented. Two of them, both in §12 (`§11 #7`, `§11 #8`), landed back on their original digits
+  by coincidence — they were one-too-high before this pass (should have read #6/#7 against the
+  numbering that pass left behind) and this pass's insertion shifted the correct target by exactly
+  one, so the text needed no edit.
 - **2026-08-14, on the verification story itself — three facts this branch measured, not about
   walkout:**
   - `tsc -b` compiles **nothing** under `apps/master/scripts` — verified with

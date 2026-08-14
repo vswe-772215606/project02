@@ -56,8 +56,13 @@ cd apps/master
 pnpm run typecheck:renderer   # renderer — clean
 pnpm run typecheck:gallery    # gallery fixtures vs real API types — clean
 pnpm exec electron-vite build # clean
-npx tsc -b                    # 51 errors, ALL in src/main, ALL pre-existing
+npx tsc -b                    # 49 errors, ALL in src/main, ALL pre-existing
 ```
+
+The floor moved from 51 to 49 on `feat/remove-walkout`: deleting `markWalkout` dropped
+`orders.controller.ts` from 15 pre-existing errors to 14 (51 → 50), then deleting the walkout
+table out of `pdf-report.ts` took that file from 9 to 8 (50 → 49). Both counts are real
+measurements, not typos — if you see 51 quoted elsewhere, it predates that branch.
 
 Two traps, both hit on this branch:
 
@@ -72,6 +77,16 @@ Two traps, both hit on this branch:
 ## 4. Open items — decisions, not tasks
 
 These were found, verified, and deliberately left alone. Each needs a call before work.
+
+**The nasiya/full-discount close path is dead on any order with a service line.**
+`OrderTicket.tsx:52`'s `setDebtorName` is never called, so `needsDebtor` (`:57`) never clears and
+TASDIQLASH (`:125`) stays disabled the moment a `DEBT` leg exists. `waiveServiceCharge`
+(`api/orders.ts:17`) has zero senders, so `due` (`:54`) never drops below `serviceChargeSnapshot`
+— a 100% discount can't zero it either. An unpaid `SENT` order carrying a `Xizmat haqi` line has
+no closing path left; `Bekor qilish` is the only button that still works, and it restores stock
+for food already served. Pre-existing, not introduced here — but `feat/remove-walkout` deleting
+`WALKOUT` (`docs/CURRENT_WORKFLOW.md` §11 #1) made it the only gap of its kind left. Wiring the
+debtor input is slice 2/3 work; needs a product decision on the debtor-entry UI first, not a patch.
 
 **Profit reaches ADMIN over the wire.** `/api/finance/daily` returns `pnl.profit`, and
 `finance.service.ts:300` additionally ships the whole canonical `ledger` DTO, which contains

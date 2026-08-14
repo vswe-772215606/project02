@@ -1252,7 +1252,12 @@ for s in smoke-e2e-flow smoke-stock-count smoke-finance-pnl smoke-cashflow-rever
 done
 docker compose -f compose.dev.yaml down
 ```
-Expected: all five pass. Any failure blocks this task — do not commit past it.
+**Corrected 2026-08-14 (final review):** expected **four pass** —
+`smoke-e2e-flow`, `smoke-stock-count`, `smoke-finance-pnl`, `smoke-summary-report`.
+`smoke-cashflow-reversal` is a named exception: it fails here too, but confirmed pre-existing and
+unrelated — it fails identically against the unmodified pre-Task-7 schema (see
+`docs/CURRENT_WORKFLOW.md` §13). This task was, and remains, correctly committed past that one
+failure. Any other failure blocks this task — do not commit past it.
 
 - [ ] **Step 5b: Prove the migration chain with data present**
 
@@ -1358,7 +1363,21 @@ grep -rin "walkout" --include="*.ts" --include="*.tsx" --include="*.prisma" --in
   apps docs CLAUDE.md \
   | grep -v "docs/archive\|UI_UX_LAYOUT_AUDIT\|AUDIT_FINDINGS\|PRD_FOUNDATION\|superpowers/specs\|superpowers/plans\|prisma/migrations\|audit-labels"
 ```
-Expected: **no matches.** Five things are allowed to keep mentioning it and are filtered out above: historical audit documents, the design spec, this plan, the migration SQL, and the kept `WALKOUT_MARKED` label in `lib/audit-labels.ts`. They are records of what happened, not live code paths.
+**Corrected 2026-08-14 (final review):** this returns ~195 hits across 28 files on the real run,
+not zero. The exclusion list above only anticipates documents that predate this task — it does
+not anticipate `docs/CURRENT_WORKFLOW.md` itself, which Step 2 of this same task instructs
+writing "WALKOUT" into as a negative statement ("there is no WALKOUT"), nor the older
+`docs/agent-plans/` and `docs/prd/` planning docs, which were never in this sweep's scope. Every
+hit lands in `docs/`; none is in `apps/`. The check that actually matters is narrower — that no
+**live code path** still carries it:
+
+```bash
+grep -rin "walkout" --include="*.ts" --include="*.tsx" --include="*.prisma" apps \
+  | grep -v "node_modules\|prisma/migrations\|audit-labels"
+```
+Expected: **exactly one match** — the deliberately-kept `WALKOUT_MARKED` member of
+`enum AuditAction` in `apps/master/prisma/schema.prisma`, kept for the same append-only reason
+`lib/audit-labels.ts` keeps its label (already filtered above).
 
 Then run the Uzbek sweep across every app, since the English one cannot see user-facing copy:
 
