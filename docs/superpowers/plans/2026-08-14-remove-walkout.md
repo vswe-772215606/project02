@@ -1161,7 +1161,11 @@ UPDATE t SET canceledAt = COALESCE(canceledAt, "walkoutAt", updatedAt) WHERE sta
 
 So on any database carrying historical walkout rows, the wrong order writes the literal text `walkoutAt` into a `DateTime` column. Silently.
 
-This is not hypothetical — it happened on the real run. Prisma generated `20260814082857`, four hours *before* Task 1's `20260814111159`, because Task 1's migration was created on the host and this one inside the Docker container, and the two clocks disagree. **Any migration generated in the container is liable to sort before host-generated ones.**
+This is not hypothetical — it happened on the real run. Prisma generated `20260814082857`, 2h43m *before* Task 1's `20260814111159`, even though Task 1 logically came first.
+
+**The cause is not a host/container clock split.** An earlier version of this plan asserted that; it was measured and disproven — `date -u` on the Mac host and inside the container returned the same value to the second, and containers share the host kernel's clock rather than keeping independent time. What remains is that the two migrations were generated in separate, independently-provisioned session environments whose clocks were not mutually synchronised.
+
+The general rule, which holds regardless of cause: **`prisma migrate dev`'s generated timestamp is only a safe ordering signal when every migration in the chain came from mutually-synchronised clocks.** Across sessions that assumption does not hold. Compare the new timestamp against the most recent committed one rather than trusting the name Prisma chose.
 
 ```bash
 ls apps/master/prisma/migrations/ | sort | tail -5
@@ -1254,7 +1258,11 @@ Expected: all five pass. Any failure blocks this task — do not commit past it.
 
 Every `rm -f dev.db` reseed leaves zero `WALKOUT` rows, so Task 1's conversion acts on nothing and the ordering bug from Step 1b **cannot show itself** on a clean seed. A green run here proves the chain is syntactically fine, not that it is correct.
 
-Insert a synthetic order with `status = 'WALKOUT'` and a known `walkoutAt`, run the full `migrate deploy` chain from an empty database, and confirm the row lands as `CANCELED` with `canceledAt` equal to that timestamp — **not** the string `walkoutAt`, and not `updatedAt`. Then delete the synthetic row.
+Insert a synthetic order with `status = 'WALKOUT'` and a known `walkoutAt`, run the full `migrate deploy` chain from an empty database, and confirm the row lands as `CANCELED` with `canceledAt` equal to that timestamp — **not** the string `walkoutAt`, and not `updatedAt`. Then delete the synthetic row and confirm with a `COUNT(*)`.
+
+**Give `walkoutAt` and `updatedAt` different values.** The conversion is `COALESCE(canceledAt, walkoutAt, updatedAt)` with `canceledAt` NULL, so if the other two are equal the result is the same whichever one wins and the test cannot tell them apart. Use e.g. `walkoutAt = '2026-06-01T12:34:56.000Z'` and `updatedAt = '2026-08-14T00:00:00.000Z'`: a June result proves `walkoutAt` was preserved, an August one proves the conversion is silently discarding walkout timestamps.
+
+**Staging this requires temporarily holding migrations out of the directory.** Prisma has no "apply up to migration X" flag, and the synthetic row has to exist *while `walkoutAt` still does* — so apply through `count_based_inventory`, `mv` the last two migrations to a scratch directory outside the repo, insert the row, `mv` them back, then apply. Use `mv`, never `rm`, and never touch git. Mid-test `git status` will show a `D` on a committed migration and look alarming; that is expected. `git diff HEAD` on the held files must come back empty afterwards — that is the check that they returned untouched.
 
 This is the only check that exercises what Step 1b guards against.
 
