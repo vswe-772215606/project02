@@ -774,7 +774,7 @@ export const orderService = {
 
   async reprintBill(input: { orderId: string; requestingUserId: string; reason?: string }) {
     const order = await getOrderOrThrow(input.orderId);
-    if (order.status !== OrderStatus.CLOSED && order.status !== OrderStatus.WALKOUT) {
+    if (order.status !== OrderStatus.CLOSED) {
       throw Errors.IllegalStateTransition(order.status, 'REPRINT_BILL');
     }
 

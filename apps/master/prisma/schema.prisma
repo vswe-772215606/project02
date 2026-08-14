@@ -32,7 +32,6 @@ enum OrderStatus {
   DRAFT
   SENT
   CLOSED
-  WALKOUT
   CANCELED
 }
 
@@ -167,7 +166,6 @@ model User {
   sessions          Session[]
   ordersAsWaiter    Order[]      @relation("OrderWaiter")
   ordersApproved    Order[]      @relation("OrderApprover")
-  ordersWalkoutMarked Order[]    @relation("OrderWalkoutMarker")
   auditEntries      AuditLog[]   @relation("AuditActor")
   discountsCreated  Discount[]   @relation("DiscountCreator")
   printJobs         PrintJob[]   @relation("PrintJobTrigger")
@@ -333,8 +331,6 @@ model Order {
   closedAt               DateTime?
   canceledAt             DateTime?
   cancelReason           String?
-  walkoutAt              DateTime?
-  walkoutById            String?
 
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
@@ -342,7 +338,6 @@ model Order {
   table           Table?          @relation(fields: [tableId], references: [id])
   waiter          User            @relation("OrderWaiter", fields: [waiterId], references: [id])
   approvedBy      User?           @relation("OrderApprover", fields: [approvedById], references: [id])
-  walkoutBy       User?           @relation("OrderWalkoutMarker", fields: [walkoutById], references: [id])
   appliedDiscount Discount?       @relation(fields: [appliedDiscountId], references: [id])
   lines           OrderLine[]
   payments        Payment[]
@@ -354,7 +349,6 @@ model Order {
   @@index([tableId])
   @@index([createdAt])
   @@index([closedAt])
-  @@index([walkoutAt])
   @@index([sentAt])
 }
 

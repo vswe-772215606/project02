@@ -71,7 +71,7 @@ export const orderRepo = {
     return (tx ?? getPrisma()).order.findMany({
       where: {
         status: {
-          notIn: [OrderStatus.CLOSED, OrderStatus.WALKOUT, OrderStatus.CANCELED],
+          notIn: [OrderStatus.CLOSED, OrderStatus.CANCELED],
         },
       },
       include: LIST_INCLUDE,
