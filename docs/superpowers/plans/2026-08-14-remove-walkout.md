@@ -45,6 +45,18 @@ After every task the count must still be **51 or lower** — never higher. It dr
 
 `tsc -b` must be run from `apps/master`. From the repo root use `pnpm typecheck` (which is `pnpm -r typecheck`); a bare `npx tsc -b` at the root fails with `TS5083` because there is no root `tsconfig.json`.
 
+### Every task must also sweep the Uzbek phrasing
+
+Grepping for `walkout` finds the code and misses the product. The user-facing concept is spelled **"to'lamay ketgan"**, **"to'lamagan"**, **"to'lamay"** — and the apostrophe varies: a plain `'`, a backslash-escaped `\'` inside a single-quoted string, or the typographic `’` (U+2018). A naive pattern catches one form and silently passes the other two.
+
+Run this over the trees your task touched, every time:
+
+```bash
+grep -rniE "to.{0,2}lama" --include="*.ts" --include="*.tsx" <your trees>
+```
+
+Task 2 shipped, passed an English-only sweep, and still left two visible section titles and one routine empty-state string promising a feature that had been deleted. Expect the same in any file that renders or prints text.
+
 ### The other two gates
 
 ```bash
@@ -516,6 +528,37 @@ description="Muhim hodisalarda darhol xabar: katta chegirma/chiqim, nasiya sotuv
 ```
 
 There is no separate settings key to remove — the walkout alert was unconditional, with no threshold of its own. Only this string is stale.
+
+- [ ] **Step 6c: Retitle the three Uzbek strings that still name walkout**
+
+English greps miss these — the concept is spelled "to'lamay ketgan" / "to'lamagan" in the UI. All three stay visible after the feature is gone.
+
+`components/reports/IncidentsSection.tsx:36` — the section now renders only cancellations:
+```tsx
+<Section title="Bekor va to'lamay ketgan">
+```
+becomes
+```tsx
+<Section title="Bekor qilingan">
+```
+
+`pages/ReportsPage.tsx:177` — the `Collapsible` wrapping it (its `count` prop one line below is handled in Step 5):
+```tsx
+title="Bekor / To'lamay ketgan"
+```
+becomes
+```tsx
+title="Bekor qilingan"
+```
+
+`components/reports/SalesSummary.tsx:15` — the empty-state fallback of the tile whose true-branch Step 5 already simplified. This renders on any day with zero cancellations, which is routine, not an edge case:
+```tsx
+: 'Bekor yoki to\'lamagan yo\'q'
+```
+becomes
+```tsx
+: 'Bekor yo\'q'
+```
 
 - [ ] **Step 7: Strip walkout from the gallery fixtures**
 
@@ -1189,6 +1232,14 @@ grep -rin "walkout" --include="*.ts" --include="*.tsx" --include="*.prisma" --in
   | grep -v "docs/archive\|UI_UX_LAYOUT_AUDIT\|AUDIT_FINDINGS\|PRD_FOUNDATION\|superpowers/specs\|superpowers/plans\|prisma/migrations\|audit-labels"
 ```
 Expected: **no matches.** Five things are allowed to keep mentioning it and are filtered out above: historical audit documents, the design spec, this plan, the migration SQL, and the kept `WALKOUT_MARKED` label in `lib/audit-labels.ts`. They are records of what happened, not live code paths.
+
+Then run the Uzbek sweep across every app, since the English one cannot see user-facing copy:
+
+```bash
+grep -rniE "to.{0,2}lama" --include="*.ts" --include="*.tsx" apps
+```
+
+Expected: **exactly one match** — `To‘lamay ketdi` in `lib/audit-labels.ts`, the kept historical label. Every other hit is stale copy promising a feature that no longer exists.
 
 - [ ] **Step 6: Commit**
 
