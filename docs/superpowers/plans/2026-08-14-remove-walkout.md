@@ -67,6 +67,24 @@ pnpm run typecheck:gallery    # must be clean — zero errors, always
 
 `tsconfig.renderer.json` does **not** cover `gallery/`. `tsconfig.gallery.json` covers both trees. A renderer type change that breaks a fixture only shows up in the second command — always run both.
 
+### The smokes are cumulative — re-seed before comparing numbers
+
+`scripts/smoke-finance-pnl.ts` and its siblings **seed their own fixtures into the running database on every run** and do not clean up. Run one twice against the same database and every figure doubles; three times and it triples. The smoke still *passes* either way, because its assertions are internally consistent — only the absolute numbers move.
+
+Measured during Task 4: baseline `270000 − 55200 − 30000 = 184800`, then an immediate second run of the same unchanged code reported `540000 − 110400 − 60000 = 369600`. Exactly 2×, nothing wrong with the code.
+
+So **a smoke's numbers only mean something against a freshly seeded database.** Before any run whose figures you intend to compare:
+
+```bash
+docker compose -f compose.dev.yaml exec -T master-dev bash -lc \
+  "rm -f apps/master/prisma/dev.db \
+   && pnpm --filter @chayxana/master exec prisma migrate deploy \
+   && pnpm --filter @chayxana/master exec tsx prisma/seed.ts"
+docker compose -f compose.dev.yaml restart master-dev
+```
+
+Then wait for `curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/api/health` to return 200. Use `exec -T` throughout — plain `exec` fails in a non-interactive shell.
+
 ### Server smokes need Docker
 
 Electron does not run on the dev Mac. For any task whose verification runs an HTTP smoke:
@@ -772,10 +790,15 @@ Lines 1391-1398 — delete the whole `walkouts: walkoutOrders.map(...)` block fr
 
 ```bash
 cd apps/master
-npx tsc -b 2>&1 | grep -E "reports\.service" 
-npx tsc -b 2>&1 | grep -cE "error TS"
+npx tsc -b 2>&1 | grep -E "reports\.service"
+npx tsc -b 2>&1 | grep -E "error TS" | sed 's/(.*//' | sort | uniq -c | sort -rn
 ```
-Expected: **no errors mentioning `reports.service`**, and total count ≤ 51.
+
+Expected: **no errors mentioning `reports.service`** — that file must come out clean.
+
+**The total WILL rise, and that is correct here.** This task trims DTOs that `pdf-report.ts`, `finance.service.ts`, `me.controller.ts` and `telegram-bot.service.ts` still read; Task 5 removes those readers. Measured on the real run: 50 → **57**, with `pdf-report.ts` 9 → 15 (+6) and `finance.service.ts` 0 → 1 (+1), every new error naming a field this task deleted.
+
+Judge the **per-file breakdown**, not the total. A new error in any file other than those four means you deleted something you shouldn't have — stop and investigate. Task 5 brings the count back down.
 
 - [ ] **Step 6: Run the report smokes against a live server**
 
