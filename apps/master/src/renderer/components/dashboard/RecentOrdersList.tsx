@@ -6,7 +6,6 @@ const STATUS_LABEL: Record<Order['status'], string> = {
   DRAFT: 'Qoralama',
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lamay ketdi",
   CANCELED: 'Bekor qilingan',
 };
 
@@ -14,7 +13,6 @@ const STATUS_TONE: Record<Order['status'], ChipTone> = {
   DRAFT: 'inert',
   SENT: 'live',
   CLOSED: 'settled',
-  WALKOUT: 'owed',
   CANCELED: 'inert',
 };
 

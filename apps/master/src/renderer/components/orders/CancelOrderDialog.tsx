@@ -21,8 +21,8 @@ function shortOrderNumber(orderNumber: string | null | undefined): string {
 }
 
 /**
- * The one destructive, irreversible action on this screen — mirrors
- * Tasdiqlash's walkout dialog: a mandatory reason, then confirm.
+ * The one destructive, irreversible action on this screen.
+ * A mandatory reason, then confirm.
  */
 export function CancelOrderDialog({
   order,

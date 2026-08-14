@@ -246,7 +246,7 @@ export function OrderPanel({
             </Button>
           ) : null}
 
-          {order.status === 'CLOSED' || order.status === 'WALKOUT' ? (
+          {order.status === 'CLOSED' ? (
             <Button
               variant="secondary"
               className="w-full"

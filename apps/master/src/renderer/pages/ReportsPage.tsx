@@ -175,7 +175,7 @@ function DailyView({ report }: { report: DailyReport }) {
 
         <Collapsible
           title="Bekor / To'lamay ketgan"
-          count={`${report.cancellations.length + report.walkouts.length} ta hodisa`}
+          count={`${report.cancellations.length} ta hodisa`}
         >
           <IncidentsSection report={report} />
         </Collapsible>
@@ -243,7 +243,7 @@ function MonthlyReportView({
         <StatTile
           label="Buyurtmalar"
           value={`${report.totals.closedOrders} ta`}
-          hint={`${report.totals.canceledOrders} bekor · ${report.totals.walkoutOrders} to'lamagan`}
+          hint={`${report.totals.canceledOrders} bekor`}
           icon={ShoppingBag}
         />
       </div>

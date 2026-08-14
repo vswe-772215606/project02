@@ -132,7 +132,6 @@ export function Row({
 const ORDER_STATUS_LABEL: Record<string, string> = {
   CLOSED: 'Yopilgan',
   CANCELED: 'Bekor',
-  WALKOUT: "To'lamagan",
   OPEN: 'Ochiq',
   PARTIAL: 'Qisman',
   PAID: 'Yopilgan',
@@ -145,7 +144,6 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
 const ORDER_STATUS_TONE: Record<string, ChipTone> = {
   CLOSED: 'settled',
   PAID: 'settled',
-  WALKOUT: 'owed',
   OPEN: 'live',
   PARTIAL: 'selected',
   CANCELED: 'inert',

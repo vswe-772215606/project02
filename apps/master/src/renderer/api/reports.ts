@@ -14,7 +14,6 @@ export interface DailyLedger {
   sales: {
     closedCount: number;
     canceledCount: number;
-    walkoutCount: number;
     gross: string;
     discount: string;
     netSales: string;       // gross − discount
@@ -64,14 +63,6 @@ export interface DailyLedger {
     serviceEarned: string;
   }>;
   incidents: {
-    walkouts: Array<{
-      orderId: string;
-      walkoutAt: string;
-      walkoutById: string | null;
-      walkoutByName: string | null;
-      amount: string;
-      reason: string;
-    }>;
     cancellations: Array<{
       orderId: string;
       canceledAt: string;
@@ -138,7 +129,6 @@ export interface DailyReport {
   sales: {
     closedOrders: number;
     canceledOrders: number;
-    walkoutOrders: number;
     grossSales: string;
     discounts: string;
     netSales: string;
@@ -222,18 +212,6 @@ export interface DailyReport {
     canceledBy: string;
     reason: string;
   }>;
-  walkouts: Array<{
-    orderId: string;
-    markedAt: string;
-    // PRD 13: pre-T6 this was always 'unknown'. Now resolved via the new
-    // Order.walkoutById column. `markedBy` left for legacy callers; new
-    // code should prefer markedById / markedByName.
-    markedBy?: string;
-    markedById: string | null;
-    markedByName: string | null;
-    amount: string;
-    reason: string;
-  }>;
   // Canonical ledger — single source of truth for daily numbers (PRD 13).
   // Prefer reading from here in new components. Legacy fields above are
   // kept as compatibility projections.
@@ -244,7 +222,7 @@ export interface DailyReport {
     at: string;
     tableName: string | null;
     waiterName: string;
-    status: 'CLOSED' | 'CANCELED' | 'WALKOUT';
+    status: 'CLOSED' | 'CANCELED';
     gross: string;
     discount: string;
     net: string;
@@ -288,7 +266,6 @@ export interface MonthlyDayRow {
   sales: {
     closedOrders: number;
     canceledOrders: number;
-    walkoutOrders: number;
     grossSales: string;
     discounts: string;
     netSales: string;
@@ -332,7 +309,6 @@ export interface MonthlyReport {
   totals: {
     closedOrders: number;
     canceledOrders: number;
-    walkoutOrders: number;
     grossSales: string;
     discounts: string;
     netSales: string;

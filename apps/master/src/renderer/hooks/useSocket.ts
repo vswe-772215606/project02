@@ -76,7 +76,6 @@ export function useSocket() {
     };
     nextSocket.on('order:updated', orderChanged);
     nextSocket.on('order:closed', orderChanged);
-    nextSocket.on('order:walkout', orderChanged);
     nextSocket.on('order:canceled', orderChanged);
     nextSocket.on('order:transferred', orderChanged);
     nextSocket.on('menu:itemAvailability', () => queryClientRef.current.invalidateQueries({ queryKey: ['menu'] }));

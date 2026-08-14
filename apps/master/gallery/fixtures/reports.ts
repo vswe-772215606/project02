@@ -15,7 +15,7 @@ function buildThinDailyReport(date: string): DailyReport {
   return {
     date,
     sales: {
-      closedOrders: d.closedOrders, canceledOrders: d.canceledOrders, walkoutOrders: d.walkoutOrders,
+      closedOrders: d.closedOrders, canceledOrders: d.canceledOrders,
       grossSales: String(d.gross), discounts: String(d.discounts), netSales: String(d.net),
       debtSales: String(d.debtSales), serviceCharge: String(d.service),
     },
@@ -42,7 +42,6 @@ function buildThinDailyReport(date: string): DailyReport {
     },
     perWaiter: [],
     cancellations: [],
-    walkouts: [],
     ledger,
     ordersTable: [],
     mealSales: [],
@@ -86,12 +85,6 @@ function buildDailyReport(date: string): DailyReport {
       waiterName: o.waiter?.fullName ?? '—', status: 'CANCELED' as const,
       gross: '0', discount: '0', net: '0', service: '0', cash: '0', card: '0', debt: '0',
     })),
-    ...f.walkoutToday.map((o) => ({
-      orderId: o.id, orderNumber: o.orderNumber, at: o.closedAt ?? o.createdAt, tableName: o.tableName,
-      waiterName: o.waiter?.fullName ?? '—', status: 'WALKOUT' as const,
-      gross: String(o.subtotalSnapshot ?? 0), discount: '0', net: String(o.subtotalSnapshot ?? 0),
-      service: String(o.serviceChargeSnapshot ?? 0), cash: '0', card: '0', debt: '0',
-    })),
   ].sort((a, b) => (a.at < b.at ? 1 : -1));
 
   const mealSales: DailyReport['mealSales'] = f.mealFacts.map((mf) => {
@@ -132,7 +125,6 @@ function buildDailyReport(date: string): DailyReport {
     sales: {
       closedOrders: f.closedToday.length,
       canceledOrders: f.canceledToday.length,
-      walkoutOrders: f.walkoutToday.length,
       grossSales: String(f.grossSales),
       discounts: String(f.discounts),
       netSales: String(f.netSales),
@@ -187,9 +179,6 @@ function buildDailyReport(date: string): DailyReport {
     cancellations: f.canceledToday.map((o) => ({
       orderId: o.id, canceledAt: o.canceledAt ?? o.createdAt, canceledBy: o.waiter?.fullName ?? '—', reason: o.cancelReason ?? '',
     })),
-    walkouts: ledger.incidents.walkouts.map((w) => ({
-      orderId: w.orderId, markedAt: w.walkoutAt, markedById: w.walkoutById, markedByName: w.walkoutByName, amount: w.amount, reason: w.reason,
-    })),
     ledger,
     ordersTable,
     mealSales,
@@ -214,7 +203,7 @@ function monthlyDayRow(dateKey: string): MonthlyDayRow {
   return {
     date: dateKey,
     sales: {
-      closedOrders: d.closedOrders, canceledOrders: d.canceledOrders, walkoutOrders: d.walkoutOrders,
+      closedOrders: d.closedOrders, canceledOrders: d.canceledOrders,
       grossSales: String(d.gross), discounts: String(d.discounts), netSales: String(d.net),
       debtSales: String(d.debtSales), serviceCharge: String(d.service),
     },
@@ -245,7 +234,6 @@ function buildMonthlyReport(month: string): MonthlyReport {
     totals: {
       closedOrders: sum(daily.map((d) => d.sales.closedOrders)),
       canceledOrders: sum(daily.map((d) => d.sales.canceledOrders)),
-      walkoutOrders: sum(daily.map((d) => d.sales.walkoutOrders)),
       grossSales: String(sum(daily.map((d) => d.sales.grossSales))),
       discounts: String(sum(daily.map((d) => d.sales.discounts))),
       netSales: String(sum(daily.map((d) => d.sales.netSales))),

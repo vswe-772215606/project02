@@ -1,7 +1,7 @@
 import type { DailyReport } from '@/api/reports';
 import { FieldLabel } from '@/components/blocks';
 import { formatMoney } from '@/lib/format';
-import { Section, sumMoney } from './report-helpers';
+import { Section } from './report-helpers';
 import { cn } from '@/lib/utils';
 
 type RowSpec = {
@@ -28,7 +28,6 @@ type RowSpec = {
  * pul oqimi va sof foydasini ko'rsatadi.
  */
 export function GrandSummarySection({ report }: { report: DailyReport }) {
-  const walkoutTotal = sumMoney(report.walkouts.map((w) => w.amount));
   const pnl = report.ledger.pnl;
 
   const incomeRows: RowSpec[] = [
@@ -95,7 +94,6 @@ export function GrandSummarySection({ report }: { report: DailyReport }) {
   const orderRows: RowSpec[] = [
     { label: 'Yopilgan buyurtmalar', value: String(report.sales.closedOrders), kind: 'text' },
     { label: 'Bekor qilingan', value: String(report.sales.canceledOrders), kind: 'text', tone: report.sales.canceledOrders > 0 ? 'warn' : 'muted' },
-    { label: "To'lamay ketgan", value: `${report.sales.walkoutOrders} (${formatMoney(walkoutTotal)} so'm)`, kind: 'text', tone: report.sales.walkoutOrders > 0 ? 'danger' : 'muted' },
   ];
 
   return (

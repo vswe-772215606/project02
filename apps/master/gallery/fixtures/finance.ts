@@ -18,7 +18,6 @@ function parseDayKey(key: string): Date | null {
  * instead of being an independently-typed set of numbers.
  */
 const closedToday = orders.filter((o) => o.status === 'CLOSED');
-const walkoutToday = orders.filter((o) => o.status === 'WALKOUT');
 // orders.ts dates one CANCELED order yesterday on purpose; today's ledger
 // only counts the other two.
 const canceledToday = orders.filter((o) => o.status === 'CANCELED' && o.id !== 'ord-canceled-03');
@@ -93,7 +92,6 @@ const netSales = grossSales - discounts;
 const serviceCharge = sum(closedToday.map((o) => o.serviceChargeSnapshot ?? 0));
 const billedTotal = netSales + serviceCharge;
 const debtSalesToday = sum(closedToday.filter((o) => o.debt).map((o) => o.debt?.originalAmount ?? 0));
-const walkoutLoss = sum(walkoutToday.map((o) => o.totalAmount));
 
 const CASH_SHARE = 0.65;
 function paymentSplit(order: (typeof orders)[number]) {
@@ -157,15 +155,6 @@ const perWaiter: DailyLedger['perWaiter'] = todayStats.items.map((w) => ({
   serviceEarned: w.serviceEarned,
 }));
 
-const WALKOUT_HANDLERS = ['Kamola Rashidova', 'Dilshod Yusupov', 'Kamola Rashidova'];
-const incidentWalkouts: DailyLedger['incidents']['walkouts'] = walkoutToday.map((o, idx) => ({
-  orderId: o.id,
-  walkoutAt: o.closedAt ?? o.createdAt,
-  walkoutById: 'u-admin',
-  walkoutByName: WALKOUT_HANDLERS[idx] ?? 'Kamola Rashidova',
-  amount: String(o.totalAmount),
-  reason: o.cancelReason ?? '',
-}));
 const incidentCancellations: DailyLedger['incidents']['cancellations'] = canceledToday.map((o) => ({
   orderId: o.id,
   canceledAt: o.canceledAt ?? o.createdAt,
@@ -216,7 +205,7 @@ const ledgerMealSales: DailyLedger['lines']['mealSales'] = mealFacts.map((f) => 
 export type SyntheticDayNumbers = {
   gross: number; discounts: number; net: number; service: number; cogs: number; operating: number;
   cash: number; card: number; debtSales: number; debtRepay: number; expenseReturn: number;
-  closedOrders: number; canceledOrders: number; walkoutOrders: number; outstanding: number;
+  closedOrders: number; canceledOrders: number; outstanding: number;
 };
 
 export function isToday(dateKey: string): boolean {
@@ -229,7 +218,7 @@ export function syntheticDayNumbers(dateKey: string): SyntheticDayNumbers {
       gross: grossSales, discounts, net: netSales, service: serviceCharge, cogs: mealSalesTotal.cogs,
       operating: operatingExpenseNet, cash: orderCash, card: orderCard, debtSales: debtSalesToday,
       debtRepay: debtRepaidCash + debtRepaidCard, expenseReturn: expenseReturns,
-      closedOrders: closedToday.length, canceledOrders: canceledToday.length, walkoutOrders: walkoutToday.length,
+      closedOrders: closedToday.length, canceledOrders: canceledToday.length,
       outstanding: lifetimeOutstandingDebt,
     };
   }
@@ -251,7 +240,6 @@ export function syntheticDayNumbers(dateKey: string): SyntheticDayNumbers {
     expenseReturn: pseudoRange(seed + 6, 0, 60000),
     closedOrders: pseudoRange(seed + 7, isWeekend ? 18 : 10, isWeekend ? 30 : 20),
     canceledOrders: pseudoRange(seed + 8, 0, 3),
-    walkoutOrders: pseudoRange(seed + 9, 0, 2),
     outstanding: pseudoRange(seed + 10, 900000, 2200000),
   };
 }
@@ -264,7 +252,7 @@ function buildThinDailyLedger(date: string): DailyLedger {
   return {
     date,
     sales: {
-      closedCount: d.closedOrders, canceledCount: d.canceledOrders, walkoutCount: d.walkoutOrders,
+      closedCount: d.closedOrders, canceledCount: d.canceledOrders,
       gross: String(d.gross), discount: String(d.discounts), netSales: String(d.net),
       serviceCharge: String(d.service), debtSales: String(d.debtSales),
     },
@@ -283,7 +271,7 @@ function buildThinDailyLedger(date: string): DailyLedger {
       outstandingAsOfEod: String(d.outstanding),
     },
     perWaiter: [],
-    incidents: { walkouts: [], cancellations: [] },
+    incidents: { cancellations: [] },
     lines: { closedOrders: [], mealSales: [], debtRepayments: [] },
   };
 }
@@ -295,7 +283,6 @@ export function buildDailyLedger(date: string): DailyLedger {
     sales: {
       closedCount: closedToday.length,
       canceledCount: canceledToday.length,
-      walkoutCount: walkoutToday.length,
       gross: String(grossSales),
       discount: String(discounts),
       netSales: String(netSales),
@@ -335,7 +322,7 @@ export function buildDailyLedger(date: string): DailyLedger {
       outstandingAsOfEod: String(lifetimeOutstandingDebt),
     },
     perWaiter,
-    incidents: { walkouts: incidentWalkouts, cancellations: incidentCancellations },
+    incidents: { cancellations: incidentCancellations },
     lines: {
       closedOrders: ledgerClosedOrders,
       mealSales: ledgerMealSales,
@@ -352,9 +339,9 @@ function buildThinFinanceDaily(date: string): FinanceDaily {
   return {
     date,
     sales: {
-      closedOrders: d.closedOrders, walkoutOrders: d.walkoutOrders, grossSales: String(d.gross),
+      closedOrders: d.closedOrders, grossSales: String(d.gross),
       discounts: String(d.discounts), netFood: String(d.net), serviceCharge: String(d.service),
-      billedTotal: String(d.net + d.service), walkoutLoss: '0',
+      billedTotal: String(d.net + d.service),
     },
     cashflow: {
       cashIn: String(d.cash), cardIn: String(d.card), debtOpened: String(d.debtSales),
@@ -392,13 +379,11 @@ function buildFinanceDaily(date: string): FinanceDaily {
     date,
     sales: {
       closedOrders: closedToday.length,
-      walkoutOrders: walkoutToday.length,
       grossSales: String(grossSales),
       discounts: String(discounts),
       netFood: String(netSales),
       serviceCharge: String(serviceCharge),
       billedTotal: String(billedTotal),
-      walkoutLoss: String(walkoutLoss),
     },
     cashflow: {
       cashIn: String(orderCash),
@@ -505,7 +490,6 @@ function buildFinanceDaily(date: string): FinanceDaily {
  */
 export const dayFacts = {
   closedToday,
-  walkoutToday,
   canceledToday,
   mealFacts,
   mealSalesTotal,
@@ -515,7 +499,6 @@ export const dayFacts = {
   serviceCharge,
   billedTotal,
   debtSalesToday,
-  walkoutLoss,
   orderCash,
   orderCard,
   operatingExpenses,

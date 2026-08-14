@@ -35,15 +35,6 @@ const orderRows: AuditLogItem[] = orders.flatMap((o, idx) => {
       }),
     ];
   }
-  if (o.status === 'WALKOUT') {
-    return [
-      row(o.closedAt ?? o.createdAt, admin, 'WALKOUT_MARKED', 'Order', o.id, {
-        orderNumber: o.orderNumber,
-        amount: String(o.totalAmount),
-        reason: o.cancelReason ?? '',
-      }),
-    ];
-  }
   if (o.status === 'CANCELED') {
     return [
       row(o.canceledAt ?? o.createdAt, o.waiter ?? admin, 'ORDER_CANCELED', 'Order', o.id, {
@@ -82,7 +73,7 @@ const otherRows: AuditLogItem[] = [
 
   row(hoursAgo(6), KAMOLA, 'DISCOUNT_APPLIED', 'Order', 'ord-closed-02', { orderNumber: orderNumberOf('ord-closed-02'), discountName: "Doimiy mijoz chegirmasi", amount: '8000' }),
   row(hoursAgo(3), DILSHOD, 'DISCOUNT_APPLIED', 'Order', 'ord-closed-12', { orderNumber: orderNumberOf('ord-closed-12'), discountName: 'Chegirma', amount: '15000' }),
-  row(hoursAgo(2), KAMOLA, 'SERVICE_CHARGE_WAIVED', 'Order', 'ord-walkout-03', { orderNumber: orderNumberOf('ord-walkout-03'), amount: '20000' }),
+  row(hoursAgo(2), KAMOLA, 'SERVICE_CHARGE_WAIVED', 'Order', 'ord-closed-05', { orderNumber: orderNumberOf('ord-closed-05'), amount: '20000' }),
 
   row(daysAgo(3, 11, 0), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-birthday', { name: "Tug'ilgan kun chegirmasi", type: 'PERCENT', value: 20 }),
   row(daysAgo(3, 11, 5), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-15pct-vip', { name: 'VIP mijozlar uchun', type: 'PERCENT', value: 15 }),

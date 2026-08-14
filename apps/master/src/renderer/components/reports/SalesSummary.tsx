@@ -10,8 +10,8 @@ export function SalesSummary({ report }: { report: DailyReport }) {
         label="Yopilgan buyurtmalar"
         value={report.sales.closedOrders}
         hint={
-          report.sales.canceledOrders + report.sales.walkoutOrders > 0
-            ? `${report.sales.canceledOrders} bekor · ${report.sales.walkoutOrders} to'lamagan`
+          report.sales.canceledOrders > 0
+            ? `${report.sales.canceledOrders} bekor`
             : 'Bekor yoki to\'lamagan yo\'q'
         }
         icon={ShoppingBag}

@@ -9,14 +9,13 @@ import { OrderList } from '@/components/orders/OrderList';
 import { OrderPanel } from '@/components/orders/OrderPanel';
 import { CancelOrderDialog } from '@/components/orders/CancelOrderDialog';
 
-type HistoryStatus = 'SENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+type HistoryStatus = 'SENT' | 'CLOSED' | 'CANCELED';
 
-const FILTER_TABS: HistoryStatus[] = ['SENT', 'CLOSED', 'WALKOUT', 'CANCELED'];
+const FILTER_TABS: HistoryStatus[] = ['SENT', 'CLOSED', 'CANCELED'];
 
 const TAB_LABELS: Record<HistoryStatus, string> = {
   SENT: 'Yuborilgan',
   CLOSED: 'Yopilgan',
-  WALKOUT: "To'lamay ketdi",
   CANCELED: 'Bekor qilingan',
 };
 
@@ -32,7 +31,7 @@ function localDateString(): string {
  *
  * The list scopes to one status tab; the panel holds whichever order is
  * selected, its lines, and the one action its status allows. Cancelling
- * asks for a reason in a dialog — mirrors Tasdiqlash's walkout flow.
+ * asks for a reason in a dialog.
  */
 export function OrdersPage() {
   usePageTitle('Buyurtmalar');

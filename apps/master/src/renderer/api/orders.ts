@@ -48,7 +48,7 @@ export interface Order {
   tableId: string | null;
   tableName: string | null;
   waiterId: string;
-  status: 'DRAFT' | 'SENT' | 'CLOSED' | 'WALKOUT' | 'CANCELED';
+  status: 'DRAFT' | 'SENT' | 'CLOSED' | 'CANCELED';
   itemCount: number;
   totalAmount: number;
   subtotalSnapshot: number | null;

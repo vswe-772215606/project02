@@ -229,23 +229,6 @@ const SPECS: OrderSpec[] = [
     ],
   },
 
-  // ── WALKOUT — left without paying ────────────────────────────────────
-  {
-    id: 'ord-walkout-01', tableId: 't-stol2', tableName: 'Stol 2', waiter: BOTIR, status: 'WALKOUT', when: hoursAgo(8), closedAt: hoursAgo(8),
-    cancelReason: "Mijoz kutmay chiqib ketdi, to'lovsiz",
-    lines: [{ itemId: 'mi-osh', qty: 2 }, { itemId: 'mi-kokchoy', qty: 2 }],
-  },
-  {
-    id: 'ord-walkout-02', tableId: null, tableName: null, waiter: SARDOR, status: 'WALKOUT', when: hoursAgo(5), closedAt: hoursAgo(5),
-    cancelReason: 'Olib ketish buyurtmasi olinmadi',
-    lines: [{ itemId: 'mi-goshtsomsa', qty: 3 }],
-  },
-  {
-    id: 'ord-walkout-03', tableId: 't-xona2', tableName: 'Xona 2', waiter: AZIZA, status: 'WALKOUT', when: hoursAgo(2), closedAt: hoursAgo(2),
-    cancelReason: "Pul yetishmadi, hujjat qoldirib ketishga rozi bo'lmadi",
-    lines: [{ itemId: 'mi-tovuqkabob', qty: 2 }, { itemId: 'mi-shorva', qty: 2 }, { itemId: 'mi-xizmat', qty: 2 }],
-  },
-
   // ── CANCELED — never sent to the kitchen, or pulled after ─────────────
   {
     id: 'ord-canceled-01', tableId: 't-stol6', tableName: 'Stol 6', waiter: SARDOR, status: 'CANCELED', when: hoursAgo(6),
@@ -299,17 +282,6 @@ export const ordersRoutes: RouteHandler = (path, method, body) => {
     };
     orders = orders.map((o) => (o.id === id ? closed : o));
     return json(closed);
-  }
-
-  const walkoutMatch = /^\/api\/orders\/([^/]+)\/mark-walkout$/.exec(base);
-  if (method === 'POST' && walkoutMatch) {
-    const id = walkoutMatch[1] as string;
-    const order = orders.find((o) => o.id === id);
-    if (!order) return errorJson('NOT_FOUND', 'Buyurtma topilmadi', 404);
-    const reason = typeof body.reason === 'string' ? body.reason : '';
-    const walked: Order = { ...order, status: 'WALKOUT', closedAt: new Date().toISOString(), cancelReason: reason };
-    orders = orders.map((o) => (o.id === id ? walked : o));
-    return json(walked);
   }
 
   const cancelMatch = /^\/api\/orders\/([^/]+)\/cancel$/.exec(base);

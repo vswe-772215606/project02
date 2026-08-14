@@ -13,6 +13,8 @@ export const AUDIT_LABELS: Record<string, string> = {
 
   ORDER_CONFIRMED: "Buyurtma tasdiqlandi va to'landi",
   ORDER_CANCELED: 'Buyurtma bekor qilindi',
+  // Historical only — walkout was removed 2026-08-14. Kept so old audit rows
+  // still render a name. Do not add it back to the filter arrays below.
   WALKOUT_MARKED: 'To‘lamay ketdi',
   TABLE_TRANSFERRED: 'Stol o‘zgartirildi',
   RECEIPT_REPRINTED: 'Chek qaytadan chop etildi',
@@ -71,7 +73,7 @@ export const AUDIT_LABELS: Record<string, string> = {
 export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
   {
     label: 'Buyurtma',
-    values: ['ORDER_CONFIRMED', 'ORDER_CANCELED', 'WALKOUT_MARKED', 'TABLE_TRANSFERRED', 'RECEIPT_REPRINTED', 'DISCOUNT_APPLIED', 'SERVICE_CHARGE_WAIVED'],
+    values: ['ORDER_CONFIRMED', 'ORDER_CANCELED', 'TABLE_TRANSFERRED', 'RECEIPT_REPRINTED', 'DISCOUNT_APPLIED', 'SERVICE_CHARGE_WAIVED'],
   },
   {
     label: 'Mahsulot va retsept',
@@ -104,7 +106,7 @@ export const AUDIT_GROUPS: Array<{ label: string; values: string[] }> = [
  */
 export function auditActionTone(action: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (
-    ['ORDER_CANCELED', 'WALKOUT_MARKED', 'EXPENSE_REVERSED', 'EXPENSE_WRITTEN_OFF',
+    ['ORDER_CANCELED', 'EXPENSE_REVERSED', 'EXPENSE_WRITTEN_OFF',
      'DEBT_WRITTEN_OFF', 'PURCHASE_REVERSED',
      'USER_DEACTIVATED', 'INGREDIENT_DEACTIVATED', 'INGREDIENT_DELETED',
      'RECIPE_DEACTIVATED', 'RECIPE_DELETED',

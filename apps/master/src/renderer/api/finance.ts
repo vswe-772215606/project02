@@ -7,13 +7,11 @@ export type FinanceDaily = {
   date: string;
   sales: {
     closedOrders: number;
-    walkoutOrders: number;
     grossSales: string;
     discounts: string;
     netFood: string;
     serviceCharge: string;
     billedTotal: string;
-    walkoutLoss: string;
   };
   cashflow: {
     cashIn: string;
