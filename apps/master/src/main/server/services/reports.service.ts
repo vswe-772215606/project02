@@ -27,12 +27,6 @@ const reportOrderInclude = {
       fullName: true,
     },
   },
-  walkoutBy: {
-    select: {
-      id: true,
-      fullName: true,
-    },
-  },
   lines: {
     include: {
       menuItem: {
@@ -118,7 +112,7 @@ function terminalMoment(order: ReportOrder) {
   return order.closedAt ?? order.canceledAt ?? order.updatedAt;
 }
 
-function buildOrdersTable(orders: ReportOrder[], status: 'CLOSED' | 'CANCELED' | 'WALKOUT') {
+function buildOrdersTable(orders: ReportOrder[], status: 'CLOSED' | 'CANCELED') {
   return orders.map((order) => {
     const payments = paymentBreakdown(order.payments);
     const gross = dec(order.subtotalSnapshot);
@@ -270,8 +264,8 @@ export const reportsService = {
     // Legacy-only extras that the canonical DTO doesn't expose:
     //  - full expense.items + byCategory for the "Chiqimlar" detail card,
     //  - all-history debts for the debt ledger table,
-    //  - the canceled/walkout order rows joined into ordersTable.
-    const [expenseSummary, debts, closedOrders, canceledOrders, walkoutOrders] = await Promise.all([
+    //  - the canceled order rows joined into ordersTable.
+    const [expenseSummary, debts, closedOrders, canceledOrders] = await Promise.all([
       expenseService.listByDate(dayAnchor),
       prisma.debt.findMany({
         where: { openedAt: { lt: dayEnd } },
@@ -287,11 +281,6 @@ export const reportsService = {
         where: { status: 'CANCELED', canceledAt: { gte: dayStart, lt: dayEnd } },
         include: reportOrderInclude,
         orderBy: { canceledAt: 'asc' },
-      }),
-      prisma.order.findMany({
-        where: { status: 'WALKOUT', walkoutAt: { gte: dayStart, lt: dayEnd } },
-        include: reportOrderInclude,
-        orderBy: { walkoutAt: 'asc' },
       }),
     ]);
 
@@ -327,13 +316,12 @@ export const reportsService = {
     const salesBasedProfit = new Prisma.Decimal(ledger.pnl.profit);
     const cashflowBasedNet = realCashIn.minus(cashOut);
 
-    // ordersTable joined view: closed + canceled + walkout, sorted by terminal
-    // moment (closedAt / canceledAt / walkoutAt) so the renderer can show a
+    // ordersTable joined view: closed + canceled, sorted by terminal
+    // moment (closedAt / canceledAt) so the renderer can show a
     // single sortable list.
     const ordersTable = [
       ...buildOrdersTable(closedOrders, 'CLOSED'),
       ...buildOrdersTable(canceledOrders, 'CANCELED'),
-      ...buildOrdersTable(walkoutOrders, 'WALKOUT'),
     ].sort((a, b) => a.at.localeCompare(b.at));
 
     return {
@@ -341,7 +329,6 @@ export const reportsService = {
       sales: {
         closedOrders: ledger.sales.closedCount,
         canceledOrders: ledger.sales.canceledCount,
-        walkoutOrders: ledger.sales.walkoutCount,
         grossSales: ledger.sales.gross,
         discounts: ledger.sales.discount,
         netSales: ledger.sales.netSales,
@@ -414,14 +401,6 @@ export const reportsService = {
         canceledBy: 'system',
         reason: row.reason,
       })),
-      walkouts: ledger.incidents.walkouts.map((row) => ({
-        orderId: row.orderId,
-        markedAt: row.walkoutAt,
-        markedById: row.walkoutById,
-        markedByName: row.walkoutByName,
-        amount: row.amount,
-        reason: row.reason,
-      })),
       ordersTable,
       mealSales: buildMealSales(closedOrders),
       debtLedger,
@@ -449,7 +428,6 @@ export const reportsService = {
     const [
       closedOrders,
       canceledOrders,
-      walkoutOrders,
       closedLines,
       repayments,
       expenseReturns,
@@ -463,10 +441,6 @@ export const reportsService = {
       prisma.order.findMany({
         where: { status: OrderStatus.CANCELED, canceledAt: { gte: monthStartUtc, lt: monthEnd } },
         select: { id: true, canceledAt: true, cancelReason: true, waiterId: true },
-      }),
-      prisma.order.findMany({
-        where: { status: OrderStatus.WALKOUT, walkoutAt: { gte: monthStartUtc, lt: monthEnd } },
-        select: { id: true, walkoutAt: true, totalSnapshot: true, waiterId: true },
       }),
       prisma.orderLine.findMany({
         where: {
@@ -512,7 +486,6 @@ export const reportsService = {
     type DayAgg = {
       closedCount: number;
       canceledCount: number;
-      walkoutCount: number;
       gross: Prisma.Decimal;
       discount: Prisma.Decimal;
       serviceCharge: Prisma.Decimal;
@@ -531,7 +504,6 @@ export const reportsService = {
     const emptyAgg = (): DayAgg => ({
       closedCount: 0,
       canceledCount: 0,
-      walkoutCount: 0,
       gross: new Prisma.Decimal(0),
       discount: new Prisma.Decimal(0),
       serviceCharge: new Prisma.Decimal(0),
@@ -573,11 +545,6 @@ export const reportsService = {
     for (const order of canceledOrders) {
       if (!order.canceledAt) continue;
       getDay(localDayKey(order.canceledAt)).canceledCount += 1;
-    }
-
-    for (const order of walkoutOrders) {
-      if (!order.walkoutAt) continue;
-      getDay(localDayKey(order.walkoutAt)).walkoutCount += 1;
     }
 
     for (const line of closedLines) {
@@ -648,7 +615,6 @@ export const reportsService = {
       sales: {
         closedOrders: number;
         canceledOrders: number;
-        walkoutOrders: number;
         grossSales: string;
         discounts: string;
         netSales: string;
@@ -717,7 +683,6 @@ export const reportsService = {
         sales: {
           closedOrders: agg.closedCount,
           canceledOrders: agg.canceledCount,
-          walkoutOrders: agg.walkoutCount,
           grossSales: decStr(agg.gross),
           discounts: decStr(agg.discount),
           netSales: decStr(netSales),
@@ -756,7 +721,6 @@ export const reportsService = {
       // Roll up to month totals.
       totals.closedCount += agg.closedCount;
       totals.canceledCount += agg.canceledCount;
-      totals.walkoutCount += agg.walkoutCount;
       totals.gross = totals.gross.plus(agg.gross);
       totals.discount = totals.discount.plus(agg.discount);
       totals.serviceCharge = totals.serviceCharge.plus(agg.serviceCharge);
@@ -789,7 +753,6 @@ export const reportsService = {
       totals: {
         closedOrders: totals.closedCount,
         canceledOrders: totals.canceledCount,
-        walkoutOrders: totals.walkoutCount,
         grossSales: decStr(totals.gross),
         discounts: decStr(totals.discount),
         netSales: decStr(totalNetSales),
@@ -1118,7 +1081,6 @@ export const reportsService = {
     const [
       closedOrders,
       canceledOrders,
-      walkoutOrders,
       closedLines,
       repayments,
       expenseReturnsAgg,
@@ -1138,11 +1100,6 @@ export const reportsService = {
         where: { status: OrderStatus.CANCELED, canceledAt: { gte: dayStart, lt: dayEnd } },
         include: reportOrderInclude,
         orderBy: { canceledAt: 'asc' },
-      }),
-      prisma.order.findMany({
-        where: { status: OrderStatus.WALKOUT, walkoutAt: { gte: dayStart, lt: dayEnd } },
-        include: reportOrderInclude,
-        orderBy: { walkoutAt: 'asc' },
       }),
       prisma.orderLine.findMany({
         where: {
@@ -1337,7 +1294,6 @@ export const reportsService = {
       sales: {
         closedCount: closedOrders.length,
         canceledCount: canceledOrders.length,
-        walkoutCount: walkoutOrders.length,
         gross: decStr(gross),
         discount: decStr(discount),
         netSales: decStr(netSales),
@@ -1388,14 +1344,6 @@ export const reportsService = {
           serviceEarned: decStr(row.serviceEarned),
         })),
       incidents: {
-        walkouts: walkoutOrders.map((order) => ({
-          orderId: order.id,
-          walkoutAt: (order.walkoutAt ?? order.updatedAt).toISOString(),
-          walkoutById: order.walkoutById ?? null,
-          walkoutByName: order.walkoutBy?.fullName ?? null,
-          amount: decStr(order.totalSnapshot),
-          reason: order.cancelReason ?? '',
-        })),
         cancellations: canceledOrders.map((order) => ({
           orderId: order.id,
           canceledAt: order.canceledAt?.toISOString() ?? order.updatedAt.toISOString(),
