@@ -296,10 +296,29 @@ cd /Users/uzmacbook/dev/lab/project02
 docker compose -f compose.dev.yaml up -d
 docker compose -f compose.dev.yaml exec master-dev bash -lc \
   "pnpm --filter @chayxana/master exec prisma migrate deploy"
-docker compose -f compose.dev.yaml exec master-dev bash -lc \
-  "cd apps/master && npx prisma db execute --stdin <<< \"SELECT COUNT(*) AS walkouts FROM \\\"Order\\\" WHERE status='WALKOUT';\""
 ```
-Expected: the migration applies cleanly and the count is `0`.
+
+Then confirm zero rows remain. `prisma db execute` cannot do this — it needs `--schema`/`--url` and never prints query output — so use a throwaway script. Create `apps/master/scripts/tmp-count-walkouts.ts`:
+
+```ts
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+const rows = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
+  `SELECT COUNT(*) AS n FROM "Order" WHERE status = 'WALKOUT'`,
+);
+console.log('walkout rows:', rows[0]?.n ?? 'unknown');
+await prisma.$disconnect();
+```
+
+```bash
+docker compose -f compose.dev.yaml exec master-dev \
+  pnpm --filter @chayxana/master exec tsx scripts/tmp-count-walkouts.ts
+rm apps/master/scripts/tmp-count-walkouts.ts
+```
+Expected: the migration applies cleanly and the count is `0`. Delete the probe before committing.
+
+Because a freshly-seeded database has no walkout rows to convert, the count being zero does not by itself prove the SQL works. Also prove the conversion path: insert a synthetic `WALKOUT` order, re-run the `UPDATE` statement, confirm it lands as `CANCELED` with a populated `canceledAt` and `cancelReason`, then delete the synthetic row.
 
 - [ ] **Step 13: Verify the whole tree**
 
@@ -1010,12 +1029,34 @@ Read the generated SQL before applying. SQLite cannot drop a column in place on 
 ```bash
 docker compose -f compose.dev.yaml exec master-dev bash -lc \
   "cd apps/master && npx prisma migrate deploy && npx prisma generate"
-docker compose -f compose.dev.yaml exec master-dev bash -lc \
-  "cd apps/master && npx prisma db execute --stdin <<< 'PRAGMA table_info(\"Order\");'"
-docker compose -f compose.dev.yaml exec master-dev bash -lc \
-  "cd apps/master && npx prisma db execute --stdin <<< 'PRAGMA index_list(\"Order\");'"
 ```
-Expected: no `walkoutAt` or `walkoutById` column; the index list matches the schema's remaining `@@index` declarations (`status`, `waiterId`, `tableId`, `createdAt`, `closedAt`, `sentAt`) with no others lost.
+
+`prisma db execute` does **not** work for this check — it requires `--schema` or `--url`, and it never prints `SELECT` or `PRAGMA` output. Task 1 hit this. Use a throwaway script instead. Create `apps/master/scripts/tmp-check-order-shape.ts`:
+
+```ts
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+const columns = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+  'PRAGMA table_info("Order")',
+);
+const indexes = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+  'PRAGMA index_list("Order")',
+);
+console.log('columns:', columns.map((c) => c.name).sort().join(', '));
+console.log('indexes:', indexes.map((i) => i.name).sort().join(', '));
+await prisma.$disconnect();
+```
+
+Run it, read the output, then **delete the file before committing** — it is a probe, not a fixture:
+
+```bash
+docker compose -f compose.dev.yaml exec master-dev \
+  pnpm --filter @chayxana/master exec tsx scripts/tmp-check-order-shape.ts
+rm apps/master/scripts/tmp-check-order-shape.ts
+```
+
+Expected: no `walkoutAt` or `walkoutById` in the column list; the index list still carries one entry per remaining `@@index` declaration (`status`, `waiterId`, `tableId`, `createdAt`, `closedAt`, `sentAt`) plus SQLite's autoindexes, with none lost.
 
 - [ ] **Step 4: Full gate**
 
