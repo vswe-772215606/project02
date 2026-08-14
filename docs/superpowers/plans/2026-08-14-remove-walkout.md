@@ -1325,6 +1325,7 @@ Add two facts measured during this branch, both about verification honesty:
 
 - **`tsc -b` compiles nothing under `apps/master/scripts`.** Verified with `npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`. Every smoke and simulate script in this repo is entirely untypechecked; running them is the only check they get. Worth stating wherever the file describes the verification story.
 - **`smoke-prd13-clock-isolation.ts` overclaims.** Its header says it proves `sentAt`, `closedAt`, `canceledAt` and `Payment.createdAt` are all server-stamped; its assertions cover only `createdAt` and `sentAt`. Record it as a known gap rather than fixing it here.
+- **`smoke-cashflow-reversal.ts` is destructive and unguarded.** Lines 59-63 run `deleteMany({})` with no `where` clause against `Payment`, `Expense`, `Order`, `ExpenseCategory` and `User` — every row in each. Its comment says "idempotent across reruns on the same temp db", but nothing enforces "temp": it wipes whatever database `DATABASE_URL` points at, users included. The other two deleting smokes (`smoke-prd13-boundary.ts`, `smoke-prd13-clock-isolation.ts`) are scoped correctly with `where: { cancelReason: SENTINEL }` — this one is the outlier. `CLAUDE.md` lists it among the verification commands with no warning. **Document the hazard; fixing it is separate work.**
 
 - [ ] **Step 3: docs/agent-plans/00-shared/decisions.md**
 
