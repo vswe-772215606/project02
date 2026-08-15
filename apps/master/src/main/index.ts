@@ -190,11 +190,23 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    // Carries the variant, so a machine running the production till and a
+    // side-by-side trial does not show two windows with identical title bars.
+    // `index.html` hardcodes <title>Chayxana Master</title>, which would
+    // otherwise win for both builds — hence the page-title-updated guard below.
+    title: APP_IDENTITY.label,
     webPreferences: {
       preload: join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Electron lets the loaded document's <title> replace the window title. The
+  // renderer is shared between variants, so allowing that would undo the line
+  // above the moment the page finishes loading.
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   // Dev mode: load from the electron-vite renderer dev server. Production
