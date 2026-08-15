@@ -58,9 +58,9 @@ Server-side drafts:
 
 **Amended 2026-08-14:** `WALKOUT` is removed from the product. The lifecycle is
 `DRAFT → SENT → CLOSED` with `DRAFT|SENT → CANCELED` as the only terminal branch.
-An unpaid bill is meant to close as nasiya or as a full discount with a mandatory reason, but
-neither path currently works on an order carrying a service line — see
-`docs/CURRENT_WORKFLOW.md` §11 #1.
+An unpaid bill closes as nasiya — the admin picks the debtor from the debt ledger on the confirm
+ticket (added 2026-08-15) — or as a full discount with a mandatory reason. See
+`docs/CURRENT_WORKFLOW.md` §2 "Closing an unpaid order".
 See `docs/superpowers/specs/2026-08-14-money-model-design.md` §7.
 
 ## Tables
