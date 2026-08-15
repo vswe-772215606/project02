@@ -495,11 +495,14 @@ merely dead — §4 lists what is still declared in the schema with no code path
   produces it any more; it survives only as historical vocabulary on old rows
   (`lib/audit-labels.ts`).
 
-**Claims in `CLAUDE.md` that are wrong:** none open as of this pass (2026-08-13). The entries
-previously listed here (a nonexistent `simulate-flow.ts`, React 18, the SENT-stock-restore claim)
-no longer match the file — `CLAUDE.md` already states React 19, the both-DRAFT-and-SENT restore
-rule, and the `api-smoke.sh`/`simulate-*.ts` staleness warning correctly. Re-verify `CLAUDE.md`
-against this file's §2/§4 whenever either changes; don't assume this stays empty.
+**Claims in `CLAUDE.md` that are wrong:** none open as of 2026-08-15. Two were closed on that
+date: the order-state bullet still said the nasiya close does not work (fixed with the behaviour,
+see §2), and the Commands section still warned about `scripts/api-smoke.sh`, which was **deleted**
+in `4194702` when the ingredient/FIFO layer came out — the warning outlived the file by three
+branches. The entries listed here before that (a nonexistent `simulate-flow.ts`, React 18, the
+SENT-stock-restore claim) were already corrected. Re-verify `CLAUDE.md` against this file's §2/§4
+whenever either changes; the 2026-08-13 pass recorded this list as empty and it was not — a
+warning about a deleted file reads as current until someone checks the path exists.
 
 ---
 
