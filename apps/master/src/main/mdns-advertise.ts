@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { hostname } from 'os';
 import { Bonjour, type Service } from 'bonjour-service';
+import { APP_IDENTITY } from './app-identity';
 
 let bonjour: Bonjour | null = null;
 let publishedService: Service | null = null;
@@ -30,13 +31,17 @@ export async function advertiseMasterMdns(opts: {
 
     bonjour = new Bonjour();
 
-    const name = `Chayxana Master @ ${hostname()}`;
+    // Carries the variant label, so a machine running both the production till
+    // and a side-by-side trial advertises two distinguishable records instead
+    // of two identically-named ones a waiter app would pick between at random.
+    const name = `${APP_IDENTITY.label} @ ${hostname()}`;
     publishedService = bonjour.publish({
       name,
       type: 'chayxana',
       port: opts.port,
       txt: {
         role: 'master',
+        variant: APP_IDENTITY.variant,
         version: app.getVersion(),
       },
     });

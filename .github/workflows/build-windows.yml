@@ -14,6 +14,14 @@ name: Build Windows installer (master)
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Which build: production replaces an existing install; next installs beside it with its own database and port 4100'
+        type: choice
+        default: production
+        options:
+          - production
+          - next
   push:
     tags:
       - 'v*'
@@ -42,8 +50,10 @@ jobs:
       - name: Install dependencies (master + workspace deps)
         run: pnpm install --filter "@chayxana/master..." --frozen-lockfile
 
+      # Tag pushes always ship the production identity; the variant choice only
+      # applies to a manual run.
       - name: Build Windows installer
-        run: pnpm --filter @chayxana/master package:win
+        run: pnpm --filter @chayxana/master ${{ (github.event_name == 'workflow_dispatch' && inputs.variant == 'next') && 'package:win:next' || 'package:win' }}
 
       - name: List build output
         shell: bash
@@ -52,7 +62,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chayxana-master-windows-installer
+          name: chayxana-master-windows-installer${{ (github.event_name == 'workflow_dispatch' && inputs.variant == 'next') && '-next' || '' }}
           path: |
             apps/master/dist/*.exe
             apps/master/dist/*.exe.blockmap

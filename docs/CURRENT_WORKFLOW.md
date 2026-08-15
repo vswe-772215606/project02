@@ -327,6 +327,30 @@ correct for a machine waiters depend on. Heavy startup logging lands in `userDat
 Packaged Windows applies migrations **in-process via sql.js** with its own `_app_migrations` ledger
 (checksum self-heals on drift); dev uses the Prisma CLI against `dev.db`.
 
+A bind failure on the port is now fatal-with-a-dialog rather than silent: `httpServer` gets an
+`error` handler that rejects the startup promise, which `whenReady`'s catch turns into
+`dialog.showErrorBox` (`index.ts`). Before 2026-08-15 the listen promise had a success callback
+only, so a taken port left it pending forever — `createWindow()` unreachable, no window, no error.
+That closes audit `C-3`.
+
+**Build identity, and therefore the database path.** `app-identity.ts` decides what a build calls
+itself. Electron derives `userData` from `app.getName()`, and the database is
+`<userData>/data/master.sqlite` — so the app name *is* the database path. That name is
+`@chayxana/master` (package.json `name`), **not** `build.productName`, which electron-builder reads
+at package time and Electron never sees. The live DB is therefore
+`%APPDATA%\@chayxana\master\data\master.sqlite`.
+
+Two builds can be installed at once: `production` (untouched behaviour, port 4000) and `next`
+(`pnpm package:win:next` — own app name, own userData, own appId, install directory, shortcut,
+firewall rule, and port 4100). The variant is baked at build time by `electron.vite.config.ts`;
+`production` does not call `app.setName()` at all, so that bundle is unchanged and an upgrade
+cannot lose the existing database. See `CLAUDE.md` "Build variants".
+
+⚠ Side effect of the above worth recording: `installer.nsh`'s database-wipe prompt tests
+`$APPDATA\${PRODUCT_NAME}\data\master.sqlite` — `%APPDATA%\Chayxana Master\...` — which no build has
+ever written to. **The prompt cannot fire.** Audit `C-2` is overstated on that basis; the offer to
+delete the production database is dead code rather than a live hazard.
+
 **Printing:** `printBill → PrintJob row → p-queue mutex (concurrency 1) → execFile receipt.exe`
 (Win32 RAW ESC/POS, `cpp/receipt.cpp`). Only `BILL` and `BILL_REPRINT` types remain. On non-Windows
 dev hosts `executeBinary` is a stub that logs and returns success — printing appears to work.

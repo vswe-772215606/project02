@@ -9,6 +9,7 @@
     "build": "pnpm run package:prepare && electron-vite build",
     "package:prepare": "node ./scripts/prepare-prisma-package.mjs",
     "package:win": "pnpm run build && electron-builder --win --x64",
+    "package:win:next": "node ./scripts/package-win-next.mjs",
     "package:win:portable": "pnpm run build && electron-builder --win portable --x64",
     "build:printer": "bash ./scripts/build-printer.sh",
     "build:printer:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-printer.ps1",

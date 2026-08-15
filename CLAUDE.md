@@ -50,7 +50,8 @@ pnpm run typecheck:renderer                # renderer only
 pnpm run typecheck:gallery                 # gallery fixtures vs the real API types
 pnpm gallery:page                          # browser preview of all 15 screens at 1366×768
 pnpm exec electron-vite build              # production renderer + main build
-pnpm package:win                           # NSIS installer (Windows)
+pnpm package:win                           # NSIS installer (Windows) — UPGRADES an existing install
+pnpm package:win:next                      # side-by-side installer — installs BESIDE one (see below)
 pnpm build:printer                         # cross-build receipt.exe via mingw (Linux)
 pnpm build:printer:win                     # build receipt.exe via MSVC (Windows)
 ```
@@ -58,6 +59,46 @@ pnpm build:printer:win                     # build receipt.exe via MSVC (Windows
 Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
 
 ⚠ Not all scripts are live. Several `simulate-*.ts` scripts carry pre-v0.1.3 expectations and fail against current behaviour. **`scripts/smoke-cashflow-reversal.ts` is destructive and unguarded** — it runs in-process against whatever `DATABASE_URL` points at (not HTTP, despite sitting next to the HTTP-driven smokes above), and its cleanup step is `deleteMany({})` with no `where` clause against `Payment`, `Expense`, `Order`, `ExpenseCategory` and `User` — every row in each. Its header comment assumes a dedicated throwaway SQLite file; nothing in the code enforces that. Never run it against `dev.db` or the Docker harness's shared database. It also currently fails outright against the live schema, independent of this hazard — see `docs/CURRENT_WORKFLOW.md` §13. Read a script before trusting a green run.
+
+### Build variants — where the database lives
+
+`src/main/app-identity.ts` is the single place that decides what a build calls itself. It matters
+because **Electron derives `userData` from `app.getName()`, and the SQLite database is
+`<userData>/data/master.sqlite`** — so the app's name *is* the database path.
+
+That name is **`@chayxana/master`**, the `name` field of `package.json`. It is **not**
+`build.productName` ("Chayxana Master"): `productName` under `build` is electron-builder config,
+read only when packaging, and Electron never sees it (there is no top-level `productName`).
+Verified against `app-builder-lib/out/appInfo.js` — electron-builder does not rewrite the packaged
+`package.json`. So the live database is at `%APPDATA%\@chayxana\master\data\master.sqlite`.
+
+⚠ Two consequences. First, **renaming `build.productName` alone does not separate two installs** —
+it moves the install directory and the Start Menu entry while leaving both builds on the same
+database. Second, **`installer.nsh`'s database-wipe prompt cannot fire**: it tests
+`$APPDATA\${PRODUCT_NAME}\data\master.sqlite`, i.e. `%APPDATA%\Chayxana Master\...`, which no build
+has ever written. `AUDIT_FINDINGS.md` `C-2` overstates the risk on that basis; the prompt is dead
+code, not a live hazard.
+
+| | `production` (default) | `next` (`pnpm package:win:next`) |
+|---|---|---|
+| app name → userData | untouched (`@chayxana/master`) | `chayxana-master-next` |
+| appId | `com.chayxana.master` | `com.chayxana.master.next` |
+| productName / install dir / shortcut | Chayxana Master | Chayxana Master (Yangi) |
+| port | 4000 | 4100 |
+| firewall rule | `Chayxana Master (TCP 4000)` | `Chayxana Master (Yangi) (TCP 4100)` |
+| NSIS hooks | `installer.nsh` | `installer.next.nsh` (no wipe prompt) |
+
+`production` deliberately does **not** call `app.setName()` at all — the call is dead-code
+eliminated from that bundle, so its behaviour is byte-identical to the shipped v0.1.x builds and an
+upgrade cannot lose the existing database. Only `next` renames itself.
+
+The variant is a **build-time** choice (`CHAYXANA_VARIANT=next`, baked in by
+`electron.vite.config.ts`), never a runtime setting — a toggle that can move the database is a
+toggle that can lose it. The CI workflow takes it as a `workflow_dispatch` input; tag pushes always
+build `production`.
+
+Waiter clients default to `:4000`, so a `next` master needs the order app and mobile pointed at
+`:4100` by hand.
 
 ### Headless dev server (Docker)
 

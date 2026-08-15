@@ -138,7 +138,7 @@ happens. Correct only for `dona` (factor 1).
 | ID | Std | What | Evidence |
 |---|---|---|---|
 | **C-1** | `C3` | Packaged migration rewrites the live DB in one non-atomic `writeFileSync` with no prior copy — a crash mid-write is total loss, and F-9 means no restore | `sqlite-bootstrap.ts:117-121` |
-| **C-2** | `C4` | Installer offers to delete the production DB on upgrade, advising a backup the product cannot take; after wipe the app silently re-seeds and looks normal | `installer.nsh:20-41` |
+| **C-2** | `C4` | ~~Installer offers to delete the production DB on upgrade~~ — **overstated, corrected 2026-08-15.** The prompt tests `$APPDATA\${PRODUCT_NAME}\data\master.sqlite` = `%APPDATA%\Chayxana Master\…`, but `userData` derives from package.json `name`, so the DB is actually at `%APPDATA%\@chayxana\master\…`. The path never matches, so the prompt **cannot fire**. Still worth deleting as dead code that advises a backup the product cannot take (`F-9`), but it is not a live hazard | `installer.nsh:20-41` · `app-identity.ts` |
 | **C-3** | `H5, F7` | Port 4000 in use → `listen` promise has no error path, so `createWindow()` is unreachable and no dialog fires. The one machine the chayxana depends on shows nothing | `index.ts:124-131,261` |
 | **C-4** | `D2` | No daily cashing-up: counted cash cannot be entered anywhere, so a till difference of any size is undetectable | `schema.prisma:151-818` · `finance.routes.ts:11-12` |
 | **C-5** | `B1, D5` | Scheduler hard-deletes stale DRAFTs every 6h, cascading order lines **and** the FIFO consumption ledger, without restoring stock or writing an audit row. Inventory vanishes with no COGS and no forensic trail | `scheduler.ts:7-22` · `schema.prisma:376,674` |
@@ -335,7 +335,7 @@ they cite. See `docs/superpowers/specs/2026-08-13-count-based-inventory-design.m
 | 3 | `F-7` | `orders.controller.ts:52` — add `.nonnegative()` to payment amount | ⬜ |
 | 4 | `F-6` | `order.service.ts:673` — sum **all** DEBT legs; reject >1 | ⬜ |
 | 5 | `C-8` | `socket.ts:51-52` — `socket.join('all')` for every authed socket | ✅ **DONE** — shipped on `feat/count-based-inventory` (`socket.ts` — every authenticated socket joins `all`) |
-| 6 | `C-3` | `index.ts:124` — add `httpServer.once('error', reject)` | ⬜ |
+| 6 | `C-3` | `index.ts:124` — add `httpServer.once('error', reject)` | ✅ **DONE** 2026-08-15 — rejects the startup promise, which `whenReady`'s catch turns into `dialog.showErrorBox`; `EADDRINUSE` gets a named Uzbek message. Prompted by side-by-side installs, which make port clashes routine |
 
 **Working protocol the user asked for:** explain each finding in plain language (what's wrong, why it
 costs the business money, why the fix is safe), invite questions, *then* implement — one finding at a

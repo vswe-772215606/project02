@@ -4,6 +4,7 @@ import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { setupPrismaRuntime } from './prisma-runtime';
 import { advertiseMasterMdns, stopAdvertising } from './mdns-advertise';
+import { APP_IDENTITY } from './app-identity';
 
 // Load apps/master/.env in dev so the Prisma client (which validates
 // DATABASE_URL eagerly) sees the connection string. In packaged builds
@@ -52,6 +53,19 @@ import {
 // native picker chrome is affected.
 app.commandLine.appendSwitch('lang', 'ru-RU');
 
+// MUST run before anything reads `userData` or takes the single-instance lock,
+// because both are derived from the app name. Everything below this line —
+// the loggers, the lock, and above all the SQLite database in
+// `<userData>/data` — lands in a different directory depending on it.
+//
+// `production` deliberately does not call this: leaving Electron's default in
+// place is what keeps an upgrade pointed at the database the existing install
+// already has. Only a side-by-side variant renames itself. See
+// `app-identity.ts` for why `build.productName` cannot do this job.
+if (APP_IDENTITY.appName !== null) {
+  app.setName(APP_IDENTITY.appName);
+}
+
 const singleInstanceLockAcquired = app.requestSingleInstanceLock();
 const logger = createStartupLogger(app.getPath('userData'));
 const runtimeLogger = createFileLogger(
@@ -83,7 +97,11 @@ if (!singleInstanceLockAcquired) {
   app.quit();
 }
 
-const PORT = parseInt(process.env.PORT ?? '4000', 10);
+const PORT = parseInt(process.env.PORT ?? String(APP_IDENTITY.port), 10);
+
+logger.info(`variant=${APP_IDENTITY.variant} label="${APP_IDENTITY.label}" port=${PORT}`);
+logger.info(`app.getName()=${app.getName()}`);
+logger.info(`userData=${app.getPath('userData')}`);
 
 let mainWindow: BrowserWindow | null = null;
 let serverStartPromise: Promise<void> | null = null;
@@ -121,7 +139,21 @@ async function startServer(): Promise<void> {
       logger.error(`[TelegramBot] Startup failed: ${err.message}`);
     });
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      // A bind failure used to have no handler at all, so this promise simply
+      // never settled: `createWindow()` was never reached and the machine the
+      // chayxana depends on sat showing nothing, with no dialog and no clue.
+      // Most likely cause is another copy of this server already on the port —
+      // which side-by-side installs make routine, so it has to surface.
+      httpServer.once('error', (error: NodeJS.ErrnoException) => {
+        const detail =
+          error.code === 'EADDRINUSE'
+            ? `Port ${PORT} band — boshqa dastur (ehtimol Chayxana Master'ning boshqa nusxasi) uni egallab turibdi.`
+            : error.message;
+        logger.error(`startServer listen failed on port ${PORT}: ${formatErrorForLog(error)}`);
+        reject(new Error(detail));
+      });
+
       httpServer.listen(PORT, '0.0.0.0', () => {
         console.log(`[master] HTTP+WS listening on 0.0.0.0:${PORT}`);
         logger.info(`startServer listening port=${PORT}`);
