@@ -23,3 +23,6 @@ apps/master/prisma/**/*.db
 
 # Design-system gallery build output
 packages/admin-ui/gallery-dist/
+
+# Agent worktrees
+.claude/worktrees/

@@ -50,7 +50,20 @@ All 49 are pre-existing. **Every one of them lands in `packages/server` after Ta
 | `controllers/discounts.controller.ts` | 2 |
 | `services/printers.service.ts`, `services/discount.service.ts`, `services/debt.service.ts`, `services/auth.service.ts`, `repositories/audit.repo.ts`, `controllers/tables.controller.ts` | 1 each |
 
-**Do not fix them in this slice.** The count may *drop* in Task 4 when `print.service.ts` loses its Electron-dependent path — that is fine. It must never rise. Record the number in each commit body.
+**Do not fix them in this slice.** Record the number in each commit body.
+
+**Corrected 2026-08-16, measured after Task 3 ran.** Two claims that were in this section were wrong:
+
+- **The total is 63, not 49.** Task 3 Step 1 puts `scripts/` under the typecheck include for the
+  first time, which surfaces **14** strict-null errors that were always there and never compiled —
+  8 in `smoke-e2e-flow.ts`, 6 in `smoke-finance-pnl.ts`. This section originally said the count
+  "must never rise", which contradicted Step 1 doing exactly that deliberately. **The rule that
+  actually matters: `src/` must stay at exactly 49, file-for-file against the table above. The
+  `scripts/` errors are pre-existing bugs newly made visible — leave them alone and fix them in
+  their own commit later.**
+- **`print.service.ts` does not drop below 4.** The prediction assumed its four errors sat in the
+  Electron platform branch. They do not — they are a `PrintableOrder` / `OrderForReceipt` mismatch
+  and a `triggeredBy` undefined, all untouched by the executor change.
 
 ### The renderer gates stay clean, always
 
@@ -668,9 +681,21 @@ Leave every other script alone. Slice 5 owns the rest of this package.
 ```bash
 cd /Users/uzmacbook/dev/lab/project02
 pnpm install
-cd packages/server && pnpm exec tsc --noEmit 2>&1 | grep -cE "error TS"
+cd packages/server
+pnpm exec tsc --noEmit 2>&1 | grep -E "error TS" | sed 's/(.*//' \
+  | sed 's|^src/|SRC  src/|; s|^scripts/|SCR  scripts/|' | sort | uniq -c | sort -rn
 ```
-Expected: **49 or fewer**. `print.service.ts` should drop below its baseline 4 now that the platform branch is gone. Any file not in the floor table above showing a new error means the move broke an import — fix it before continuing.
+Expected: **49 under `SRC`, matching the floor table file-for-file, and 14 under `SCR`** (8 in
+`smoke-e2e-flow.ts`, 6 in `smoke-finance-pnl.ts`) — 63 total. The `SCR` errors are pre-existing bugs
+that Step 1 made visible for the first time; leave them.
+
+Any file not in the floor table showing a new error under `SRC` means the move broke an import — fix
+the import, not the pre-existing error. **Expect at least three of these**: dynamic imports carry the
+old layout and TypeScript does not always flag them where you would expect. `src/pdf-report.ts`
+imports `'./server/services/reports.service'`, `src/services/telegram-bot.service.ts` imports
+`'../../pdf-report'`, and `scripts/smoke-prd13-boundary.ts` imports `'../src/main/server/...'`. The
+first one alone inflates `pdf-report.ts` from 8 errors to 30 through cascading implicit-`any`, so if
+that file looks catastrophic, fix its import before assuming anything else is wrong.
 
 ```bash
 pnpm exec tsc --noEmit 2>&1 | sed 's/(.*//' | sort | uniq -c | sort -rn
@@ -1658,7 +1683,9 @@ pnpm test
 docker compose -f compose.dev.yaml up -d
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4000/api/health
 ```
-Expected: 49 errors, all in `packages/server`, all pre-existing; 6 tests passing; `200`.
+Expected: 63 errors, all in `packages/server`, all pre-existing — 49 in `src/` matching the floor
+table file-for-file, and 14 in `scripts/` that Task 3 Step 1 made visible for the first time. 6 tests
+passing; `200`.
 
 **One number may surprise you here.** Until this slice, `pnpm -r typecheck` bailed on `apps/master`
 before ever reaching `apps/order` and `apps/mobile`, so neither has been typechecked in this
@@ -1700,7 +1727,7 @@ The slice is done when all of these hold:
 |---|---|---|
 | Schema on Postgres | `psql -c "\dt"` in the `db` container | Live tables present, dead inventory tables absent |
 | Money columns typed | the `information_schema` query in Task 1 Step 8 | precision 14, scale 2 |
-| Server compiles | `pnpm --filter @chayxana/server exec tsc --noEmit` | 49 errors, all pre-existing, none new |
+| Server compiles | `pnpm --filter @chayxana/server exec tsc --noEmit` | 63 errors: 49 in `src/` matching the floor table, 14 pre-existing in `scripts/` newly surfaced |
 | No Electron in the server | `grep -rn "from 'electron'" packages/server` | no matches |
 | Tests pass | `pnpm test` | 6 passing in `packages/server` |
 | UI compiles | `pnpm --filter @chayxana/admin-ui run typecheck` and `typecheck:gallery` | both clean |
