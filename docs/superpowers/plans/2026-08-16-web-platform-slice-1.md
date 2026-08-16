@@ -1404,9 +1404,26 @@ git rm apps/master/scripts/serve-headless.ts
 ```bash
 cd /Users/uzmacbook/dev/lab/project02
 pnpm install
-pnpm --filter @chayxana/web exec tsc --noEmit
+pnpm --filter @chayxana/web exec tsc --noEmit 2>&1 | grep -cE "^src/"
 ```
-Expected: clean.
+
+**Corrected 2026-08-16.** This step originally expected "clean", which is not achievable and was not
+understood when the plan was written. `apps/web` consumes `@chayxana/server`, whose `main` points at
+a `.ts` file, so TypeScript follows into the server's sources and re-reports all **49** of its
+pre-existing errors under this config. The count above filters to `apps/web`'s **own** files, which
+is the number that must be **0**.
+
+Two consequences worth knowing:
+
+- `apps/web/tsconfig.json` must include `../../packages/server/src/types/express.d.ts`. Without it
+  the server's `Request.user` / `Request.session` augmentation is out of scope here and you get a
+  further ~20 errors that exist nowhere else. The manifest in Step 1 already has this.
+- The obvious fix — project references with `composite: true` on `packages/server` — **cannot work
+  until the 49 are cleared**, because composite requires declaration emit and declaration emit fails
+  on type errors. This is one more thing the 49 are costing, and it is an argument for the CI cleanup
+  in slice 4 rather than a reason to stall here.
+
+The meaningful server gate stays `pnpm --filter @chayxana/server exec tsc --noEmit`.
 
 ```bash
 cd /Users/uzmacbook/dev/lab/project02
