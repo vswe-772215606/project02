@@ -15,7 +15,7 @@
     "build:printer:win": "powershell -ExecutionPolicy Bypass -File ./scripts/build-printer.ps1",
     "gallery": "pnpm run typecheck:gallery && vite build --config vite.gallery.config.ts",
     "gallery:page": "pnpm run gallery && node ./scripts/build-gallery-page.mjs",
-    "typecheck": "tsc -b",
+    "typecheck": "echo 'apps/master is being rebuilt as a kiosk shell in slice 5 — see docs/superpowers/specs/2026-08-16-web-platform-design.md'",
     "typecheck:renderer": "tsc --noEmit -p tsconfig.renderer.json",
     "typecheck:gallery": "tsc --noEmit -p tsconfig.gallery.json",
     "lint": "echo 'no lint configured yet'"

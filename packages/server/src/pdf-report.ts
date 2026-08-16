@@ -334,7 +334,7 @@ export async function generateDailyReportPdf(opts: {
 }): Promise<void> {
   // Load reportsService lazily so this module doesn't drag the whole
   // server into early startup paths that don't use PDF.
-  const { reportsService } = await import('./server/services/reports.service');
+  const { reportsService } = await import('./services/reports.service');
   const data = await reportsService.daily(opts.date);
 
   const dateLabel = fmtDateUz(opts.date);

@@ -15,8 +15,8 @@
  * The script cleans up after itself — synthetic orders are deleted on exit.
  */
 import { PrismaClient } from '@prisma/client';
-import { reportsService } from '../src/main/server/services/reports.service';
-import { localDayKey, parseLocalDay } from '../src/main/server/lib/time';
+import { reportsService } from '../src/services/reports.service';
+import { localDayKey, parseLocalDay } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 const SENTINEL = 'PRD13-BOUNDARY-SMOKE';

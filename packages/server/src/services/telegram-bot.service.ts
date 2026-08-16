@@ -135,7 +135,7 @@ export const telegramBotService = {
           try { if (ctx.callbackQuery) await ctx.answerCbQuery(); } catch {}
           await ctx.reply('📄 PDF tayyorlanmoqda, biroz kuting…');
 
-          const { generateDailyReportPdf } = await import('../../pdf-report');
+          const { generateDailyReportPdf } = await import('../pdf-report');
           const os = await import('os');
           const path = await import('path');
           const fs = await import('fs/promises');
