@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { createServer } from 'http';
@@ -186,10 +186,24 @@ function createWindow(): void {
     return;
   }
 
+  // The default Electron menu ships live accelerators: Ctrl+W closes this
+  // window — which is also the API server every waiter device talks to —
+  // plus Ctrl+R mid-tender and Ctrl+Shift+I devtools. Every till has a
+  // physical keyboard, so these are reachable by accident. It also costs
+  // ~20px of height on a screen that has none to spare.
+  Menu.setApplicationMenu(null);
+
   logger.info('createWindow begin');
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    // Sized to the smallest panel this ships to, then maximised below. The
+    // previous 1280x800 overhung the work area by up to 64px, putting the
+    // Panel foot — TASDIQLASH and every other primary action — off the
+    // bottom of the monitor.
+    width: 1024,
+    height: 700,
+    minWidth: 1024,
+    minHeight: 640,
+    show: false,
     // Carries the variant, so a machine running the production till and a
     // side-by-side trial does not show two windows with identical title bars.
     // `index.html` hardcodes <title>Chayxana Master</title>, which would
@@ -200,6 +214,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.maximize();
+    mainWindow?.show();
   });
 
   // Electron lets the loaded document's <title> replace the window title. The
