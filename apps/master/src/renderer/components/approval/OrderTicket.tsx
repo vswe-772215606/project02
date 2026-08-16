@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { formatMoney } from '@/lib/format';
 import { debtsApi } from '@/api/debts';
 import type { ConfirmBody, Order, PaymentMethod } from '@/api/orders';
-import { addLeg as addLegTo, removeLeg as removeLegFrom, setLegAmount, type Leg } from '@/lib/payment-legs';
+import { addLeg as addLegTo, removeLeg as removeLegFrom, setLegAmount, toPayments, type Leg } from '@/lib/payment-legs';
 
 /** Which field the middle of the panel is currently driving. `null` = the line list. */
 type Editing = { kind: 'discount' } | { kind: 'payment'; index: number } | { kind: 'debtor' } | null;
@@ -193,7 +193,7 @@ export function OrderTicket({
     const name = debtorName.trim();
     onConfirm({
       discountAmount: discount > 0 ? discount : null,
-      payments: legs.map((leg) => ({ method: leg.method, amount: leg.amount })),
+      payments: toPayments(legs),
       ...(hasDebtLeg && name
         ? { debt: { debtorName: name, ...(debtorPhone ? { debtorPhone } : {}) } }
         : {}),
@@ -356,7 +356,10 @@ export function OrderTicket({
                 type="button"
                 aria-label={`${METHOD_LABEL[leg.method]} qatorini o'chirish`}
                 className="h-control w-control bg-field text-owed"
-                onClick={() => setLegs((current) => removeLegFrom(current, index, due, balancingIndex))}
+                onClick={() => {
+                  setLegs((current) => removeLegFrom(current, index, due, balancingIndex));
+                  setEditing(null);
+                }}
               >
                 ×
               </button>
@@ -386,7 +389,7 @@ export function OrderTicket({
         ) : null}
 
         <div className="flex gap-seam bg-field px-pad py-2">
-          {(['CARD', 'DEBT'] as const)
+          {(['CASH', 'CARD', 'DEBT'] as const)
             .filter((method) => !legs.some((leg) => leg.method === method))
             .map((method) => (
               <Button key={method} variant="secondary" size="sm" onClick={() => addLeg(method)}>

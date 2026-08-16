@@ -63,3 +63,22 @@ export function removeLeg(
   const nextBalancing = index < balancingIndex ? balancingIndex - 1 : balancingIndex;
   return rebalance(kept, due, Math.min(nextBalancing, kept.length - 1));
 }
+
+/**
+ * The wire payload for `POST /api/orders/:id/confirm`.
+ *
+ * A DEBT leg still at 0 so'm is not a payment — it is a debtor slot the
+ * operator backed out of (a mis-tapped `+ Nasiya`, or one typed back down to
+ * zero) — so it is dropped here rather than sent as a zero-amount DEBT
+ * payment with no matching `debt` block, which the server rejects with
+ * `DebtMetadataRequired`. CASH and CARD are kept regardless of amount: a
+ * zero-due ticket (a 100% food discount meeting a zero service charge) still
+ * needs at least one payment row for the server's `payments.min(1)`, and only
+ * DEBT carries the debtor-required constraint that makes a zero amount
+ * meaningless.
+ */
+export function toPayments(legs: Leg[]): Array<{ method: PaymentMethod; amount: number }> {
+  return legs
+    .filter((leg) => leg.method !== 'DEBT' || leg.amount > 0)
+    .map((leg) => ({ method: leg.method, amount: leg.amount }));
+}
