@@ -1,10 +1,10 @@
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "windows", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -226,18 +226,18 @@ model MenuItem {
   categoryId   String
   name         String
   description  String?
-  price        Decimal
+  price        Decimal @db.Decimal(14, 2)
   kind         MenuItemKind @default(FOOD)
   // Untracked-SIMPLE items (no recipe, no self-ingredient): per-portion cost
   // used to populate cogsSnapshot at sale time. NULL for tracked items —
   // their COGS comes from FIFO batch peel via OrderLineBatchConsumption.
-  unitCostSnapshot Decimal?
+  unitCostSnapshot Decimal? @db.Decimal(14, 2)
   // Count-based inventory (2026-08 refactor). `counted` governs availability:
   // stockCount NULL = sanoq kiritilmagan (blocked), 0..n otherwise. costPrice
   // is the typed tan narx per portion; NULL books 0 COGS.
   counted      Boolean      @default(true)
   stockCount   Int?
-  costPrice    Decimal?
+  costPrice    Decimal? @db.Decimal(14, 2)
   isAvailable  Boolean      @default(true)
   displayOrder Int          @default(0)
   isActive     Boolean      @default(true)
@@ -314,11 +314,11 @@ model Order {
   tableId                String?
   waiterId               String
 
-  subtotalSnapshot       Decimal?
-  discountAmountSnapshot Decimal?
-  serviceChargeSnapshot  Decimal?
+  subtotalSnapshot       Decimal? @db.Decimal(14, 2)
+  discountAmountSnapshot Decimal? @db.Decimal(14, 2)
+  serviceChargeSnapshot  Decimal? @db.Decimal(14, 2)
   serviceChargeWaived    Boolean     @default(false)
-  totalSnapshot          Decimal?
+  totalSnapshot          Decimal? @db.Decimal(14, 2)
   appliedDiscountId      String?
 
   // Lifecycle timestamps. Each is set exactly once, at the transition that
@@ -358,7 +358,7 @@ model OrderLine {
   menuItemId        String
 
   nameSnapshot      String
-  unitPriceSnapshot Decimal
+  unitPriceSnapshot Decimal @db.Decimal(14, 2)
 
   quantity          Int
   notes             String?
@@ -370,7 +370,7 @@ model OrderLine {
   canceledAt        DateTime?
   canceledReason    String?
 
-  cogsSnapshot          Decimal?
+  cogsSnapshot          Decimal? @db.Decimal(14, 2)
   consumptionSnapshot   Json?
 
   createdAt         DateTime  @default(now())
@@ -393,7 +393,7 @@ model Discount {
   id          String       @id @default(cuid())
   name        String
   type        DiscountType
-  value       Decimal
+  value       Decimal @db.Decimal(14, 2)
   isActive    Boolean      @default(true)
   createdById String
   createdAt   DateTime     @default(now())
@@ -409,7 +409,7 @@ model Payment {
   id        String        @id @default(cuid())
   orderId   String
   method    PaymentMethod
-  amount    Decimal
+  amount    Decimal @db.Decimal(14, 2)
   reference String?
   createdAt DateTime      @default(now())
 
@@ -438,7 +438,7 @@ model ExpenseCategory {
 model Expense {
   id                String        @id @default(cuid())
   categoryId        String
-  amount            Decimal
+  amount            Decimal @db.Decimal(14, 2)
   reason            String
   note              String?
   occurredAt        DateTime
@@ -479,7 +479,7 @@ model Expense {
 model ExpenseReturn {
   id           String   @id @default(cuid())
   expenseId    String
-  amount       Decimal
+  amount       Decimal @db.Decimal(14, 2)
   receivedAt   DateTime
   receivedById String
   note         String?
@@ -499,8 +499,8 @@ model Debt {
   debtorName        String
   debtorPhone       String?
   note              String?
-  originalAmount    Decimal
-  remainingAmount   Decimal
+  originalAmount    Decimal @db.Decimal(14, 2)
+  remainingAmount   Decimal @db.Decimal(14, 2)
   openedAt          DateTime
   closedAt          DateTime?
   status            DebtStatus @default(OPEN)
@@ -525,7 +525,7 @@ model Debt {
 model DebtRepayment {
   id           String        @id @default(cuid())
   debtId        String
-  amount        Decimal
+  amount        Decimal @db.Decimal(14, 2)
   method        PaymentMethod
   paidAt        DateTime
   note          String?
@@ -836,8 +836,8 @@ model StockEntry {
   qty         Int
   countBefore Int?
   countAfter  Int
-  paidUzs     Decimal?
-  unitCost    Decimal?
+  paidUzs     Decimal? @db.Decimal(14, 2)
+  unitCost    Decimal? @db.Decimal(14, 2)
   expenseId   String?        @unique
   note        String?
   actorUserId String

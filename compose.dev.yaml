@@ -1,4 +1,20 @@
 services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: chayxana
+      POSTGRES_PASSWORD: chayxana
+      POSTGRES_DB: chayxana
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chayxana -d chayxana"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   master-dev:
     build:
       context: .
@@ -21,6 +37,7 @@ services:
       - order_modules:/app/apps/order/node_modules
       - mobile_modules:/app/apps/mobile/node_modules
 volumes:
+  pgdata:
   node_modules:
   master_modules:
   order_modules:

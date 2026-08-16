@@ -1,0 +1,23 @@
+{
+  "name": "@chayxana/db",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "tsx prisma/seed.ts",
+    "studio": "prisma studio",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests'",
+    "lint": "echo 'no lint configured yet'"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.17.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.17.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.5.0"
+  }
+}
