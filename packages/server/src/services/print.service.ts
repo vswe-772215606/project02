@@ -1,14 +1,10 @@
-import { execFile } from 'child_process';
 import { PrintJobType, Prisma } from '@prisma/client';
-import { promisify } from 'util';
 import { Errors } from '../lib/errors';
 import { printQueue } from '../lib/print-queue';
+import { getPrinterExecutor } from '../lib/printer-executor';
 import { printJobRepo } from '../repositories/printJob.repo';
 import { settingsService } from './settings.service';
-import { resolveBinaryPath } from '../printer/binary-resolver';
 import { buildBillArgs } from '../printer/receipt-builder';
-
-const execFileAsync = promisify(execFile);
 
 type PrintableOrder = {
   id: string;
@@ -42,31 +38,10 @@ type PrintExecutionInput = {
 };
 
 async function executeBinary(input: PrintExecutionInput): Promise<void> {
-  if (process.platform === 'linux') {
-    console.log(`[print-linux-stub] ${input.linuxLabel}`, {
-      printerName: input.printerName,
-      args: input.args,
-    });
-    return;
-  }
-
-  if (process.platform !== 'win32') {
-    console.log(`[print-platform-stub] ${input.linuxLabel}`, {
-      platform: process.platform,
-      printerName: input.printerName,
-      args: input.args,
-    });
-    return;
-  }
-
-  const binaryPath = resolveBinaryPath();
-  if (!binaryPath) {
-    throw Errors.PrintFailed('Receipt binary not found');
-  }
-
-  await execFileAsync(binaryPath, [input.printerName, ...input.args], {
-    timeout: 15000,
-    windowsHide: true,
+  await getPrinterExecutor()({
+    printerName: input.printerName,
+    args: input.args,
+    label: input.linuxLabel,
   });
 }
 
