@@ -15,30 +15,39 @@ services:
       timeout: 3s
       retries: 20
 
-  master-dev:
+  web:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: apps/web/Dockerfile.dev
     working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
     command: >
       bash -lc "pnpm install --frozen-lockfile
-      && pnpm --filter @chayxana/master exec prisma generate
-      && pnpm --filter @chayxana/master exec prisma migrate deploy
-      && pnpm --filter @chayxana/master exec tsx scripts/serve-headless.ts"
+      && pnpm --filter @chayxana/db exec prisma generate
+      && pnpm --filter @chayxana/db exec prisma migrate deploy
+      && pnpm --filter @chayxana/admin-ui build
+      && pnpm --filter @chayxana/web start"
     ports:
       - "4000:4000"
     environment:
-      - DATABASE_URL=file:/app/apps/master/prisma/dev.db
-      - ELECTRON_OVERRIDE_DIST_PATH=/opt/electron-not-installed
+      - DATABASE_URL=postgresql://chayxana:chayxana@db:5432/chayxana?schema=public
+      - PORT=4000
+      - TZ=Asia/Tashkent
+      - NODE_ENV=development
     volumes:
       - .:/app
       - node_modules:/app/node_modules
-      - master_modules:/app/apps/master/node_modules
-      - order_modules:/app/apps/order/node_modules
-      - mobile_modules:/app/apps/mobile/node_modules
+      - server_modules:/app/packages/server/node_modules
+      - db_modules:/app/packages/db/node_modules
+      - admin_ui_modules:/app/packages/admin-ui/node_modules
+      - web_modules:/app/apps/web/node_modules
+
 volumes:
   pgdata:
   node_modules:
-  master_modules:
-  order_modules:
-  mobile_modules:
+  server_modules:
+  db_modules:
+  admin_ui_modules:
+  web_modules:

@@ -1464,7 +1464,24 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4000/
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:4000/orders
 curl -s http://localhost:4000/api/nope | head -3
 ```
-Expected, in order: a health payload; `200` for the SPA root; `200` for a deep SPA route (the catch-all, not a real file); and a **JSON** error for the unknown API path — if that last one returns HTML, the catch-all is mounted too early and Step 2's ordering rule was broken.
+Expected, in order: a health payload; `200` for the SPA root; `200` for a deep SPA route (the
+catch-all, not a real file); and a `404` for the unknown API path.
+
+**Corrected 2026-08-16.** This step originally expected a **JSON** error on `/api/nope` and said HTML
+there proves the catch-all is mounted too early. That diagnostic is wrong and would send you chasing
+a bug that does not exist. The app has **no JSON 404 handler at all** — unmatched routes never throw,
+so `errorHandler` never sees them and Express's default HTML error page answers. That was equally
+true before this slice, when the server served no static files.
+
+Judge the ordering by the **body**, not the content type:
+
+- `Cannot GET /api/nope` (Express's default) → the catch-all passed it through. **Correct.**
+- The SPA's `index.html`, starting `<!doctype html><html lang="uz">` → the catch-all swallowed it and
+  Step 2's ordering rule is broken.
+
+Adding a JSON 404 is a behaviour change and belongs with slice 3's error work, next to the missing
+`ZodError` branch — both are the same defect wearing different clothes: the API answers a client in
+a format it cannot parse.
 
 Stop the server when done.
 
