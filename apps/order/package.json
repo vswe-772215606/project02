@@ -9,6 +9,7 @@
     "package:win": "electron-builder --win --x64",
     "package:win:portable": "electron-builder --win portable --x64",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo 'no tests'",
     "lint": "echo 'no lint'"
   },
   "build": {

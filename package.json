@@ -9,6 +9,7 @@
     "build:master": "pnpm --filter @chayxana/master build",
     "build:order": "pnpm --filter @chayxana/order build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {

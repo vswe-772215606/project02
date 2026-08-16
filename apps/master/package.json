@@ -18,6 +18,7 @@
     "typecheck": "echo 'apps/master is being rebuilt as a kiosk shell in slice 5 — see docs/superpowers/specs/2026-08-16-web-platform-design.md'",
     "typecheck:renderer": "tsc --noEmit -p tsconfig.renderer.json",
     "typecheck:gallery": "tsc --noEmit -p tsconfig.gallery.json",
+    "test": "echo 'no tests'",
     "lint": "echo 'no lint configured yet'"
   },
   "build": {
