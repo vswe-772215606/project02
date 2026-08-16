@@ -45,6 +45,20 @@ pnpm gallery:page                        # browser preview
 
 The renderer gates must stay at **zero**. `tsc -b` must stay at **49 or fewer** — never higher.
 
+⚠ **If you see 50, regenerate the Prisma client before believing it.** `node_modules/.prisma/client`
+is shared across branches, and `feat/web-platform` generates it from a **PostgreSQL** schema with the
+dead inventory models dropped. Checking out this branch does not regenerate it, so `apps/master` gets
+typechecked against the wrong client and `expense.service.ts` reports a phantom error on
+`Expense.purchaseId` — a column that exists here and not there. This happened on Task 1 and cost a
+round of investigation. The fix, from `apps/master`:
+
+```bash
+pnpm exec prisma generate --schema prisma/schema.prisma
+grep -oE 'provider = "[a-z]+"' ../../node_modules/.prisma/client/schema.prisma   # must say sqlite
+```
+
+Do this after any branch switch, before trusting a count.
+
 ## File structure
 
 **Created**
