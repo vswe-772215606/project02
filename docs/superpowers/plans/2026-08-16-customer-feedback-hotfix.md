@@ -601,20 +601,14 @@ Replace the discount clamp at line 155 — `food` no longer exists:
 
 - [ ] **Step 4: Rebase the legs whenever `due` changes**
 
-Add this effect after the `due` memo. Without it, a discount still strands the operator on a dead TASDIQLASH — this is the actual fix for the reported bug:
+Add this effect after the `due` memo. Without it, a discount still strands the operator on a dead TASDIQLASH — this is the actual fix for the reported bug.
+
+Note it does **not** call `setLegAmount`: that helper returns early when the index it is given is the balancing index, so it would do nothing here. The balancing leg is recomputed directly:
 
 ```ts
   // A discount changes `due` while the legs still hold the old amounts, which
   // is what made the operator conclude the discount "was not working": the
   // ticket went unbalanced and TASDIQLASH silently disabled itself.
-  useEffect(() => {
-    setLegs((current) => setLegAmount(current, balancingIndex, current[balancingIndex]?.amount ?? 0, due, balancingIndex));
-  }, [due, balancingIndex]);
-```
-
-Note this calls `setLegAmount` on the balancing leg itself, which returns early without rebalancing — so replace that call with a direct rebalance instead. Use this exact body:
-
-```ts
   useEffect(() => {
     setLegs((current) => {
       const others = current.reduce(
