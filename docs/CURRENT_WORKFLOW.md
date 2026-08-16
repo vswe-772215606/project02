@@ -1,6 +1,6 @@
 # Chayxana POS — Current workflow (live state)
 
-**Snapshot:** 2026-08-15, branch `feat/remove-walkout` (continues `feat/c1-design-system`), clean tree.
+**Snapshot:** 2026-08-16, branch `feat/web-platform` (continues `feat/remove-walkout`), clean tree.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -11,20 +11,28 @@ Start here if you are new. Read §2 (the money path) and §12 (what to distrust)
 
 ## 1. What the system is
 
-One Uzbek chayxana, single location, LAN-only, no cloud.
+One Uzbek chayxana, single location. **Mid-migration from a LAN-only Electron desktop app to a web
+application** — see `docs/superpowers/specs/2026-08-16-web-platform-design.md`. Slice 1 of 5 is done:
+the server and the admin UI are extracted into packages, the database is PostgreSQL, and a plain Node
+process serves both from one origin.
 
-A single Windows machine runs `apps/master`: an Electron app whose **main process hosts the
-Express + Socket.io server** on `:4000`, and whose renderer is the admin UI. Two thin waiter
-clients talk to it over REST + WebSocket:
-
-| App | Stack | Who uses it |
+| Package / app | Stack | Role |
 |---|---|---|
-| `apps/master` | Electron + React 19 + Vite + Tailwind | OWNER / ADMIN — approval, payment, menu, inventory, finance |
+| `packages/server` | Express + Socket.io | the API — routes, controllers, services, repositories |
+| `packages/admin-ui` | React 19 + Vite + Tailwind | OWNER / ADMIN screens — approval, payment, menu, inventory, finance |
+| `packages/db` | Prisma + PostgreSQL | schema, migrations, seed |
+| `apps/web` | Node | boots the server, serves the SPA on `:4000`, same origin |
 | `apps/order` | Electron + React 19 | WAITER on a desktop/touchscreen monoblok |
 | `apps/mobile` | Expo RN 0.81 / React 19 | WAITER on Android phones |
+| `apps/master` | Electron | **does not build** — rebuilt as a kiosk shell in slice 5 |
 
-There is **no kitchen app** and no kitchen printer. The admin at the master machine is the single
-point of order approval and payment. All user-facing strings are Uzbek. DB is **SQLite** via Prisma.
+There is **no kitchen app** and no kitchen printer. The admin is the single point of order approval
+and payment. All user-facing strings are Uzbek.
+
+Where it is heading (decided, not yet built): the server runs on the owner's VPS behind their domain,
+a local Windows **print agent** holds `receipt.exe` and pulls print jobs, and a printer fault no
+longer rolls back the sale. The waiter clients still point at `192.168.1.50:4000` and are repointed
+in slice 5.
 
 ---
 
@@ -215,14 +223,24 @@ One list of counted `FOOD` items — count ("—" at NULL, red badge at 0), tan 
 "kiritilmagan", last entry date — with **+ Keldi** / **Sanoq** row actions and a per-item entry
 history drawer.
 
-### What's still in the schema but dead
+### The dead inventory models are gone
 
 `Ingredient`, `Recipe`, `RecipeIngredient`, `RecipeEdit`, `Purchase`, `OrderLineBatchConsumption`,
-`WasteEvent`, `Stocktake`, `StocktakeEntry`, `IngredientMovement` are still **declared** in
-`schema.prisma`, and their DB tables and historical rows are untouched — but every service and
-repo that read or wrote them is deleted (§11's dead-code note). This is deliberate: dropping the
-tables needs a backup mechanism that doesn't exist yet. There is no live code path onto them —
-don't add one; inventory history predating 2026-08-13 is frozen in these tables, unqueried.
+`WasteEvent`, `Stocktake`, `StocktakeEntry` and `IngredientMovement` were **dropped from the schema**
+on 2026-08-16, with the `PurchaseStatus`, `IngredientMovementType` and `StocktakeStatus` enums and
+the two dead columns `MenuItem.unitCostSnapshot` and `OrderLine.consumptionSnapshot`.
+
+They survived until then for one reason — their historical rows were frozen and there was no backup
+mechanism to risk dropping them. The web migration starts from an empty Postgres database by
+decision, so neither reason applied any more.
+
+One trace remains on purpose: `Expense.purchaseId` was a foreign key to `Purchase` and is now a
+literal `null` on the Expense DTO, because `ExpenseList.tsx:95` still renders a "Xarid" chip from it.
+The chip can never fire. Removing it from the clients is later cleanup, not port work.
+
+⚠ The vocabulary outlived the models and is **not** dead: `seed-cat-ingredients` is a live
+`ExpenseCategory` id, and `ingredientPurchases` is a live finance DTO field sourced from
+`StockEntry`. Grepping for "ingredient" finds 67 matches in the server, all of them legitimate.
 
 ---
 
@@ -319,41 +337,35 @@ for it, which is harmless dead code. See §11 defect #9 — `order:canceled` is 
 
 ## 9. Runtime
 
-**Cold start** (`main/index.ts:239-262`): single-instance lock → SQLite bootstrap → data migrations
-→ load settings → start Telegram bot (non-blocking) → `httpServer.listen(4000, '0.0.0.0')` →
-mDNS advertise → **then** open the BrowserWindow. The API serves before the UI exists, which is
-correct for a machine waiters depend on. Heavy startup logging lands in `userData/`.
+**Cold start** (`apps/web/src/index.ts`): require `DATABASE_URL` (throw if absent) → load settings →
+build the Express app → mount the SPA → attach Socket.io → `listen(PORT, '0.0.0.0')`. A bind failure
+rejects the startup promise via `httpServer.once('error', reject)` rather than hanging forever — the
+same defect that closed audit `C-3` on the Electron side.
 
-Packaged Windows applies migrations **in-process via sql.js** with its own `_app_migrations` ledger
-(checksum self-heals on drift); dev uses the Prisma CLI against `dev.db`.
+Requiring `DATABASE_URL` is deliberate: a web server silently pointing at the wrong database is worse
+than one that refuses to start.
 
-A bind failure on the port is now fatal-with-a-dialog rather than silent: `httpServer` gets an
-`error` handler that rejects the startup promise, which `whenReady`'s catch turns into
-`dialog.showErrorBox` (`index.ts`). Before 2026-08-15 the listen promise had a success callback
-only, so a taken port left it pending forever — `createWindow()` unreachable, no window, no error.
-That closes audit `C-3`.
+**Migrations** are ordinary `prisma migrate deploy`. The packaged sql.js path with its own
+`_app_migrations` ledger and checksum self-heal is gone with SQLite; so is the whole build-variant
+machinery (`app-identity.ts`, the two NSIS installers, the `next` port-4100 split), which existed
+only to keep two SQLite files apart.
 
-**Build identity, and therefore the database path.** `app-identity.ts` decides what a build calls
-itself. Electron derives `userData` from `app.getName()`, and the database is
-`<userData>/data/master.sqlite` — so the app name *is* the database path. That name is
-`@chayxana/master` (package.json `name`), **not** `build.productName`, which electron-builder reads
-at package time and Electron never sees. The live DB is therefore
-`%APPDATA%\@chayxana\master\data\master.sqlite`.
+**Not started by `apps/web`:** the scheduler and the Telegram bot. Both are single-instance concerns
+and are wired up with deployment in slice 4. Running several web processes locally must not mean
+several daily-report senders.
 
-Two builds can be installed at once: `production` (untouched behaviour, port 4000) and `next`
-(`pnpm package:win:next` — own app name, own userData, own appId, install directory, shortcut,
-firewall rule, and port 4100). The variant is baked at build time by `electron.vite.config.ts`;
-`production` does not call `app.setName()` at all, so that bundle is unchanged and an upgrade
-cannot lose the existing database. See `CLAUDE.md` "Build variants".
+**Serving the SPA** (`apps/web/src/static.ts`): `express.static` then a catch-all returning
+`index.html`, mounted **after** every API router and skipping `/api` and `/socket.io`. Get that order
+wrong and an unmatched API path answers with HTML instead of JSON. Note the API has **no JSON 404
+handler at all** — unmatched routes never throw, so `errorHandler` never sees them and Express's
+default HTML error page answers. Pre-existing, and slice 3's error work owns it.
 
-⚠ Side effect of the above worth recording: `installer.nsh`'s database-wipe prompt tests
-`$APPDATA\${PRODUCT_NAME}\data\master.sqlite` — `%APPDATA%\Chayxana Master\...` — which no build has
-ever written to. **The prompt cannot fire.** Audit `C-2` is overstated on that basis; the offer to
-delete the production database is dead code rather than a live hazard.
-
-**Printing:** `printBill → PrintJob row → p-queue mutex (concurrency 1) → execFile receipt.exe`
-(Win32 RAW ESC/POS, `cpp/receipt.cpp`). Only `BILL` and `BILL_REPRINT` types remain. On non-Windows
-dev hosts `executeBinary` is a stub that logs and returns success — printing appears to work.
+**Printing:** `printBill → PrintJob row → p-queue mutex (concurrency 1) → the injectable executor`
+(`lib/printer-executor.ts`). Only `BILL` and `BILL_REPRINT` types remain. The server no longer runs
+on the machine the printer is attached to, so it cannot spawn `receipt.exe` itself; the default
+executor logs and succeeds, exactly as the old non-Windows stub did. Slice 2 registers an executor
+that hands the job to a print agent at the chayxana, and moves the print **out** of the confirm
+transaction — see §2.
 
 **Telegram bot:** `/bugun /kecha /sana /oldin /hafta /oy /oylik /umumiy /excel /pdf /qarzlar
 /xarajatlar /omborxona /ofitsiantlar /yordam`, plus five push alerts — large discount,
@@ -364,16 +376,16 @@ is gone with the rest of the status (§11, §13).
 **Scheduler:** stale-draft cleanup every 6 hours; the finance report scheduler polls **every 60
 seconds** for the configured send time.
 
-**Headless dev server for verification (Docker):** non-Windows dev hosts don't run Electron, so
-`dev:master` can't provide the server that the HTTP-driven smoke scripts need (see `CLAUDE.md`
-Commands). `scripts/serve-headless.ts` boots the same Express + Socket.io server
-`main/index.ts`'s `startServer()` does, minus the Electron shell, Telegram bot, mDNS, scheduler,
-and printer init. `compose.dev.yaml` runs it in a container on `:4000` — `docker compose -f
-compose.dev.yaml up -d`, `... exec master-dev <cmd>` to run a smoke against it, `... down` after.
+**Running it (Docker):** `compose.dev.yaml` brings up Postgres and the web app together —
+`docker compose -f compose.dev.yaml up -d`, then `... exec -T web <cmd>` to run a smoke against it,
+`... down` after. This is no longer a test-only harness standing in for something else; it is the
+same shape that ships, which is the point.
 
-⚠ `scripts/smoke-cashflow-reversal.ts` does not need this harness and should not be run through
-it against the shared `dev.db` — it talks to Prisma directly, not HTTP, and its cleanup step
-deletes every row of five tables with no scoping. See §13.
+`scripts/serve-headless.ts` is gone, replaced by `apps/web/src/index.ts`.
+`scripts/smoke-cashflow-reversal.ts` is also gone — five unfiltered `deleteMany({})` calls including
+`User`, already failing against the schema, and strictly more dangerous pointed at a shared Postgres
+than at the throwaway SQLite file it was already threatening. Reinstating its coverage means
+rewriting it with scoped cleanup.
 
 **Mobile monorepo invariants** (all currently holding — verify before touching):
 root `.npmrc` has `node-linker=hoisted` + `shamefully-hoist=true`; `apps/mobile/index.js` is the
@@ -490,7 +502,9 @@ merely dead — §4 lists what is still declared in the schema with no code path
 
 **Specific claims in `decisions.md` that are now wrong:**
 
-- ❌ "PostgreSQL 16" → it is **SQLite**.
+- ✅ "PostgreSQL 16" → **correct again as of 2026-08-16.** This entry read "it is SQLite" from the
+  first version of this file until slice 1 of the web migration put the system back on Postgres.
+  `decisions.md` was right and the code had drifted away from it; the drift is now closed.
 - ❌ "Master at static `192.168.1.10`" → `192.168.1.50` per README/CLAUDE.
 - ❌ "Service charge is a fixed UZS amount configurable in Settings" → it is `MenuItem.kind=SERVICE`
   lines; there is no such setting.
@@ -531,6 +545,22 @@ warning about a deleted file reads as current until someone checks the path exis
 ---
 
 ## 13. Keeping this file honest
+
+- **2026-08-16 — the web migration, slice 1.** The system moved off Electron and SQLite: the server
+  is `packages/server`, the admin UI is `packages/admin-ui`, the schema is `packages/db` on
+  PostgreSQL, and `apps/web` serves both from one origin. §1 and §9 were rewritten; §2 (money path),
+  §3 (roles), §5 (finance vocabulary) and §7 (real-time) were **not touched**, because none of them
+  changed — editing them would have implied otherwise.
+  - **The 17 SQLite migrations were deleted, not translated.** The web system starts from an empty
+    database by decision, so there was nothing to migrate forward. If you go looking for the history
+    of how the schema got here, it is in git, not in `prisma/migrations`. The consequence is
+    permanent: the Windows till's `master.sqlite` can never be imported.
+  - Verification that the port preserved the money math: `smoke-e2e-flow`, `smoke-stock-count`,
+    `smoke-finance-pnl` and `smoke-summary-report` all pass against Postgres, and the last two agree
+    independently — P&L `486000 − 178200 − 30000 = 277800`, and the range report reports the same
+    277800 and the same 486000 by a different path.
+  - The repo has tests for the first time: six in `packages/server` covering `computeTotals`,
+    including that a 100% food discount still leaves the service charge owed.
 
 - Update it in the same commit that changes the behaviour it describes.
 - When a defect in §11 is fixed, delete the entry — don't mark it "done".

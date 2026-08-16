@@ -266,9 +266,18 @@ Each is independently shippable, in this order. **The implementation plan that f
 covers slice 1 only**; slices 2 to 5 each get their own plan when their turn comes, so no plan
 outruns what the previous slice actually proved.
 
-1. **Extract and run on Postgres.** The package moves, provider swap, `@db.Decimal` typing, Vitest,
-   `apps/web` boots and serves the SPA locally in Docker. No behaviour change and no new features —
-   the point is that the same system runs in a new shape.
+1. **Extract and run on Postgres — done 2026-08-16.** The package moves, provider swap,
+   `@db.Decimal` typing, Vitest, `apps/web` boots and serves the SPA locally in Docker. No behaviour
+   change and no new features — the point is that the same system runs in a new shape. Implemented on
+   `feat/web-platform`, commits `3ea8c1f..ba1c426`. All four HTTP smokes pass against Postgres, and
+   the P&L and range builders agree independently on 277800.
+
+   Three things the plan got wrong and the work corrected, recorded because they are the kind of
+   mistake that recurs: the typecheck floor is 63 rather than 49 once `scripts/` is included for the
+   first time; `apps/web` cannot typecheck clean because it consumes the server as TypeScript source,
+   and project references cannot fix that until the 49 pre-existing errors are cleared; and dropping
+   the dead models did require a code change after all, because `Expense.purchaseId` was a foreign key
+   to one of them.
 2. **Print agent.** Protocol, `apps/agent`, the confirm change in §5, job state surfaced in the
    admin UI with a reprint action.
 3. **Public hardening.** Everything in §7.

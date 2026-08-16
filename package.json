@@ -3,10 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev:master": "pnpm --filter @chayxana/master dev",
+    "dev": "pnpm --filter @chayxana/web dev",
+    "dev:ui": "pnpm --filter @chayxana/admin-ui dev",
     "dev:order": "pnpm --filter @chayxana/order dev",
     "dev:mobile": "pnpm --filter @chayxana/mobile start",
-    "build:master": "pnpm --filter @chayxana/master build",
+    "build:ui": "pnpm --filter @chayxana/admin-ui build",
     "build:order": "pnpm --filter @chayxana/order build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

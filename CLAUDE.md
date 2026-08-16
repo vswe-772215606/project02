@@ -4,7 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
+Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo, **mid-migration from an
+Electron desktop app to a web application** (branch `feat/web-platform`, slice 1 of 5 done — see
+`docs/superpowers/specs/2026-08-16-web-platform-design.md`).
+
+```
+packages/db/          Prisma schema (PostgreSQL), migrations, seed
+packages/server/      Express + Socket.io API — routes, controllers, services, repositories
+packages/admin-ui/    React 19 + Vite SPA, the admin screens (Blocks C1)
+
+apps/web/             Node entry: boots the server, serves the SPA from the same origin
+apps/order/           Electron desktop waiter app
+apps/mobile/          Expo React Native waiter app
+apps/master/          Electron — DOES NOT BUILD, rebuilt as a kiosk shell in slice 5
+```
+
+There is no separate kitchen app — the admin is the single point of order approval and payment. All
+user-facing strings are in Uzbek. The database is **PostgreSQL**; the SQLite era ended with slice 1
+and none of its migration history was carried over.
+
+⚠ `apps/master` is deliberately broken. Its server and renderer moved into `packages/`, its
+Electron-only files are deleted, and its `typecheck` is stubbed to an echo. Do not try to fix it —
+slice 5 rebuilds it as a thin kiosk window onto the domain. For a working Windows installer, use
+branch `feat/remove-walkout`.
 
 Source-of-truth docs (read these before non-trivial changes):
 - **`docs/CURRENT_WORKFLOW.md` — START HERE.** Code-verified snapshot of what the system actually does: the money path, order state machine, count-based inventory/COGS, finance formulas, API surface, socket wiring, ranked known defects, and an explicit list of which other docs to distrust. Where any doc disagrees with it, it wins.
@@ -12,7 +34,9 @@ Source-of-truth docs (read these before non-trivial changes):
 - `docs/POS_STANDARDS.md` — the audit rubric: 60 ID'd requirements from the Keurmerk POS reliability standard, Uzbek fiscal law (КМ РУз №943), and WCAG 2.2. Cite these IDs in any new finding.
 - `docs/PRD_FOUNDATION.md` — scoping input for a forthcoming PRD over four areas: inventory, finance, calculations, UI/UX. Groups the audit findings by subsystem into numbered requirements (`INV-*`, `FIN-*`, `CALC-*`, `UX-*`). **§7 is the handoff — start there; its top note now says §1 (inventory, including §1.9/§1.10 and `O-1`…`O-4`) is superseded by the count-based inventory design (`docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`)** — don't design inventory or costing from §1 anymore. §2–§4 (finance, calculations, UI/UX) remain live inputs. **§8 lists constraints that must not be "fixed"** — read it before changing any finance formula.
 - `docs/agent-plans/00-shared/decisions.md` — product/domain intent (roles, order lifecycle, bill math) and v1 scope exclusions. Labelled "locked", but **several claims have drifted from the code** — see `CURRENT_WORKFLOW.md` §12 before relying on it. Don't change it without explicit instruction.
-- **`docs/design/RENDERER_REBUILD.md` — START HERE for any work in `apps/master/src/renderer`.** Status and handoff for the Blocks C1 rebuild on branch `feat/c1-design-system`: what the renderer is now, how to view it without Windows, which typecheck commands are real and which pass vacuously, and the open items that need a decision rather than a fix.
+- **`docs/design/RENDERER_REBUILD.md` — START HERE for any work in `packages/admin-ui/src`.** Status and handoff for the Blocks C1 rebuild: what the renderer is now, how to view it, which typecheck commands are real and which pass vacuously, and the open items that need a decision rather than a fix. ⚠ Written when the renderer lived at `apps/master/src/renderer`; the paths in it predate slice 1, the substance does not.
+- **`docs/TECHNICAL_REVIEW_2026-08-16.md` — 75 findings across schema, money path, finance, API, renderer and runtime, ranked by what they cost this business.** Read the verdict and the top-twelve table before touching anything money-related. Several findings are scheduled into the web migration's slice 3 rather than fixed ad hoc.
+- **`docs/superpowers/specs/2026-08-16-web-platform-design.md` — the migration this repo is in the middle of.** Eight decisions, five slices, and an explicit list of risks accepted.
 - `docs/design/BLOCKS_C1.md` — the renderer design system and the authority on it. No borders, radius, shadows, accent bars or hover; separation is a 2px seam and state is the fill. Type floors: 12px labels / 13px text / 17px money. Target hardware is a **1366×768 touchscreen — no mouse, no hover, no keyboard in normal use**; any change assuming a pointer is wrong for this product.
 - `docs/UI_UX_LAYOUT_AUDIT.md` — 158 findings against the **pre-rebuild** renderer. Rationale for the rebuild, not a live tracker; its counts are stale and it has not been re-run.
 - `docs/agent-plans/00-shared/conventions.md` — code style and naming. Current.
@@ -23,114 +47,129 @@ Source-of-truth docs (read these before non-trivial changes):
 
 Run from repo root unless noted. Node ≥20, pnpm 9, packageManager pinned.
 
-```bash
-pnpm dev:master      # Electron-vite dev for master (admin UI + API server on :4000)
-pnpm dev:order       # Electron-vite dev for the desktop waiter app
-pnpm dev:mobile      # expo start (use tunnel mode — see "Mobile dev" below)
-pnpm build:master    # production build (runs prepare-prisma-package first)
-pnpm build:order
-pnpm typecheck       # tsc -b — the ONLY command that checks apps/master/src/main.
-                     # `tsc -p tsconfig.json` there compiles nothing (solution-style
-                     # config: files:[] + references), so a green run from it is vacuous.
-                     # Currently 49 errors, all in src/main, all pre-existing. (Was 51;
-                     # feat/remove-walkout dropped it deleting markWalkout out of
-                     # orders.controller.ts and the walkout table out of pdf-report.ts.)
-pnpm lint            # noop in most packages today
-```
-
-Master-specific (run inside `apps/master/`):
-```bash
-pnpm prisma:generate                       # regenerate Prisma client
-pnpm exec prisma migrate dev --name <name> # create + apply a migration
-pnpm exec tsx prisma/seed.ts               # seed dev.db
-pnpm exec tsx scripts/smoke-e2e-flow.ts    # end-to-end flow — HTTP against a running server
-pnpm exec tsx scripts/smoke-stock-count.ts # count-based stock invariants — same (HTTP)
-pnpm exec tsx scripts/smoke-finance-pnl.ts # P&L + cash-drawer math — same (HTTP)
-pnpm run typecheck:renderer                # renderer only
-pnpm run typecheck:gallery                 # gallery fixtures vs the real API types
-pnpm gallery:page                          # browser preview of all 15 screens at 1366×768
-pnpm exec electron-vite build              # production renderer + main build
-pnpm package:win                           # NSIS installer (Windows) — UPGRADES an existing install
-pnpm package:win:next                      # side-by-side installer — installs BESIDE one (see below)
-pnpm build:printer                         # cross-build receipt.exe via mingw (Linux)
-pnpm build:printer:win                     # build receipt.exe via MSVC (Windows)
-```
-
-Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
-
-⚠ Not all scripts are live. Several `simulate-*.ts` scripts carry pre-v0.1.3 expectations and fail against current behaviour. **`scripts/smoke-cashflow-reversal.ts` is destructive and unguarded** — it runs in-process against whatever `DATABASE_URL` points at (not HTTP, despite sitting next to the HTTP-driven smokes above), and its cleanup step is `deleteMany({})` with no `where` clause against `Payment`, `Expense`, `Order`, `ExpenseCategory` and `User` — every row in each. Its header comment assumes a dedicated throwaway SQLite file; nothing in the code enforces that. Never run it against `dev.db` or the Docker harness's shared database. It also currently fails outright against the live schema, independent of this hazard — see `docs/CURRENT_WORKFLOW.md` §13. Read a script before trusting a green run.
-
-### Build variants — where the database lives
-
-`src/main/app-identity.ts` is the single place that decides what a build calls itself. It matters
-because **Electron derives `userData` from `app.getName()`, and the SQLite database is
-`<userData>/data/master.sqlite`** — so the app's name *is* the database path.
-
-That name is **`@chayxana/master`**, the `name` field of `package.json`. It is **not**
-`build.productName` ("Chayxana Master"): `productName` under `build` is electron-builder config,
-read only when packaging, and Electron never sees it (there is no top-level `productName`).
-Verified against `app-builder-lib/out/appInfo.js` — electron-builder does not rewrite the packaged
-`package.json`. So the live database is at `%APPDATA%\@chayxana\master\data\master.sqlite`.
-
-⚠ Two consequences. First, **renaming `build.productName` alone does not separate two installs** —
-it moves the install directory and the Start Menu entry while leaving both builds on the same
-database. Second, **`installer.nsh`'s database-wipe prompt cannot fire**: it tests
-`$APPDATA\${PRODUCT_NAME}\data\master.sqlite`, i.e. `%APPDATA%\Chayxana Master\...`, which no build
-has ever written. `AUDIT_FINDINGS.md` `C-2` overstates the risk on that basis; the prompt is dead
-code, not a live hazard.
-
-| | `production` (default) | `next` (`pnpm package:win:next`) |
-|---|---|---|
-| app name → userData | untouched (`@chayxana/master`) | `chayxana-master-next` |
-| appId | `com.chayxana.master` | `com.chayxana.master.next` |
-| productName / install dir / shortcut | Chayxana Master | Chayxana Master (Yangi) |
-| port | 4000 | 4100 |
-| firewall rule | `Chayxana Master (TCP 4000)` | `Chayxana Master (Yangi) (TCP 4100)` |
-| NSIS hooks | `installer.nsh` | `installer.next.nsh` (no wipe prompt) |
-
-`production` deliberately does **not** call `app.setName()` at all — the call is dead-code
-eliminated from that bundle, so its behaviour is byte-identical to the shipped v0.1.x builds and an
-upgrade cannot lose the existing database. Only `next` renames itself.
-
-The variant is a **build-time** choice (`CHAYXANA_VARIANT=next`, baked in by
-`electron.vite.config.ts`), never a runtime setting — a toggle that can move the database is a
-toggle that can lose it. The CI workflow takes it as a `workflow_dispatch` input; tag pushes always
-build `production`.
-
-Waiter clients default to `:4000`, so a `next` master needs the order app and mobile pointed at
-`:4100` by hand.
-
-### Headless dev server (Docker)
-
-Non-Windows dev hosts don't run Electron, so `dev:master` can't provide the server the HTTP smokes
-above need. `compose.dev.yaml` builds a container that installs, migrates, and runs
-`scripts/serve-headless.ts` — the same Express + Socket.io server `main/index.ts` starts, minus the
-Electron shell, Telegram bot, mDNS, scheduler, and printer init — on `localhost:4000`.
+**The whole stack, in Docker — this is the normal way to run it:**
 
 ```bash
-docker compose -f compose.dev.yaml up -d
-# fresh seed:
-docker compose -f compose.dev.yaml exec master-dev bash -lc \
-  "rm -f apps/master/prisma/dev.db && pnpm --filter @chayxana/master exec prisma migrate deploy && pnpm --filter @chayxana/master exec tsx prisma/seed.ts"
-docker compose -f compose.dev.yaml restart master-dev
-docker compose -f compose.dev.yaml exec master-dev pnpm --filter @chayxana/master exec tsx scripts/smoke-stock-count.ts
+docker compose -f compose.dev.yaml up -d          # Postgres + the web app on :4000
+docker compose -f compose.dev.yaml logs -f web    # wait for "[web] listening on :4000"
 docker compose -f compose.dev.yaml down
 ```
 
+Open `http://localhost:4000` — the SPA and the API are the **same origin**. Never hardcode a host or
+port in the renderer; every request is relative.
+
+```bash
+pnpm dev             # apps/web with watch (needs DATABASE_URL and a running Postgres)
+pnpm dev:ui          # admin-ui alone on :5173, proxying /api and /socket.io to :4000
+pnpm dev:order       # Electron-vite dev for the desktop waiter app
+pnpm dev:mobile      # expo start (use tunnel mode — see "Mobile dev" below)
+pnpm build:ui        # SPA production build → packages/admin-ui/dist
+pnpm typecheck       # every package
+pnpm test            # every package — only packages/server has real tests today
+```
+
+Database (inside `packages/db/`, needs `DATABASE_URL`):
+```bash
+pnpm exec prisma migrate dev --name <name>   # create + apply a migration
+pnpm exec prisma migrate deploy              # apply pending migrations
+pnpm exec prisma generate                    # regenerate the client
+pnpm exec tsx prisma/seed.ts                 # seed
+```
+
+⚠ `prisma.config.ts` replaced the `prisma` block in `package.json`. A config file means Prisma
+**no longer auto-loads `.env`** — `DATABASE_URL` must be in the environment. Local dev value:
+`postgresql://chayxana:chayxana@localhost:5432/chayxana?schema=public` (`@db:5432` inside a container).
+
+UI (inside `packages/admin-ui/`):
+```bash
+pnpm run typecheck          # renderer — must be clean, always
+pnpm run typecheck:gallery  # gallery fixtures vs the real API types — must be clean, always
+pnpm gallery:page           # browser preview of all 15 screens at 1366×768
+```
+
+`tsconfig.json` does not cover `gallery/`; `tsconfig.gallery.json` covers both trees. A renderer type
+change that breaks a fixture only shows up in the second command — run both.
+
+Smokes (HTTP against a running server, from `packages/server/`):
+```bash
+pnpm exec tsx scripts/smoke-e2e-flow.ts       # order → send → confirm, stock and COGS
+pnpm exec tsx scripts/smoke-stock-count.ts    # count-based stock invariants
+pnpm exec tsx scripts/smoke-finance-pnl.ts    # P&L + cash-drawer math
+pnpm exec tsx scripts/smoke-summary-report.ts # range report identities
+```
+
+All four read `BASE_URL` (default `http://localhost:4000`). **Run them in that order and never
+`smoke-summary-report.ts` alone** — a bare seed has no closed orders, so on its own it passes with
+every figure at zero. They seed their own fixtures and do not clean up, so absolute numbers only mean
+something against a freshly reset database.
+
+### The typecheck floor
+
+`packages/server` sits at **49 pre-existing errors in `src/`**, all inherited from before the port,
+concentrated in `orders.controller.ts` (14) and `pdf-report.ts` (8). Plus **14 in `scripts/`**, which
+were invisible for the life of the repo because the old `tsc -b` compiled nothing under `scripts/`.
+63 total. The rule: `src/` must stay at exactly 49, file-for-file.
+
+`apps/web` re-reports those same 49 because it consumes `@chayxana/server` as TypeScript source. The
+number that matters there is errors in its **own** files, which must be 0:
+`pnpm --filter @chayxana/web exec tsc --noEmit 2>&1 | grep -cE "^src/"`.
+
+Those 49 are also blocking a structural fix: project references would separate the two packages'
+errors, but they need declaration emit, which fails while any type error exists.
+
+⚠ Several `simulate-*.ts` scripts left in `apps/master/scripts/` carry pre-v0.1.3 expectations and
+fail against current behaviour. `smoke-cashflow-reversal.ts` — five unfiltered `deleteMany({})` calls
+including `User` — was **deleted** in slice 1 rather than carried across; pointing it at a shared
+Postgres would have been strictly more dangerous than the SQLite file it already threatened.
+
 ## Architecture
 
-### Master (`apps/master/`)
-Electron app where the **main process hosts the Express + Socket.io server**, and the renderer is the admin desktop UI. The same binary serves API clients from the order desktop app and mobile.
+### Server (`packages/server/`) and web entry (`apps/web/`)
+A plain Node process. `apps/web/src/index.ts` requires `DATABASE_URL`, loads settings, builds the
+Express app, mounts the SPA, attaches Socket.io and listens. `apps/web/src/static.ts` holds the one
+rule that is easy to break: **the SPA catch-all mounts after every API router**, or an unmatched
+`/api` path returns HTML instead of JSON.
 
-- `src/main/index.ts` — Electron bootstrap. Acquires single-instance lock, sets up Prisma runtime (`prisma-runtime.ts`), bootstraps packaged SQLite (`sqlite-bootstrap.ts`), then starts the HTTP server before opening the BrowserWindow. Heavy startup logging into `userData/`.
-- `src/main/server/` — backend in layered style:
+The scheduler and the Telegram bot are **not** started by `apps/web` — they are single-instance
+concerns and belong with deployment in slice 4.
+
+Printing no longer spawns a binary. `lib/printer-executor.ts` is an injectable seam whose default
+logs and succeeds; slice 2 registers an executor that hands jobs to a print agent at the chayxana.
+
+- `packages/server/src/` — backend in layered style:
   - `routes/*.routes.ts` → `controllers/` → `services/*.service.ts` → `repositories/` (only place that touches Prisma).
   - `socket.ts` — Socket.io rooms `admin`, `waiter:{userId}`, and `all` (every authenticated socket joins `all`, for menu/availability broadcasts). There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }`.
-  - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain.
-- `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `StockEntry`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. `Ingredient`/`Recipe`/`Purchase`/`Stocktake`/`Waste` models remain in the schema for historical data but have no live code paths — inventory is count-based on `MenuItem` (see `docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`). ⚠ "One active order per table" is **currently unenforced** — migration `20260607041034` rebuilt the `Order` table and did not recreate the partial unique index, so the `P2002` catch in `createDraft` can no longer fire.
-- `src/renderer/` — React 19 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI state. (Root `pnpm.overrides` pins react/react-dom to 19.1.0 workspace-wide; `apps/order/package.json` still *declares* ^18.3.0 but the override wins.) Rebuilt on the **Blocks C1** design system — `components/blocks/` holds the primitives, `components/layout/` the `Screen` + `Panel` + `NavRail` shell. Every app page composes `Screen`; a `Panel`'s `foot` sits outside the scroll so a primary action can never fall below the fold. See `docs/design/RENDERER_REBUILD.md`.
-- `gallery/` — browser preview of the real renderer against a stubbed `window.fetch`, since the app itself only runs in Electron on Windows. Fixtures are one module per domain under `gallery/fixtures/`; `mock-server.ts` only composes them.
+  - `printer/receipt-builder.ts` + `print.service.ts` — builds the ESC/POS payload and hands it to
+    the injectable executor, serialized through a `p-queue` mutex. Only `BILL` / `BILL_REPRINT` remain.
+
+### Database (`packages/db/`)
+`prisma/schema.prisma` — **PostgreSQL**. 20 tables: `User`, `Session`, `Category`, `MenuItem`,
+`Combo`, `ComboComponent`, `Table`, `Order`, `OrderLine`, `StockEntry`, `Discount`, `Payment`,
+`Expense`, `ExpenseCategory`, `ExpenseReturn`, `Debt`, `DebtRepayment`, `AuditLog`, `PrintJob`,
+`Setting`. Every money column is `@db.Decimal(14, 2)` — a bare `Decimal` becomes `Decimal(65,30)` on
+Postgres, so always annotate a new one.
+
+The ten dead ingredient/recipe/FIFO models were **dropped** in slice 1; the fresh start removed the
+only reason to keep them. `Expense.purchaseId` survives on the DTO as a literal `null` because
+`ExpenseList`'s "Xarid" chip still reads it — removing it from the clients is later cleanup.
+
+⚠ "One active order per table" is **still unenforced**. The partial unique index Prisma cannot
+express was never recreated, so the `P2002` catch in `createDraft` cannot fire.
+
+### Admin UI (`packages/admin-ui/`)
+React 19 + Vite + Tailwind, React Router, TanStack Query for server state, Zustand for local UI
+state. Built on the **Blocks C1** design system — `components/blocks/` holds the primitives,
+`components/layout/` the `Screen` + `Panel` + `NavRail` shell. Every page composes `Screen`; a
+`Panel`'s `foot` sits outside the scroll so a primary action can never fall below the fold. See
+`docs/design/RENDERER_REBUILD.md`.
+
+**Same-origin, always.** `api/client.ts` uses `BASE = ''` and `socket-client.ts` calls `io()` with no
+URL. A build that names a host or port drives whichever server is on that port rather than its own —
+that was a real defect before the port (`docs/TECHNICAL_REVIEW_2026-08-16.md` finding 1).
+
+- `gallery/` — browser preview of the real pages against a stubbed `window.fetch`. Fixtures are one
+  module per domain under `gallery/fixtures/`; `mock-server.ts` only composes them.
 
 ### Order (`apps/order/`)
 Electron desktop waiter app — the keyboard/touchscreen equivalent of the mobile app. PIN login, create/edit drafts, send orders. Connects to master via REST + Socket.io using a `MasterUrlProvider` that persists the server URL in `userData`. Same renderer style as master (sidebar shell, shadcn primitives, TanStack Query).
