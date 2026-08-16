@@ -16,11 +16,10 @@ import { Input } from '@/components/ui/input';
 import { formatMoney } from '@/lib/format';
 import { debtsApi } from '@/api/debts';
 import type { ConfirmBody, Order, PaymentMethod } from '@/api/orders';
+import { addLeg as addLegTo, removeLeg as removeLegFrom, setLegAmount, type Leg } from '@/lib/payment-legs';
 
 /** Which field the middle of the panel is currently driving. `null` = the line list. */
 type Editing = { kind: 'discount' } | { kind: 'payment'; index: number } | { kind: 'debtor' } | null;
-
-type Leg = { method: PaymentMethod; amount: number };
 
 /** One person, folded together from however many debts they already carry. */
 type Debtor = { name: string; phone: string | null; outstanding: number; lastAt: string };
@@ -112,6 +111,9 @@ export function OrderTicket({
   const food = order.subtotalSnapshot ?? order.totalAmount;
   const [discount, setDiscount] = useState(0);
   const [legs, setLegs] = useState<Leg[]>([{ method: 'CASH', amount: order.totalAmount }]);
+  // The seeded CASH leg is the balancing leg — it absorbs whatever the other
+  // methods do not cover.
+  const [balancingIndex] = useState(0);
   const [editing, setEditing] = useState<Editing>(null);
   const [debtorName, setDebtorName] = useState('');
   const [debtorPhone, setDebtorPhone] = useState<string | null>(null);
@@ -120,7 +122,7 @@ export function OrderTicket({
   const due = useMemo(() => Math.max(food - discount, 0) + (order.serviceChargeSnapshot ?? 0), [food, discount, order.serviceChargeSnapshot]);
   const paid = useMemo(() => legs.reduce((sum, leg) => sum + leg.amount, 0), [legs]);
   const balanced = paid === due;
-  const hasDebtLeg = legs.some((leg) => leg.method === 'DEBT');
+  const hasDebtLeg = legs.some((leg) => leg.method === 'DEBT' && leg.amount > 0);
   const needsDebtor = hasDebtLeg && debtorName.trim().length === 0;
 
   // Only fetched once a nasiya leg exists — the vast majority of confirms are
@@ -157,14 +159,14 @@ export function OrderTicket({
     }
     if (editing.kind !== 'payment') return;
     const index = editing.index;
-    setLegs((current) =>
-      current.map((leg, i) => (i === index ? { ...leg, amount: applyKey(leg.amount, key) } : leg)),
-    );
+    setLegs((current) => {
+      const nextAmount = applyKey(current[index]?.amount ?? 0, key);
+      return setLegAmount(current, index, nextAmount, due, balancingIndex);
+    });
   };
 
   const addLeg = (method: PaymentMethod) => {
-    const remaining = Math.max(due - paid, 0);
-    setLegs((current) => [...current, { method, amount: remaining }]);
+    setLegs((current) => addLegTo(current, method, due, balancingIndex));
     // Naming the debtor is the next thing that has to happen, and TASDIQLASH
     // stays disabled until it does — so go straight there rather than making
     // the operator discover a second row.
@@ -336,14 +338,30 @@ export function OrderTicket({
         </Row>
 
         {legs.map((leg, index) => (
-          <Row
-            key={`${leg.method}-${index}`}
-            columns="1fr 130px"
-            onClick={() => setEditing({ kind: 'payment', index })}
-          >
-            <span>{METHOD_LABEL[leg.method]}</span>
-            <RowMoney>{formatMoney(leg.amount)}</RowMoney>
-          </Row>
+          // The Row below renders as a <button> (it has an onClick), so the
+          // remove control must sit beside it rather than inside it — a
+          // button nested in a button is invalid markup. This wrapper is the
+          // grid row instead; the Row and the × share it as flex siblings.
+          <div key={`${leg.method}-${index}`} className="flex gap-seam bg-seam">
+            <Row
+              className="flex-1"
+              columns="1fr 130px"
+              onClick={() => setEditing({ kind: 'payment', index })}
+            >
+              <span>{METHOD_LABEL[leg.method]}</span>
+              <RowMoney>{formatMoney(leg.amount)}</RowMoney>
+            </Row>
+            {legs.length > 1 ? (
+              <button
+                type="button"
+                aria-label={`${METHOD_LABEL[leg.method]} qatorini o'chirish`}
+                className="h-control w-control bg-field text-owed"
+                onClick={() => setLegs((current) => removeLegFrom(current, index, due, balancingIndex))}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
         ))}
 
         {hasDebtLeg ? (
