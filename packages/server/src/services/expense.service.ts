@@ -53,7 +53,12 @@ function mapExpense(item: Awaited<ReturnType<typeof expenseRepo.findById>>) {
     occurredAt: item.occurredAt.toISOString(),
     status: item.status,
     reversedExpenseId: item.reversedExpenseId,
-    purchaseId: item.purchaseId,
+    // Permanently null: Expense.purchaseId was a foreign key to the Purchase
+    // model, which came out with the rest of the ingredient/FIFO subsystem. The
+    // field stays on the DTO so the wire shape and the Xarid chip in
+    // ExpenseList do not have to change inside a port; nothing can set it, and
+    // removing it from the clients belongs to a later cleanup.
+    purchaseId: null as string | null,
     repayable: item.repayable,
     repayStatus: repayStatus(item),
     remainingAmount: remainingAmount ? decimalToString(remainingAmount) : null,

@@ -370,7 +370,29 @@ Ten models have had no live code path since the count-based inventory refactor o
 
 **Interfaces:**
 - Consumes: Task 1 — the Postgres schema and its initial migration.
-- Produces: a schema with 10 fewer models. No TypeScript in `packages/server` references any of them, so no code changes accompany this.
+- Produces: a schema with 10 fewer models, and **one** code change.
+
+**Corrected 2026-08-16.** This block originally said "no code changes accompany this". That is wrong,
+and Step 1's grep is too naive to catch why. Grepping for `ingredient|recipe|purchase|…` returns
+**67 matches** in `packages/server/src` — but they are all surviving *vocabulary*, not model usage:
+`seed-cat-ingredients` is an `ExpenseCategory` id string, `ingredientPurchases` is a finance DTO
+field now sourced from `StockEntry`. The precise check is whether anything touches the Prisma model
+accessors or types, and it returns nothing:
+
+```bash
+grep -rnE "\.(ingredient|recipe|purchase|stocktake|wasteEvent|ingredientMovement)\b" \
+  packages/server/src --include="*.ts" | grep -iE "prisma|tx\.|client\."
+grep -rnE "import .*\{[^}]*(Ingredient|Recipe|Purchase|Stocktake|WasteEvent)[^}]*\}.*@prisma/client" \
+  packages/server/src packages/admin-ui/src
+```
+
+The one real consequence is `Expense.purchaseId`, a foreign key to the deleted `Purchase` model.
+Dropping the column breaks `expense.service.ts:56`, which maps it into the Expense DTO — and the DTO
+field is read by `finance.service.ts:168` and rendered as the "Xarid" chip in `ExpenseList.tsx:95`
+and `ExpensePanel.tsx:133`. Fixing the service alone fixes all of them, because the others consume
+the DTO rather than the model. Set it to a literal `null` with a comment; do **not** remove it from
+the clients, which is UI surgery that does not belong in a port. Every gallery fixture already has
+`purchaseId: null` and no row can ever set it again, so the chip was already unreachable.
 
 - [ ] **Step 1: Prove they really are dead before deleting anything**
 

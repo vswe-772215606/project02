@@ -130,22 +130,6 @@ enum AuditAction {
   ITEM_COST_CHANGED
 }
 
-enum IngredientMovementType {
-  PURCHASE
-  CONSUME
-  RESTORE
-  STOCKTAKE
-  ADJUST
-  WASTE
-  COST_ADJUST
-}
-
-enum StocktakeStatus {
-  OPEN
-  AWAITING_REASONS
-  COMPLETED
-}
-
 // ============================================================
 // USERS, AUTH
 // ============================================================
@@ -173,13 +157,6 @@ model User {
   debtsCreated      Debt[]       @relation("DebtCreator")
   debtsWrittenOff   Debt[]       @relation("DebtWriteOff")
   debtRepayments    DebtRepayment[] @relation("DebtRepaymentReceiver")
-  ingredientMovements   IngredientMovement[] @relation("IngredientMovementActor")
-  purchasesRecorded     Purchase[]           @relation("PurchaseRecorder")
-  purchasesReversed     Purchase[]           @relation("PurchaseReverser")
-  purchasesDeleted      Purchase[]           @relation("PurchaseDeleter")
-  recipesEdited         RecipeEdit[]         @relation("RecipeEditor")
-  stocktakesPerformed   Stocktake[]          @relation("StocktakePerformer")
-  wasteEventsRecorded   WasteEvent[]         @relation("WasteRecorder")
   expensesWrittenOff    Expense[]            @relation("ExpenseWriteOff")
   expenseReturnsReceived ExpenseReturn[]     @relation("ExpenseReturnReceiver")
   stockEntries          StockEntry[]         @relation("StockEntryActor")
@@ -228,10 +205,6 @@ model MenuItem {
   description  String?
   price        Decimal @db.Decimal(14, 2)
   kind         MenuItemKind @default(FOOD)
-  // Untracked-SIMPLE items (no recipe, no self-ingredient): per-portion cost
-  // used to populate cogsSnapshot at sale time. NULL for tracked items —
-  // their COGS comes from FIFO batch peel via OrderLineBatchConsumption.
-  unitCostSnapshot Decimal? @db.Decimal(14, 2)
   // Count-based inventory (2026-08 refactor). `counted` governs availability:
   // stockCount NULL = sanoq kiritilmagan (blocked), 0..n otherwise. costPrice
   // is the typed tan narx per portion; NULL books 0 COGS.
@@ -247,9 +220,6 @@ model MenuItem {
   category        Category         @relation(fields: [categoryId], references: [id])
   orderLines      OrderLine[]
   comboComponents ComboComponent[]
-  recipe          Recipe?
-  selfIngredient  Ingredient?      @relation("SelfIngredient")
-  ingredients     Ingredient[]     @relation("DishIngredients")
   stockEntries    StockEntry[]
 
   @@index([categoryId])
@@ -371,15 +341,12 @@ model OrderLine {
   canceledReason    String?
 
   cogsSnapshot          Decimal? @db.Decimal(14, 2)
-  consumptionSnapshot   Json?
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   menuItem            MenuItem             @relation(fields: [menuItemId], references: [id])
-  ingredientMovements IngredientMovement[]
-  batchConsumptions   OrderLineBatchConsumption[]
 
   @@index([orderId])
   @@index([comboGroupId])
@@ -429,7 +396,6 @@ model ExpenseCategory {
   updatedAt    DateTime @updatedAt
 
   expenses     Expense[]
-  ingredients  Ingredient[]
 
   @@index([isActive])
   @@index([displayOrder])
@@ -444,7 +410,6 @@ model Expense {
   occurredAt        DateTime
   status            ExpenseStatus @default(ACTIVE)
   reversedExpenseId String?
-  purchaseId        String?       @unique
 
   // Repayable expense lifecycle (avans, zalog, vaqtinchalik qarz).
   // - repayable=false: oddiy chiqim. Foydaga to'liq ta'sir qiladi.
@@ -464,7 +429,6 @@ model Expense {
   reversals         Expense[]       @relation("ExpenseReversal")
   createdBy         User            @relation("ExpenseCreator", fields: [createdById], references: [id])
   writtenOffBy      User?           @relation("ExpenseWriteOff", fields: [writtenOffById], references: [id])
-  purchase          Purchase?       @relation(fields: [purchaseId], references: [id])
   returns           ExpenseReturn[]
   stockEntry        StockEntry?
 
@@ -538,237 +502,6 @@ model DebtRepayment {
   @@index([debtId])
   @@index([paidAt])
   @@index([receivedById])
-}
-
-// ============================================================
-// INGREDIENTS, RECIPES, STOCKTAKE  (per-dish scope)
-// ============================================================
-
-model Ingredient {
-  id                 String   @id @default(cuid())
-  parentMenuItemId   String
-  name               String
-  buyUnit            String
-  recipeUnit         String
-  conversionFactor   Decimal
-  currentStock       Decimal  @default(0)
-  weightedAvgCost    Decimal  @default(0)
-  varianceThreshold  Decimal  @default(5)
-  isActive           Boolean  @default(true)
-  isSelfMenuItem     Boolean  @default(false)
-  selfMenuItemId     String?  @unique
-  expenseCategoryId  String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  parentMenuItem     MenuItem         @relation("DishIngredients", fields: [parentMenuItemId], references: [id])
-  selfMenuItem       MenuItem?        @relation("SelfIngredient", fields: [selfMenuItemId], references: [id])
-  expenseCategory    ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
-  movements          IngredientMovement[]
-  recipeIngredients  RecipeIngredient[]
-  purchases          Purchase[]
-  wasteEvents        WasteEvent[]
-  stocktakeEntries   StocktakeEntry[]
-
-  @@unique([parentMenuItemId, name])
-  @@index([isActive])
-  @@index([isSelfMenuItem])
-  @@index([parentMenuItemId])
-}
-
-model Recipe {
-  id          String   @id @default(cuid())
-  menuItemId  String   @unique
-  notes       String?
-  isComplete  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  menuItem    MenuItem           @relation(fields: [menuItemId], references: [id])
-  ingredients RecipeIngredient[]
-  edits       RecipeEdit[]
-
-  @@index([isComplete])
-}
-
-model RecipeIngredient {
-  id           String  @id @default(cuid())
-  recipeId     String
-  ingredientId String
-  quantity     Decimal
-
-  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
-
-  @@unique([recipeId, ingredientId])
-  @@index([ingredientId])
-}
-
-model RecipeEdit {
-  id          String   @id @default(cuid())
-  recipeId    String
-  editedById  String
-  beforeJson  Json
-  afterJson   Json
-  occurredAt  DateTime @default(now())
-
-  recipe      Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  editor      User   @relation("RecipeEditor", fields: [editedById], references: [id])
-
-  @@index([recipeId, occurredAt])
-  @@index([editedById])
-}
-
-model Purchase {
-  id                    String         @id @default(cuid())
-  ingredientId          String
-  quantityBuyUnit       Decimal
-  quantityRecipeUnit    Decimal
-  // FIFO: how much of this batch is still unconsumed (in recipeUnit).
-  // Starts equal to quantityRecipeUnit; decremented atomically when sales
-  // peel from this batch (oldest-first). Past sales freeze their cogsSnapshot,
-  // so reducing remainingQty never restates history.
-  remainingQty          Decimal        @default(0)
-  totalCostUzs          Decimal
-  unitCostPerRecipeUnit Decimal
-  supplierNote          String?
-  recordedById          String
-  occurredAt            DateTime
-  createdAt             DateTime       @default(now())
-  status                PurchaseStatus @default(ACTIVE)
-  reversedAt            DateTime?
-  reversedById          String?
-  reversalNote          String?
-  deletedAt             DateTime?
-  deletedById           String?
-  deletionNote          String?
-
-  ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
-  recordedBy    User                  @relation("PurchaseRecorder", fields: [recordedById], references: [id])
-  reversedBy    User?                 @relation("PurchaseReverser", fields: [reversedById], references: [id])
-  deletedBy     User?                 @relation("PurchaseDeleter", fields: [deletedById], references: [id])
-  expense       Expense?
-  movements     IngredientMovement[]
-  batchConsumptions OrderLineBatchConsumption[]
-
-  @@index([ingredientId, occurredAt])
-  @@index([occurredAt])
-  @@index([status])
-  // FIFO hot path: "next batch to peel" — oldest active batch with remainingQty > 0.
-  @@index([ingredientId, status, occurredAt])
-}
-
-enum PurchaseStatus {
-  ACTIVE
-  REVERSED
-  DELETED
-}
-
-// FIFO: every order line peel is recorded here so restores (cancel/decrement)
-// return qty to the SAME batches it came from. OrderLine.cogsSnapshot is the
-// sum across these rows.
-model OrderLineBatchConsumption {
-  id            String   @id @default(cuid())
-  orderLineId   String
-  purchaseId    String
-  quantity      Decimal
-  unitCost      Decimal
-  createdAt     DateTime @default(now())
-
-  orderLine     OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
-  purchase      Purchase  @relation(fields: [purchaseId], references: [id])
-
-  @@index([orderLineId])
-  @@index([purchaseId])
-}
-
-model WasteEvent {
-  id            String   @id @default(cuid())
-  ingredientId  String
-  quantity      Decimal
-  reasonCode    String
-  note          String?
-  recordedById  String
-  occurredAt    DateTime
-  createdAt     DateTime @default(now())
-
-  ingredient    Ingredient            @relation(fields: [ingredientId], references: [id])
-  recordedBy    User                  @relation("WasteRecorder", fields: [recordedById], references: [id])
-  movements     IngredientMovement[]
-
-  @@index([ingredientId, occurredAt])
-  @@index([occurredAt])
-}
-
-model Stocktake {
-  id            String          @id @default(cuid())
-  date          DateTime        @unique
-  performedById String
-  status        StocktakeStatus @default(OPEN)
-  notes         String?
-  createdAt     DateTime        @default(now())
-  completedAt   DateTime?
-
-  performer     User             @relation("StocktakePerformer", fields: [performedById], references: [id])
-  entries       StocktakeEntry[]
-
-  @@index([status])
-  @@index([performedById])
-}
-
-model StocktakeEntry {
-  id           String   @id @default(cuid())
-  stocktakeId  String
-  ingredientId String
-  expectedQty  Decimal
-  countedQty   Decimal
-  variance     Decimal
-  reasonCode   String?
-  reasonNote   String?
-  valuedAtCost Decimal  @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  stocktake    Stocktake             @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
-  ingredient   Ingredient            @relation(fields: [ingredientId], references: [id])
-  movements    IngredientMovement[]
-
-  @@unique([stocktakeId, ingredientId])
-  @@index([ingredientId])
-}
-
-model IngredientMovement {
-  id                String                 @id @default(cuid())
-  ingredientId      String
-  type              IngredientMovementType
-  quantity          Decimal
-  unitCostSnapshot  Decimal?
-  resultingStock    Decimal
-  resultingAvgCost  Decimal
-
-  purchaseId        String?
-  orderLineId       String?
-  stocktakeEntryId  String?
-  wasteEventId      String?
-
-  reasonCode        String?
-  note              String?
-  actorUserId       String
-  occurredAt        DateTime
-  createdAt         DateTime @default(now())
-
-  ingredient        Ingredient      @relation(fields: [ingredientId], references: [id])
-  actor             User            @relation("IngredientMovementActor", fields: [actorUserId], references: [id])
-  purchase          Purchase?       @relation(fields: [purchaseId], references: [id])
-  orderLine         OrderLine?      @relation(fields: [orderLineId], references: [id])
-  stocktakeEntry    StocktakeEntry? @relation(fields: [stocktakeEntryId], references: [id])
-  wasteEvent        WasteEvent?     @relation(fields: [wasteEventId], references: [id])
-
-  @@index([ingredientId, occurredAt])
-  @@index([type])
-  @@index([occurredAt])
-  @@index([orderLineId])
-  @@index([purchaseId])
 }
 
 // ============================================================
