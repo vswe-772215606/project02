@@ -22,4 +22,4 @@ apps/master/prisma/**/*.db
 .pnpm-store/
 
 # Design-system gallery build output
-apps/master/gallery-dist/
+packages/admin-ui/gallery-dist/

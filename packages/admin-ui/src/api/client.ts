@@ -1,7 +1,10 @@
 import { useAuthStore } from '../stores/auth.store';
 import { getAuthToken } from './auth-token';
 
-const BASE = 'http://localhost:4000';
+// Served from the same origin as the API, so every path is relative. Never
+// hardcode a host or port here: a build that names one drives whichever server
+// is on that port, not its own.
+const BASE = '';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getAuthToken();

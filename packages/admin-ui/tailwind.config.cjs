@@ -6,8 +6,8 @@ module.exports = {
   // on the operator's OS colour-scheme preference.
   darkMode: ['class'],
   content: [
-    './src/renderer/index.html',
-    './src/renderer/**/*.{js,ts,jsx,tsx}',
+    './src/index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     container: {

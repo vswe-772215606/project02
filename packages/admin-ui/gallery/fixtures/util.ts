@@ -22,7 +22,7 @@ export function errorJson(code: string, message: string, status = 400): Response
 
 /**
  * Splits a request path into its route (for matching) and query string (for
- * reading params). `src/renderer/api/*.ts` only appends a `?` when at least
+ * reading params). `src/api/*.ts` only appends a `?` when at least
  * one param is actually set, so a plain `startsWith('/api/orders?')` style
  * match silently misses every zero-param call — this normalizes both forms.
  */
@@ -53,7 +53,7 @@ export function daysAgo(days: number, hour = 12, minute = 0): string {
 }
 
 // Every date-scoped page computes its "today" via the real `tashkentDayKey()`
-// (src/renderer/lib/format.ts), which formats in Asia/Tashkent regardless of
+// (src/lib/format.ts), which formats in Asia/Tashkent regardless of
 // the host's own timezone. This mock has to agree on what string "today" is,
 // or a same-day request looks like a different day and falls through to
 // synthetic data instead of the real one — mixing `Date#getDate()` (host-local)

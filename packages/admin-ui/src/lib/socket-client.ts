@@ -18,7 +18,7 @@ export function connectSocketClient(token: string) {
 
   disconnectSocketClient();
 
-  socket = io('http://localhost:4000', {
+  socket = io({
     auth: { token },
     reconnection: true,
     reconnectionDelay: 500,
