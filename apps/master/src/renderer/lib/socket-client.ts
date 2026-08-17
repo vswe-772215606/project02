@@ -1,5 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 
+import { SERVER_ORIGIN } from './server-port';
+
 let socket: Socket | null = null;
 let socketToken: string | null = null;
 
@@ -18,7 +20,7 @@ export function connectSocketClient(token: string) {
 
   disconnectSocketClient();
 
-  socket = io('http://localhost:4000', {
+  socket = io(SERVER_ORIGIN, {
     auth: { token },
     reconnection: true,
     reconnectionDelay: 500,

@@ -1,7 +1,8 @@
 import { useAuthStore } from '../stores/auth.store';
+import { SERVER_ORIGIN } from '../lib/server-port';
 import { getAuthToken } from './auth-token';
 
-const BASE = 'http://localhost:4000';
+const BASE = SERVER_ORIGIN;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getAuthToken();

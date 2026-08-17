@@ -54,7 +54,13 @@ export type AppIdentity = {
   port: number;
 };
 
-const IDENTITIES: Record<AppVariant, AppIdentity> = {
+/**
+ * Exported so `electron.vite.config.ts` can bake the port into the renderer
+ * bundle without restating it. The renderer cannot import this module (its
+ * `rootDir` is `src/renderer`), and a second copy of the port is a second
+ * thing to forget — see `src/renderer/lib/server-port.ts`.
+ */
+export const IDENTITIES: Record<AppVariant, AppIdentity> = {
   // Do not touch. `appName: null` preserves `@chayxana/master`, which is where
   // every existing install's database already is.
   production: {
