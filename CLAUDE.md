@@ -2,6 +2,46 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Work in flight — read this first (2026-08-17)
+
+**Three branches are live at once.** Know which one you are on before changing anything.
+
+| Branch | What it is | State |
+|---|---|---|
+| `main` | v0.1.3 | Behind everything. Do not target. |
+| `feat/remove-walkout` | The build the **customer is running** | The base for hotfixes. |
+| `fix/customer-feedback` | **v0.1.4 hotfix — active work** | Tasks 1–2 of 12 done. |
+| `feat/web-platform` | Electron → web migration | Slice 1 of 5 done. `apps/master` deliberately does not build there. |
+
+**The active job** is `docs/superpowers/plans/2026-08-16-customer-feedback-hotfix.md` — twelve tasks
+fixing nine defects a real operator reported from the live chayxana on 2026-08-16. It runs under
+superpowers:subagent-driven-development, and **the ledger is the source of truth for progress**:
+`.superpowers/sdd/2026-08-16-customer-feedback-hotfix/progress.md`. Trust that file and `git log`
+over any recollection — it records which tasks are complete, which findings were parked, and why.
+
+Task 3 is next and has not started (its first implementer was killed by a watchdog before making
+any change).
+
+**These fixes land on the Electron branch on purpose.** The customer runs that build; the web branch
+has moved the same code into `packages/` and cannot reach them until slices 2–5 are done. Every fix
+here gets re-applied onto `feat/web-platform` afterwards — by hand, not cherry-pick, because the
+paths differ.
+
+⚠ **A stale Prisma client fakes a 50th type error.** `node_modules/.prisma/client` is shared across
+branches and `feat/web-platform` generates it from a **PostgreSQL** schema. After any branch switch,
+run `pnpm exec prisma generate --schema prisma/schema.prisma` from `apps/master` before trusting a
+typecheck count. The floor here is **49**.
+
+**The demo runs from its own worktree.** `../project02-demo` is pinned to `feat/web-platform` and
+runs as its own compose project (`docker compose -f compose.dev.yaml -p chayxana-demo up -d`), so
+the demo and this branch cannot break each other. Do not run the demo from this directory.
+
+⚠ **`docs/design/BLOCKS_C1.md`, `docs/design/RENDERER_REBUILD.md` and the hardware line in this file
+are still wrong** about the target hardware — they say "no mouse, no hover, no keyboard". Site
+photographs disprove it: every till has a full physical keyboard and a mouse, and the panel is
+smaller than the 1366×768 every C1 measurement was taken against. Task 12 of the active plan corrects
+all three. Until it lands, do not cite that constraint as a reason for anything.
+
 ## Project
 
 Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
