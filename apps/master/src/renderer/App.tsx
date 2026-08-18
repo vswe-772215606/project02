@@ -19,6 +19,7 @@ import { DebtsPage } from './pages/DebtsPage';
 import { OmborPage } from './pages/OmborPage';
 import { FinancePage } from './pages/FinancePage';
 import { SalariesPage } from './pages/SalariesPage';
+import { SetupPage } from './pages/SetupPage';
 // Dev-only design-system gallery. Not in the sidebar; reachable at #/components.
 import { ComponentsPage } from './pages/ComponentsPage';
 
@@ -45,6 +46,7 @@ function AuthedRoutes() {
         <Route path="/debts" element={<DebtsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/audit" element={<AuditPage />} />
+        <Route path="/setup" element={<SetupPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/components" element={<ComponentsPage />} />
         <Route path="*" element={<Navigate to="/" />} />

@@ -7,54 +7,37 @@ import {
 
 import { NavItem, Seam } from '@/components/blocks';
 import { cn } from '@/lib/utils';
+import { HUB_ROUTE, hubFor, railFor, type Role } from '@/lib/navigation';
 import { useAuthStore } from '@/stores/auth.store';
 import { useConnectionStore } from '@/stores/connection.store';
 import { useUIStore } from '@/stores/ui.store';
 
-/** The auth store carries `role` as a plain string, so match it as one. */
-type Dest = {
-  to: string;
-  label: string;
-  icon: React.ReactNode;
-  roles: string[];
-};
-
 const ICON = 18;
 
 /**
- * Every destination, in the order the operator reaches for them: the six
- * touched daily first, then the rest.
+ * Which glyph belongs to which destination.
  *
- * These used to be two arrays with the tail hidden behind a `Boshqa` toggle,
- * on the reasoning that fifteen items measured taller than the screen. The
- * toggle did not solve that — it deferred it. Expanded, the rail ran to 947px
- * inside a 619px box, and because the shell is `overflow-hidden` and `Seam` is
- * a plain grid, the overflow was clipped with no scrollbar and no wheel target:
- * Sozlamalar, Amallar tarixi, Foydalanuvchilar, Chegirmalar, Xodimlar maoshi
- * and — worst — Chiqish were simply unreachable.
- *
- * The rail scrolls now, so the list does not have to be rationed.
+ * Kept here rather than in `lib/navigation` so that module stays free of JSX
+ * and can be unit tested — the rail's slot budget is an invariant worth a
+ * gate, and a module full of React elements is a poor place to hold it.
  */
-// Labels are kept short enough to render whole at 168px. An ellipsis in a
-// navigation label is worse than a shorter word: the operator is scanning for
-// a destination, not reading a sentence.
-const DESTINATIONS: Dest[] = [
-  { to: '/', label: 'Bugun', icon: <LayoutDashboard size={ICON} />, roles: ['OWNER', 'ADMIN', 'WAITER'] },
-  { to: '/approval-queue', label: 'Tasdiqlash', icon: <ClipboardCheck size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/orders', label: 'Buyurtmalar', icon: <ReceiptText size={ICON} />, roles: ['OWNER', 'ADMIN', 'WAITER'] },
-  { to: '/ombor', label: 'Ombor', icon: <Package size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/tables', label: 'Stollar', icon: <Armchair size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/finance', label: 'Kunlik moliya', icon: <Coins size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/menu', label: 'Menyu', icon: <UtensilsCrossed size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/reports', label: 'Hisobot', icon: <FileBarChart2 size={ICON} />, roles: ['OWNER'] },
-  { to: '/debts', label: 'Qarzlar', icon: <HandCoins size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/expenses', label: 'Chiqimlar', icon: <Wallet size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/salaries', label: 'Maoshlar', icon: <BadgeDollarSign size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/discounts', label: 'Chegirmalar', icon: <Percent size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/users', label: 'Xodimlar', icon: <Users size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/audit', label: 'Amallar tarixi', icon: <History size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-  { to: '/settings', label: 'Sozlamalar', icon: <Settings size={ICON} />, roles: ['OWNER', 'ADMIN'] },
-];
+export const NAV_ICONS: Record<string, React.ReactNode> = {
+  dashboard: <LayoutDashboard size={ICON} />,
+  approve: <ClipboardCheck size={ICON} />,
+  orders: <ReceiptText size={ICON} />,
+  stock: <Package size={ICON} />,
+  finance: <Coins size={ICON} />,
+  menu: <UtensilsCrossed size={ICON} />,
+  reports: <FileBarChart2 size={ICON} />,
+  debts: <HandCoins size={ICON} />,
+  expenses: <Wallet size={ICON} />,
+  settings: <Settings size={ICON} />,
+  tables: <Armchair size={ICON} />,
+  users: <Users size={ICON} />,
+  discounts: <Percent size={ICON} />,
+  salaries: <BadgeDollarSign size={ICON} />,
+  audit: <History size={ICON} />,
+};
 
 /**
  * The left rail.
@@ -66,12 +49,22 @@ const DESTINATIONS: Dest[] = [
  * head so the names are always one tap away rather than one hover away.
  *
  * Head, scrolling body and foot are three parts of a flex column. The foot
- * holds the two things that must never be unreachable — the connection state
- * and Chiqish — so they are siblings of the scroller, not inside it.
+ * holds Chiqish, which must never be unreachable, so it is a sibling of the
+ * scroller rather than inside it.
  *
- * Collapsing to icons trades the labels for ~112px of work area. The state is
- * persisted, so the operator sets it once for their panel rather than every
- * session.
+ * ## Why the destinations are split
+ *
+ * The rail once carried all fifteen. Measured at the real windowed viewport of
+ * 1236x623 that asked for 748px of a 461px box: five destinations sat below
+ * the fold and a sixth was sliced to an 11px sliver. Making it scroll — which
+ * it does — made them reachable, not visible; the operator still saw nine
+ * doors of fifteen at rest, with a thin scrollbar as the only clue.
+ *
+ * Collapsing does not help. It trades width for work area, 168px down to 68px,
+ * but it drops labels rather than rows: the content stays 748px either way.
+ *
+ * So the six setup destinations moved behind one `Sozlamalar` entry. See
+ * `lib/navigation.ts` for the slot budget and the split; a test holds it.
  */
 export function NavRail() {
   const navigate = useNavigate();
@@ -82,12 +75,25 @@ export function NavRail() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
-  const destinations = DESTINATIONS.filter((dest) =>
-    user ? dest.roles.includes(user.role) : false,
-  );
+  const destinations = railFor(user?.role as Role | undefined);
 
-  const isActive = (to: string) =>
-    to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
+  // The hub entry owns its children: standing on Xodimlar or Chegirmalar, the
+  // rail still has to say where the operator is, and those screens have no
+  // entry of their own to light up.
+  const hubRoutes = hubFor(user?.role as Role | undefined).map((dest) => dest.to);
+  const isActive = (to: string) => {
+    if (to === '/') return location.pathname === '/';
+    if (to === HUB_ROUTE) {
+      return (
+        location.pathname.startsWith(HUB_ROUTE) ||
+        hubRoutes.some((route) => location.pathname.startsWith(route))
+      );
+    }
+    return location.pathname.startsWith(to);
+  };
+
+  const online = status === 'online';
+  const connectionWord = online ? 'Ulangan' : 'Ulanmoqda…';
 
   return (
     // 68px collapsed, not 56: the rail scrolls, and a scrollbar takes 15px on
@@ -96,18 +102,44 @@ export function NavRail() {
     // platform and still hands 100px back to the work area.
     <div className={cn('flex shrink-0 flex-col gap-seam', collapsed ? 'w-[68px]' : 'w-[168px]')}>
       {/* The toggle lives in the head so it holds the same spot in both
-          states — collapsed, it is the only thing the head can fit. */}
+          states — collapsed, it is nearly the only thing the head can fit.
+          The connection state lives here too. It used to be a 36px strip of
+          its own above Chiqish; folding it into a line the head already draws
+          returns 38px to the scroller, which is the difference between nine
+          destinations and ten. `py-2` rather than `py-2.5` for the same
+          reason — the head is sized by the 48px toggle, so the four pixels
+          come off the padding without touching the touch target. */}
       <div
         className={cn(
           'flex shrink-0 items-center bg-field-raised',
-          collapsed ? 'justify-center px-0 py-1' : 'gap-2 px-3 py-2.5',
+          collapsed ? 'justify-center gap-1.5 px-0 py-1' : 'gap-2 px-3 py-2',
         )}
       >
-        {collapsed ? null : (
+        {collapsed ? (
+          /* A dot instead of the word — 68px does not fit "Ulanmoqda…".
+             Never colour alone: it carries the state as its accessible name. */
+          <span
+            role="status"
+            aria-label={connectionWord}
+            className={cn('h-2 w-2 shrink-0', online ? 'bg-settled' : 'bg-live')}
+          />
+        ) : (
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-semibold leading-tight">Chayxana</div>
-            <div className="truncate text-[12px] text-muted-foreground">
-              {user?.fullName ?? '—'}
+            {/* Name normally; the connection word in its place when the
+                socket is not up. Both together truncated to "Owner · Ulan…"
+                at 168px, and a clipped "Ulan…" cannot be told apart from
+                "Ulanmoqda…" — the one reading that has to be unambiguous.
+                Nothing is lost by yielding the line: ConnectionBanner already
+                states `reconnecting` and `auth-failed` across the full width,
+                so this only has to cover the first connect. */}
+            <div
+              className={cn(
+                'truncate text-[12px]',
+                online ? 'text-muted-foreground' : 'font-semibold text-foreground',
+              )}
+            >
+              {online ? user?.fullName ?? '—' : connectionWord}
             </div>
           </div>
         )}
@@ -134,7 +166,7 @@ export function NavRail() {
           <NavItem
             key={dest.to}
             label={dest.label}
-            icon={dest.icon}
+            icon={NAV_ICONS[dest.icon]}
             active={isActive(dest.to)}
             collapsed={collapsed}
             onClick={() => navigate(dest.to)}
@@ -146,22 +178,6 @@ export function NavRail() {
           no free space to absorb in a grid row sized to its content, which is
           why the two elements it was protecting were the two that got pushed
           off the bottom. */}
-      {collapsed ? (
-        /* A dot instead of the word — the strip is 56px wide and "Ulanmoqda…"
-           does not fit. Never colour alone: it carries the state as its
-           accessible name too. */
-        <div className="flex shrink-0 items-center justify-center bg-field-raised py-2">
-          <span
-            role="status"
-            aria-label={status === 'online' ? 'Ulangan' : 'Ulanmoqda'}
-            className={cn('h-2 w-2', status === 'online' ? 'bg-settled' : 'bg-live')}
-          />
-        </div>
-      ) : (
-        <div className="shrink-0 bg-field-raised px-3 py-2 text-[12px] text-muted-foreground">
-          {status === 'online' ? 'Ulangan' : 'Ulanmoqda…'}
-        </div>
-      )}
       <div className="shrink-0">
         <NavItem
           label="Chiqish"
