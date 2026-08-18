@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { Panel } from '@/components/layout/Screen';
@@ -98,7 +98,6 @@ export function OrderTicket({
   error?: string | null;
   onConfirm: (body: ConfirmBody) => void;
 }) {
-  const food = order.subtotalSnapshot ?? order.totalAmount;
   const [discount, setDiscount] = useState(0);
   const [legs, setLegs] = useState<Leg[]>([{ method: 'CASH', amount: order.totalAmount }]);
   // The seeded CASH leg is the balancing leg — it absorbs whatever the other
@@ -111,7 +110,60 @@ export function OrderTicket({
   /** On-screen pad, opt-in — see the toggle below the amount field. */
   const [showPad, setShowPad] = useState(false);
 
-  const due = useMemo(() => Math.max(food - discount, 0) + (order.serviceChargeSnapshot ?? 0), [food, discount, order.serviceChargeSnapshot]);
+  // Both bases come from the LINES, not from the snapshot columns. On a SENT
+  // order every snapshot is still null, so `subtotalSnapshot ?? totalAmount`
+  // silently resolved to food PLUS service. The server clamps the discount at
+  // the food subtotal alone (billing.service.ts), so on any order carrying a
+  // XIZMAT line — which is most of them — comping the bill showed TO'LANADI 0
+  // here while the server still wanted the service charge, and the operator
+  // got an English PAYMENT_MISMATCH.
+  const activeLines = useMemo(
+    () => (order.lines ?? []).filter((line) => !line.isCanceled),
+    [order.lines],
+  );
+  const foodBase = useMemo(
+    () =>
+      activeLines
+        .filter((line) => line.menuItemKind !== 'SERVICE')
+        .reduce((sum, line) => sum + line.price * line.quantity, 0),
+    [activeLines],
+  );
+  const serviceBase = useMemo(
+    () =>
+      activeLines
+        .filter((line) => line.menuItemKind === 'SERVICE')
+        .reduce((sum, line) => sum + line.price * line.quantity, 0),
+    [activeLines],
+  );
+
+  const due = useMemo(
+    () => Math.max(foodBase - discount, 0) + serviceBase,
+    [foodBase, discount, serviceBase],
+  );
+  // THE reported bug: "discount is not working". Keying a discount moved `due`
+  // while the legs kept their old amounts, so `balanced` went false and
+  // TASDIQLASH disabled itself with no message. From the operator's side the
+  // discount simply did nothing.
+  //
+  // Not `setLegAmount`: that helper returns early when handed the balancing
+  // index, so it would do nothing here. The balancing leg is recomputed
+  // directly from what the others already cover.
+  useEffect(() => {
+    setLegs((current) => {
+      const others = current.reduce(
+        (sum, leg, index) => (index === balancingIndex ? sum : sum + leg.amount),
+        0,
+      );
+      const target = Math.max(due - others, 0);
+      const balancing = current[balancingIndex];
+      // Bail out when nothing moves, or this setState re-runs on every render.
+      if (!balancing || balancing.amount === target) return current;
+      return current.map((leg, index) =>
+        index === balancingIndex ? { ...leg, amount: target } : leg,
+      );
+    });
+  }, [due, balancingIndex]);
+
   const paid = useMemo(() => legs.reduce((sum, leg) => sum + leg.amount, 0), [legs]);
   const balanced = paid === due;
   const hasDebtLeg = legs.some((leg) => leg.method === 'DEBT' && leg.amount > 0);
@@ -148,7 +200,7 @@ export function OrderTicket({
   const setEditingValue = (next: number) => {
     if (!editing) return;
     if (editing.kind === 'discount') {
-      setDiscount(Math.min(next, food));
+      setDiscount(Math.min(next, foodBase));
       return;
     }
     if (editing.kind !== 'payment') return;
@@ -345,6 +397,16 @@ export function OrderTicket({
           <span>Chegirma</span>
           <RowMoney>{formatMoney(discount)}</RowMoney>
         </Row>
+
+        {/* A discount never touches the service charge — that is the waiter's
+            pay and is meant to survive a comped meal. Without this row a fully
+            comped bill still shows an amount owed and looks like a bug. */}
+        {serviceBase > 0 ? (
+          <Row columns="1fr 130px">
+            <span className="text-muted-foreground">Xizmat haqi</span>
+            <RowMoney>{formatMoney(serviceBase)}</RowMoney>
+          </Row>
+        ) : null}
 
         {legs.map((leg, index) => (
           // The Row below renders as a <button> (it has an onClick), so the

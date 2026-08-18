@@ -9,6 +9,15 @@ function statusFilter(expectedFrom: OrderStatus | OrderStatus[]) {
 
 const LIST_INCLUDE = {
   lines: {
+    // `kind` only, deliberately NOT a full `include: { menuItem: true }`.
+    // Waiters read order payloads, and menuItem carries costPrice; widening
+    // this would put the cost of every dish on the wire for them. Without it
+    // `mapToDto` defaults every line on the LIST payload to FOOD, which is
+    // what made the confirm ticket clamp the discount against food plus
+    // service and dead-end a comped bill in PAYMENT_MISMATCH.
+    include: {
+      menuItem: { select: { kind: true } },
+    },
     orderBy: { createdAt: 'asc' as const },
   },
   waiter: {
