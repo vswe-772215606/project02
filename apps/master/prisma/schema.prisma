@@ -35,11 +35,6 @@ enum OrderStatus {
   CANCELED
 }
 
-enum DiscountType {
-  PERCENT
-  FIXED
-}
-
 enum PaymentMethod {
   CASH
   CARD
@@ -392,7 +387,10 @@ model OrderLine {
 model Discount {
   id          String       @id @default(cuid())
   name        String
-  type        DiscountType
+  /// Always a whole so'm amount. There was a `type` discriminator with a
+  /// PERCENT variant beside FIXED; the chayxana only ever gives a sum off,
+  /// so the discriminator was a choice the operator had to make on every
+  /// discount and could get wrong. See migration `drop_percent_discount`.
   value       Decimal
   isActive    Boolean      @default(true)
   createdById String

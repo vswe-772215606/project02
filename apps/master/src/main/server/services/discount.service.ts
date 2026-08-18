@@ -1,4 +1,4 @@
-import { DiscountType, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { discountRepo } from '../repositories/discount.repo';
 import { auditService } from './audit.service';
@@ -12,37 +12,28 @@ export const discountService = {
     return discountRepo.listActive();
   },
 
-  async validateAgainstCap(type: DiscountType, value: number | Prisma.Decimal) {
+  /** A discount is always a whole so'm amount, so there is one cap to check. */
+  async validateAgainstCap(value: number | Prisma.Decimal) {
     const numValue = typeof value === 'number' ? value : value.toNumber();
-    
-    if (type === 'PERCENT') {
-      const maxPercent = settingsService.getInt('max_discount_percent', 15);
-      if (numValue > maxPercent) {
-        throw Errors.DiscountCapExceeded(`Chegirma foizi maksimal miqdordan (${maxPercent}%) oshib ketdi`);
-      }
-    } else if (type === 'FIXED') {
-      const maxAmount = settingsService.getInt('max_discount_amount', 100000);
-      if (numValue > maxAmount) {
-        throw Errors.DiscountCapExceeded(`Chegirma summasi maksimal miqdordan (${maxAmount} UZS) oshib ketdi`);
-      }
+    const maxAmount = settingsService.getInt('max_discount_amount', 100000);
+    if (numValue > maxAmount) {
+      throw Errors.DiscountCapExceeded(`Chegirma summasi maksimal miqdordan (${maxAmount} UZS) oshib ketdi`);
     }
   },
 
   async create(
     input: {
       name: string;
-      type: DiscountType;
       value: number | string;
     },
     actorUserId: string,
   ) {
-    await this.validateAgainstCap(input.type, Number(input.value));
-    
+    await this.validateAgainstCap(Number(input.value));
+
     const discount = await discountRepo.create({
       name: input.name,
-      type: input.type,
       value: new Prisma.Decimal(input.value),
-      createdById: actorUserId,
+      createdBy: { connect: { id: actorUserId } },
     });
 
     await auditService.log({
@@ -60,7 +51,6 @@ export const discountService = {
     id: string,
     input: {
       name?: string;
-      type?: DiscountType;
       value?: number | string;
       isActive?: boolean;
     },
@@ -69,16 +59,12 @@ export const discountService = {
     const existing = await discountRepo.findById(id);
     if (!existing) throw Errors.NotFound('Discount');
 
-    if (input.type || input.value !== undefined) {
-      await this.validateAgainstCap(
-        input.type || existing.type,
-        input.value !== undefined ? Number(input.value) : existing.value
-      );
+    if (input.value !== undefined) {
+      await this.validateAgainstCap(Number(input.value));
     }
 
     const updated = await discountRepo.update(id, {
       name: input.name,
-      type: input.type,
       value: input.value !== undefined ? new Prisma.Decimal(input.value) : undefined,
       isActive: input.isActive,
     });

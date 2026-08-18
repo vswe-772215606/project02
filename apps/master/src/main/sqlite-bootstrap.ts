@@ -163,7 +163,6 @@ async function seedIfEmpty(logger: StartupLogger): Promise<void> {
 
   await prisma.setting.createMany({
     data: [
-      { key: 'max_discount_percent',  value: '15' },
       { key: 'max_discount_amount',   value: '100000' },
       { key: 'admin_printer_name',    value: 'POS-80' },
       { key: 'store_heading',         value: 'Chayxana' },

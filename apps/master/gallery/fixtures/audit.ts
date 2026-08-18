@@ -75,8 +75,8 @@ const otherRows: AuditLogItem[] = [
   row(hoursAgo(3), DILSHOD, 'DISCOUNT_APPLIED', 'Order', 'ord-closed-12', { orderNumber: orderNumberOf('ord-closed-12'), discountName: 'Chegirma', amount: '15000' }),
   row(hoursAgo(2), KAMOLA, 'SERVICE_CHARGE_WAIVED', 'Order', 'ord-closed-05', { orderNumber: orderNumberOf('ord-closed-05'), amount: '20000' }),
 
-  row(daysAgo(3, 11, 0), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-birthday', { name: "Tug'ilgan kun chegirmasi", type: 'PERCENT', value: 20 }),
-  row(daysAgo(3, 11, 5), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-15pct-vip', { name: 'VIP mijozlar uchun', type: 'PERCENT', value: 15 }),
+  row(daysAgo(3, 11, 0), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-birthday', { name: "Tug'ilgan kun chegirmasi", value: 20000 }),
+  row(daysAgo(3, 11, 5), DILSHOD, 'DISCOUNT_CREATED', 'Discount', 'disc-15pct-vip', { name: 'VIP mijozlar uchun', value: 15000 }),
   row(daysAgo(2, 16, 0), DILSHOD, 'DISCOUNT_EDITED', 'Discount', 'disc-20k', { name: "20 000 so'm chegirma", changes: 'value: 15000 -> 20000' }),
   row(daysAgo(9, 10, 0), DILSHOD, 'DISCOUNT_DELETED', 'Discount', 'disc-staff', { name: 'Xodimlar uchun chegirma' }),
 

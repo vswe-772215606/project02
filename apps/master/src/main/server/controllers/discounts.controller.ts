@@ -1,11 +1,9 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
-import { DiscountType } from '@prisma/client';
 import { discountService } from '../services/discount.service';
 
 const createSchema = z.object({
   name: z.string().min(1),
-  type: z.nativeEnum(DiscountType),
   value: z.union([z.number().int(), z.string().min(1)]),
 });
 

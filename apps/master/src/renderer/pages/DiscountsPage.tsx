@@ -54,7 +54,7 @@ export function DiscountsPage() {
   const showPanel = creating || !!selected;
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; type: string; value: number }) => discountsApi.create(data),
+    mutationFn: (data: { name: string; value: number }) => discountsApi.create(data),
     onSuccess: (discount) => {
       queryClient.invalidateQueries({ queryKey: ['discounts'] });
       setCreating(false);
@@ -84,7 +84,6 @@ export function DiscountsPage() {
     onError: (err: unknown) => toast.error(extractApiError(err)),
   });
 
-  const maxPercent = Number(settings.max_discount_percent || 100);
   const maxAmount = Number(settings.max_discount_amount || 1000000);
 
   return (
@@ -115,7 +114,6 @@ export function DiscountsPage() {
             <DiscountPanel
               key={selected?.id ?? 'new'}
               discount={selected}
-              maxPercent={maxPercent}
               maxAmount={maxAmount}
               isSaving={createMutation.isPending || updateMutation.isPending}
               onSave={(data) => (selected ? updateMutation.mutate({ id: selected.id, data }) : createMutation.mutate(data))}

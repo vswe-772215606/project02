@@ -116,7 +116,6 @@ async function main() {
   });
 
   for (const setting of [
-    { key: 'max_discount_percent', value: '15' },
     { key: 'max_discount_amount', value: '100000' },
     { key: 'daily_report_telegram_enabled', value: 'false' },
     { key: 'daily_report_telegram_time', value: '23:30' },
@@ -264,19 +263,17 @@ async function main() {
   }
 
   await prisma.discount.upsert({
-    where: { id: 'seed-discount-10pct' },
+    where: { id: 'seed-discount-10k' },
     create: {
-      id: 'seed-discount-10pct',
-      name: "10% chegirma",
-      type: 'PERCENT',
-      value: '10',
+      id: 'seed-discount-10k',
+      name: "10 000 so'm chegirma",
+      value: '10000',
       isActive: true,
       createdById: USER_IDS.owner,
     },
     update: {
-      name: "10% chegirma",
-      type: 'PERCENT',
-      value: '10',
+      name: "10 000 so'm chegirma",
+      value: '10000',
       isActive: true,
     },
   });
@@ -286,14 +283,12 @@ async function main() {
     create: {
       id: 'seed-discount-fixed-5k',
       name: "5 000 so'm chegirma",
-      type: 'FIXED',
       value: '5000',
       isActive: true,
       createdById: USER_IDS.owner,
     },
     update: {
       name: "5 000 so'm chegirma",
-      type: 'FIXED',
       value: '5000',
       isActive: true,
     },

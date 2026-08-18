@@ -1,7 +1,6 @@
 import { json, splitPath, type RouteHandler } from './util';
 
 export let settings: Record<string, string> = {
-  max_discount_percent: '15',
   max_discount_amount: '100000',
   daily_report_telegram_enabled: 'true',
   daily_report_telegram_time: '23:30',

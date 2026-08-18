@@ -88,21 +88,8 @@ export function SettingsPage() {
               <div className="flex flex-col gap-pad">
                 <SettingsGroup title="Moliyaviy sozlamalar" icon={Coins}>
                   <SettingField
-                    label="Maksimal chegirma foizi (%)"
-                    description="Adminlar ruxsat bera oladigan eng yuqori foizli chegirma"
-                    readonly={!isOwner}
-                  >
-                    <Input
-                      type="number"
-                      value={getVal('max_discount_percent')}
-                      onChange={(e) => handleChange('max_discount_percent', e.target.value)}
-                      disabled={!isOwner}
-                      numeric
-                    />
-                  </SettingField>
-                  <SettingField
                     label="Maksimal chegirma summasi (UZS)"
-                    description="Adminlar ruxsat bera oladigan eng yuqori belgilangan summa"
+                    description="Adminlar ruxsat bera oladigan eng yuqori chegirma"
                     readonly={!isOwner}
                   >
                     <Input

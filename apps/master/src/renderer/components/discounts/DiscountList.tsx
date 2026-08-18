@@ -29,7 +29,7 @@ export function DiscountList({
       {discounts.map((discount) => (
         <Row key={discount.id} columns={COLUMNS} selected={discount.id === selectedId} onClick={() => onSelect(discount)}>
           <span className="min-w-0 truncate">{discount.name}</span>
-          <RowMoney>{discount.type === 'PERCENT' ? `${discount.value}%` : formatMoney(discount.value)}</RowMoney>
+          <RowMoney>{formatMoney(discount.value)}</RowMoney>
           <span>
             <Chip tone={discount.isActive ? 'settled' : 'inert'}>{discount.isActive ? 'Faol' : 'Nofaol'}</Chip>
           </span>

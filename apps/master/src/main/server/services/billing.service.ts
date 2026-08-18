@@ -1,4 +1,4 @@
-import { DiscountType, MenuItemKind, Prisma } from '@prisma/client';
+import { MenuItemKind, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
 import { discountRepo } from '../repositories/discount.repo';
 import { settingsService } from './settings.service';
@@ -59,7 +59,7 @@ export const billingService = {
       // that still picks from the configured Discount table.
       discountId?: string | null;
       // Direct ad-hoc discount entered at confirm time, in so'm. Bypasses
-      // the percent/amount caps from settings; admin keys in whatever they
+      // the amount cap from settings; admin keys in whatever they
       // agreed with the customer. Capped only at the food subtotal so we
       // never end up with a negative net food line. If both discountId and
       // discountAmount are passed, discountAmount wins (it's the new model).
@@ -93,23 +93,13 @@ export const billingService = {
         throw Errors.Validation('Discount is not active');
       }
 
-      const discountValue = decimalToInt(discount.value);
-      if (discount.type === DiscountType.PERCENT) {
-        discountAmount = Math.round((subtotal * discountValue) / 100);
-      } else {
-        discountAmount = Math.min(discountValue, subtotal);
-      }
+      // A preset is a whole so'm amount. There used to be a PERCENT variant
+      // here too, computed against the food subtotal — dropped because the
+      // chayxana only ever takes a sum off a bill, and the discriminator was
+      // one more thing to get wrong on every discount.
+      discountAmount = Math.min(decimalToInt(discount.value), subtotal);
 
-      const maxPercent = settingsService.getInt('max_discount_percent');
       const maxAmount = settingsService.getInt('max_discount_amount');
-
-      if (discount.type === DiscountType.PERCENT) {
-        const percentCapAmount = Math.round((subtotal * maxPercent) / 100);
-        if (discountAmount > percentCapAmount) {
-          throw Errors.DiscountCapExceeded('Discount exceeds percent cap');
-        }
-      }
-
       if (discountAmount > maxAmount) {
         throw Errors.DiscountCapExceeded('Discount exceeds fixed amount cap');
       }
