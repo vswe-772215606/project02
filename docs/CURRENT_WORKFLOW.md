@@ -1,6 +1,6 @@
 # Chayxana POS — Current workflow (live state)
 
-**Snapshot:** 2026-08-15, branch `feat/remove-walkout` (continues `feat/c1-design-system`), clean tree.
+**Snapshot:** 2026-08-18, branch `fix/customer-feedback` (off `feat/remove-walkout`), clean tree.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -87,7 +87,7 @@ confirm-time print failures leave no trace in the DB.)
 
 ```
 subtotal      = Σ(qty × unitPriceSnapshot)  WHERE menuItem.kind = FOOD    ← service excluded
-discount      = ad-hoc so'm amount (caps BYPASSED)  |  preset Discount FK (caps enforced)
+discount      = ad-hoc so'm amount (cap BYPASSED)   |  preset Discount FK (cap enforced)
 netFood       = subtotal − discount
 serviceCharge = Σ(qty × unitPriceSnapshot)  WHERE menuItem.kind = SERVICE
 total         = netFood + serviceCharge
@@ -98,6 +98,17 @@ adds like any other item, quantity typically = number of customers. It is waiter
 from revenue and profit, and never discounted. `Order.serviceChargeSnapshot` /
 `serviceChargeWaived` survive for historical rows; `serviceChargeWaived` still zeroes the charge
 at confirm time but is otherwise vestigial.
+
+**A discount is always a whole so'm amount.** `Discount.type` and the `DiscountType` enum were
+dropped on 2026-08-18 (migration `20260818100000_drop_percent_discount`) — the chayxana only ever
+takes a sum off a bill, so the PERCENT/FIXED discriminator was a choice the operator could get
+wrong for no gain. Presets that WERE percents are deactivated, not converted: their `value` is a
+percentage and there is no order-independent conversion. `max_discount_percent` went with it;
+`max_discount_amount` remains and still applies to presets.
+
+⚠ **The confirm ticket does not use presets at all.** It sends `discountAmount`, a hand-typed so'm
+figure, and `discountId` has no caller in the renderer. So `Chegirmalar` is currently a list nothing
+reads — the open question is whether presets should reach the ticket or the page should go.
 
 Payments: `CASH | CARD | DEBT`, mixed allowed, must sum exactly. **There is no AVANS payment
 method** — avans is a repayable `Expense` on the outflow side, unrelated to this path.
@@ -420,9 +431,10 @@ the top, and again 2026-08-15 when that defect was fixed and deleted — see §1
    non-negative accumulator by 10 and adds a digit, floor-divides it on backspace, or multiplies
    it by 1000 — the current UI cannot type a negative amount. A negative is reachable only from
    curl/devtools; the server still accepts one.
-4. **Ad-hoc discount bypasses both settings caps.** Only the preset-`discountId` path enforces
-   `max_discount_percent` / `max_discount_amount` (`billing.service.ts:82-115`). A 100% discount is
-   a valid request from any ADMIN.
+4. **Ad-hoc discount bypasses the settings cap.** Only the preset-`discountId` path enforces
+   `max_discount_amount`. A 100% discount is a valid request from any ADMIN. Since the confirm
+   ticket only ever sends `discountAmount`, the cap is in practice enforced nowhere on the money
+   path — it guards preset *creation*, not spending.
 
 **Correctness / data integrity**
 
@@ -467,6 +479,30 @@ the top, and again 2026-08-15 when that defect was fixed and deleted — see §1
     non-integer, and `balanced = paid === due` (`:56`) is exact — there is no client-side tolerance
     that could hide a fractional amount behind a false green check. The server gap is real only
     for a non-UI caller (curl, a future client).
+
+13. **Menyu collapses the dish name to nothing.** The name column is the only flexible one; price,
+    stock and status hold fixed widths, so at the real viewport the list reads "Smoke p… 30 000" —
+    price survives, identity does not. Its header also breaks: the search field clips mid-
+    placeholder, a button wraps to a second row, and the page title falls out of alignment.
+    Reported from site; Task 5 of the active plan.
+14. **Sozlamalar scrolls sideways.** The settings pane overflows its width by 29px against the one
+    hard layout rule this product has, and the cost lands on the Yoqilgan/O'chirilgan toggles,
+    whose labels are cut. The two-column grid needs to collapse. Also on that screen: the
+    maximum-discount value renders unformatted as a bare `100000`, and the server address the
+    operator asked to see is still absent (Task 8).
+15. **No `+ Naqd` on the confirm ticket.** The tender row offers `+ Karta` and `+ Nasiya`; once the
+    cash leg is removed it cannot be restored. Recorded as deferred item I4 in the Task 2 review.
+
+**Not defects, but the reason the screens read as thin** — recorded here because they keep getting
+rediscovered, and because they are a redesign rather than a patch:
+
+- **The product has no data visualization at all.** No charting library, no SVG, no sparkline, no
+  trend, no comparison against yesterday. Every figure is a number in a box, so `SAVDO 1 673 000`
+  arrives with nothing to read it against.
+- **A fixed ~400px detail rail sits beside a mostly-empty list column on seven screens**
+  (Tasdiqlash, Buyurtmalar, Ombor, Stollar, Qarzlar, Chiqimlar, Menyu). On five of them that rail
+  holds one centred sentence in an otherwise blank box, while the work — the bill being settled —
+  is the thing being compressed.
 
 **Dead code worth knowing:** `MenuItem.unitCostSnapshot` and `OrderLine.consumptionSnapshot` are
 still declared and still never written or read (they pre-date the count model too);
@@ -535,8 +571,21 @@ warning about a deleted file reads as current until someone checks the path exis
 - Update it in the same commit that changes the behaviour it describes.
 - When a defect in §11 is fixed, delete the entry — don't mark it "done".
 - If §12 shrinks because someone corrects `decisions.md`, that's the goal.
-- There is no test runner in this repo. Verification is manual flows plus the `scripts/simulate-*.ts`
-  helpers, several of which have stale expectations — read before trusting a green run.
+- **Vitest exists as of 2026-08-18** (`pnpm test` in `apps/master`, 23 tests) but covers pure
+  modules only — `payment-legs`, `server-port`, `format`. Everything else is still manual flows
+  plus the `scripts/smoke-*.ts` family; several `simulate-*.ts` helpers carry stale expectations,
+  so read before trusting a green run.
+- **2026-08-18:** ten entries left §11 by being fixed, and are deleted per the rule above rather
+  than listed. For the record, since a cold reader may wonder what changed: money grouped with a
+  comma everywhere (`Intl.NumberFormat('uz-UZ')` does that, against the spec and against
+  `formatMoney`'s own docstring) and a second hand-rolled formatter on the payroll screens leaked
+  fractions; six nav destinations including **Chiqish** were unreachable behind an
+  `overflow-y: visible` rail; the tender keypad was clipped through its bottom row and the hardware
+  keyboard did nothing; `RowSub` overflowed its fixed-height `Row` at 36 call sites; `itemCount` was
+  never on the wire though three components render it; the Buyurtmalar CLOSED tab silently ignored
+  its date filter and loaded all history; and its tab counts read 0 above the rows they listed.
+  Found by clicking every screen in a browser against a live server — a method worth repeating, and
+  one the 1366×768 gallery frame cannot substitute for.
 - **2026-08-14:** former defect #3 ("walkout loss structurally always zero") is not in §11 because
   it was **deleted, not fixed** — the `WALKOUT` status itself was removed from the product on this
   date, so the scenario it described can no longer occur. This is different from the ordinary

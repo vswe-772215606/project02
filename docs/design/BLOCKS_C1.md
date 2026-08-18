@@ -6,6 +6,17 @@ mobile waiter apps are untouched.
 The terminal is a fixed touchscreen monitor, not a laptop. Everything below follows from
 that and from two constraints set by the owner: **no wasted space, no rounded corners.**
 
+> **Corrected 2026-08-18.** This document was written believing the till had *no mouse, no hover
+> and no keyboard*. Site photographs disproved half of it: **every till has a full physical
+> keyboard**, one with a numeric pad, and a mouse cursor is on screen. The panel is also **smaller
+> than the 1366×768** every measurement below was taken against, and the app runs windowed.
+>
+> What survives: touch is a primary input, targets and type floors are right, and **hover must
+> never be the only route to anything** — that rule was correct for a different reason than the one
+> given, and it stays. What does not: that a keyboard shortcut or a typed amount is unacceptable,
+> and that the on-screen numpad is the only way to enter a number. The numpad is actively harmful
+> on a panel this size; `AmountField` makes it opt-in. Verify at the real viewport, not at 1366.
+
 ## 1. The idea
 
 Nothing is outlined. Every element — a row, a tile, a key, a button — is a solid field, and
@@ -127,11 +138,12 @@ panels, and it is still never a coloured edge.
 |---|---|
 | `Seam` | The structural container: a grid on the seam colour with `gap: 2px`. Nest freely — one consistent grid results. |
 | `Field` `FieldLabel` `MoneyField` | Any content surface, its caps label, and the headline money surface. |
-| `Row` `RowHeader` `RowSub` `RowMoney` | One 48px line of data. A `Row` with `onClick` renders a real `<button>`, so it is keyboard reachable — which also means **never nest another control inside a clickable Row**; give the line its own grid cell for actions and leave the Row itself inert. |
+| `Row` `RowHeader` `RowSub` `RowMoney` | One 48px line of data. `RowSub` is **truncated to one line** — a Row is a fixed height, so anything that wraps escapes it. `Row` also sets `[&>*]:min-w-0` so its cells can shrink; without that a grid child sits at `min-width: auto` and `truncate` never fires. A `Row` with `onClick` renders a real `<button>`, so it is keyboard reachable — which also means **never nest another control inside a clickable Row**; give the line its own grid cell for actions and leave the Row itself inert. |
 | `Chip` | State label — `live` / `settled` / `owed` / `inert` / `selected`. |
 | `Tile` | Square target: floor table, menu item, category. |
-| `Keypad` `Key` | Fixed 3×66px numeric entry. Tender and quantity only, never navigation. |
-| `NavItem` | 48px navigation target; the active one inverts. |
+| `Keypad` `Key` | Fixed 3×66px numeric entry. Tender and quantity only, never navigation. The fourth row is `000` / `0` / backspace — `000` because every so'm amount is a round thousand. |
+| `AmountField` | A money amount that accepts **typing or tapping**, with `Keypad` as an opt-in companion. Integer so'm only. Prefer this over a bare `Keypad`: the pad alone left the hardware keyboard dead and, at 270px fixed, clipped its own bottom row on a short panel. |
+| `NavItem` | 48px navigation target; the active one inverts. `collapsed` drops the label to an `aria-label` and centres the icon. |
 | `ActionBar` | The footer action row. Pass the destructive button as `destructive` and the 16px moat is guaranteed structurally. |
 
 Retargeted shadcn primitives (`components/ui/`): `Button`, `Input`, `Badge`. Their variant

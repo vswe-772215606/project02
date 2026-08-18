@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Work in flight — read this first (2026-08-17)
+## Work in flight — read this first (2026-08-18)
 
 **Three branches are live at once.** Know which one you are on before changing anything.
 
@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|---|
 | `main` | v0.1.3 | Behind everything. Do not target. |
 | `feat/remove-walkout` | The build the **customer is running** | The base for hotfixes. |
-| `fix/customer-feedback` | **v0.1.4 hotfix — active work** | Tasks 1–2 of 12 done. |
+| `fix/customer-feedback` | **v0.1.4 hotfix — active work** | Tasks 1, 2, 4, 9 of 12 done, plus a browser audit's worth of fixes. |
 | `feat/web-platform` | Electron → web migration | Slice 1 of 5 done. `apps/master` deliberately does not build there. |
 
 **The active job** is `docs/superpowers/plans/2026-08-16-customer-feedback-hotfix.md` — twelve tasks
@@ -19,8 +19,22 @@ superpowers:subagent-driven-development, and **the ledger is the source of truth
 `.superpowers/sdd/2026-08-16-customer-feedback-hotfix/progress.md`. Trust that file and `git log`
 over any recollection — it records which tasks are complete, which findings were parked, and why.
 
-Task 3 is next and has not started (its first implementer was killed by a watchdog before making
-any change).
+⚠ **Tasks have been done out of order.** 1, 2, 4 and 9 are complete; 3, 5, 6, 7, 8, 10, 11, 12 are
+not. Read the ledger before assuming the numbering tells you what is left, and read its
+deviation notes before re-reading a task brief as gospel — Task 4 in particular was implemented
+differently from its written steps, on purpose, and the brief was not rewritten.
+
+**Task 3 (discount) is the next one and has not started.** Note that its subject changed underneath
+it on 2026-08-18: there is now only one kind of discount (a so'm amount — see below), so the
+percent branch that brief may assume is gone.
+
+**On 2026-08-18 the renderer was audited by clicking through every screen in a browser** against a
+live server with a generated trading day behind it. Eighteen findings; nine fixed the same day. The
+report, kept current, is at
+<https://claude.ai/code/artifact/9ea14fdd-c4f2-4718-ac31-2cf65dba073f>. What is still open there —
+Menyu truncating dish names, Sozlamalar overflowing horizontally, and the two architectural
+questions (the product has no data visualization at all; a fixed ~400px detail rail sits beside a
+mostly-empty list column on seven screens) — is recorded in the report and in the ledger.
 
 **These fixes land on the Electron branch on purpose.** The customer runs that build; the web branch
 has moved the same code into `packages/` and cannot reach them until slices 2–5 are done. Every fix
@@ -30,17 +44,31 @@ paths differ.
 ⚠ **A stale Prisma client fakes a 50th type error.** `node_modules/.prisma/client` is shared across
 branches and `feat/web-platform` generates it from a **PostgreSQL** schema. After any branch switch,
 run `pnpm exec prisma generate --schema prisma/schema.prisma` from `apps/master` before trusting a
-typecheck count. The floor here is **49**.
+typecheck count. The floor here is **48** (it was 49 until 2026-08-18, when a real
+`DiscountCreateInput` error in `discount.service.ts` was fixed while removing percent
+discounts).
 
 **The demo runs from its own worktree.** `../project02-demo` is pinned to `feat/web-platform` and
 runs as its own compose project (`docker compose -f compose.dev.yaml -p chayxana-demo up -d`), so
 the demo and this branch cannot break each other. Do not run the demo from this directory.
 
-⚠ **`docs/design/BLOCKS_C1.md`, `docs/design/RENDERER_REBUILD.md` and the hardware line in this file
-are still wrong** about the target hardware — they say "no mouse, no hover, no keyboard". Site
-photographs disprove it: every till has a full physical keyboard and a mouse, and the panel is
-smaller than the 1366×768 every C1 measurement was taken against. Task 12 of the active plan corrects
-all three. Until it lands, do not cite that constraint as a reason for anything.
+### The hardware, corrected
+
+Site photographs from 2026-08-16 disproved the constraint the whole design was argued from. What is
+actually true:
+
+- **Every till has a full physical keyboard**, at least one with a numeric pad, and a mouse cursor
+  is on screen. A typed amount, Enter to confirm, Escape to cancel — all fair game, and as of
+  2026-08-18 amounts on the confirm ticket accept typing.
+- **The panel is smaller than 1366×768** and the app runs windowed, so the usable viewport is
+  smaller still. A browser audit at 1236×623 found real clipping the 1366 gallery frame hides.
+- **Still true:** touch is a primary input, the operator stands, the reader is often an older
+  owner. The 48/56/66px targets and 12/13/17px type floors stay.
+- **Still a rule:** hover must never be the *only* route to anything. There is no tooltip in this
+  renderer and there should not be one.
+
+`docs/design/BLOCKS_C1.md` was corrected on 2026-08-18. `docs/design/RENDERER_REBUILD.md` still
+carries the old "no keyboard" line — distrust that file on hardware.
 
 ## Project
 
@@ -72,7 +100,7 @@ pnpm build:order
 pnpm typecheck       # tsc -b — the ONLY command that checks apps/master/src/main.
                      # `tsc -p tsconfig.json` there compiles nothing (solution-style
                      # config: files:[] + references), so a green run from it is vacuous.
-                     # Currently 49 errors, all in src/main, all pre-existing. (Was 51;
+                     # Currently 48 errors, all in src/main, all pre-existing. (Was 51;
                      # feat/remove-walkout dropped it deleting markWalkout out of
                      # orders.controller.ts and the walkout table out of pdf-report.ts.)
 pnpm lint            # noop in most packages today
@@ -96,7 +124,12 @@ pnpm build:printer                         # cross-build receipt.exe via mingw (
 pnpm build:printer:win                     # build receipt.exe via MSVC (Windows)
 ```
 
-Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`. There is no test runner configured — verification is via the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
+Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`.
+
+**Vitest is configured** (`pnpm test` / `pnpm test:watch` in `apps/master`) — added on
+`fix/customer-feedback`, currently **23 tests** over `payment-legs`, `server-port` and `format`.
+It covers pure modules only; there is no component or integration testing. Everything else is
+verified by the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
 
 ⚠ Not all scripts are live. Several `simulate-*.ts` scripts carry pre-v0.1.3 expectations and fail against current behaviour. **`scripts/smoke-cashflow-reversal.ts` is destructive and unguarded** — it runs in-process against whatever `DATABASE_URL` points at (not HTTP, despite sitting next to the HTTP-driven smokes above), and its cleanup step is `deleteMany({})` with no `where` clause against `Payment`, `Expense`, `Order`, `ExpenseCategory` and `User` — every row in each. Its header comment assumes a dedicated throwaway SQLite file; nothing in the code enforces that. Never run it against `dev.db` or the Docker harness's shared database. It also currently fails outright against the live schema, independent of this hazard — see `docs/CURRENT_WORKFLOW.md` §13. Read a script before trusting a green run.
 
@@ -200,7 +233,7 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 
 ## Domain rules to respect
 
-- **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `DRAFT|SENT → CANCELED` as the only terminal branch. There is no `WALKOUT` — an unpaid bill closes as nasiya, with the admin picking the debtor from the debt ledger on the confirm ticket (`OrderTicket.tsx`; see `docs/CURRENT_WORKFLOW.md` §2 "Closing an unpaid order"), or as a full discount. A 100% food discount still leaves the service charge owed — that is the waiter's pay and is meant to survive a comped meal; nasiya settles the remainder. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
+- **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `DRAFT|SENT → CANCELED` as the only terminal branch. There is no `WALKOUT` — an unpaid bill closes as nasiya, with the admin picking the debtor from the debt ledger on the confirm ticket (`OrderTicket.tsx`; see `docs/CURRENT_WORKFLOW.md` §2 "Closing an unpaid order"), or as a full discount. **A discount is always a whole so'm amount** — the PERCENT variant and the `Discount.type` column were dropped on 2026-08-18, so anything describing a percent discount is stale. A 100% food discount still leaves the service charge owed — that is the waiter's pay and is meant to survive a comped meal; nasiya settles the remainder. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
 - **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. It atomically validates payments, snapshots totals, inserts `Payment`/`Debt` rows, prints the bill (blocking — failure rolls the whole transaction back), and flips the order to `CLOSED`.
 - **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line atomically decrements the item's `stockCount` and is rejected (`OUT_OF_STOCK`) if the count is 0 or `NULL` ("sanoq kiritilmagan" — never counted). Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); every cancellation restores; nothing consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point. See `docs/CURRENT_WORKFLOW.md` §4 for the full count/cost model.
 - **Roles**: OWNER sees finance/profit; ADMIN does not. WAITER is mobile/order-app only. Don't expose owner-only data to lower roles. ⚠ This is currently enforced client-side only for profit — `/api/finance/daily` is ADMIN+OWNER and still returns `pnl.profit` on the wire.

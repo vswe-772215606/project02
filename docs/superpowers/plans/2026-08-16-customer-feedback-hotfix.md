@@ -2,6 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> ⚠ **Status, 2026-08-18 — read before any task brief below.**
+> Tasks **1, 2, 4 and 9 are complete** and were done **out of order**. The ledger at
+> `.superpowers/sdd/2026-08-16-customer-feedback-hotfix/progress.md` is the source of truth for
+> what is done and, importantly, for **where the implementation deliberately diverged from the
+> brief** — Task 4's numpad is off by default and its pad must not have its own scroller, neither
+> of which the written steps say.
+>
+> **Task 3's subject changed underneath it.** There is now exactly one kind of discount, a whole
+> so'm amount: `Discount.type` and the `DiscountType` enum were dropped, along with
+> `max_discount_percent`. Any percent handling this plan assumes is gone. Task 3 also now owns a
+> question it did not have: the confirm ticket sends `discountAmount` and never reads a preset, so
+> `Chegirmalar` is a list nothing consumes.
+>
+> A separate browser audit on 2026-08-18 fixed nine more defects outside this plan and left the
+> architectural work open — see the report linked from the ledger.
+
 **Goal:** Fix the nine defects a live chayxana operator reported on 2026-08-16, and ship them as v0.1.4 to the Windows machine they are running today.
 
 **Architecture:** Everything lands on `fix/customer-feedback`, cut from **`feat/remove-walkout`** — the branch the customer's build came from. `feat/web-platform` is NOT the target: it has moved this code into `packages/` and deliberately broken `apps/master`, so nothing there can reach the customer. The same fixes get re-applied onto the web branch afterwards, which is cheap because the files moved wholesale and the diffs are small.
@@ -100,7 +116,7 @@ Do this after any branch switch, before trusting a count.
 
 ---
 
-### Task 1: Make the window fit the screen and drop the menu bar
+### Task 1: Make the window fit the screen and drop the menu bar  ✅ DONE
 
 The single highest-value change in the plan. The window is created at 1280×800; the customer's work area is at most 1366×728. The bottom **28–64px of the page is not on the monitor**, and what lives there is the `Panel` foot — TASDIQLASH, SAQLA, KIRIMNI SAQLA. The operator has been confirming orders they cannot fully see.
 
@@ -199,7 +215,7 @@ Every machine on site has one."
 
 ---
 
-### Task 2: The payment balancing leg
+### Task 2: The payment balancing leg  ✅ DONE
 
 The operator's words: *"when other type is added automatically subtract the typed amount from total, it will be really handful."*
 
@@ -527,7 +543,7 @@ covering add, edit, clamp-at-zero, remove and a due change from a discount."
 
 ---
 
-### Task 3: Make the discount work
+### Task 3: Make the discount work  ⚠ NEXT — subject changed, see the status banner
 
 The operator's words: *"discount is not working."* It was reproduced exactly. They tap `Chegirma`, key `10000`, the row updates and `TO'LANADI` drops — and **TASDIQLASH goes dead** showing `Farq: -10,000`. `discount` and `legs` are independent state: `due` recomputes, `paid` does not, `balanced` goes false, and the button disables itself with no explanation.
 
@@ -692,7 +708,7 @@ had no column and no computation, and rendered as a blank in the ticket header."
 
 ---
 
-### Task 4: Stop clipping the keypad, and let the keyboard work
+### Task 4: Stop clipping the keypad, and let the keyboard work  ✅ DONE (35728ed — with deviations, see ledger)
 
 The operator's words: *"ux here is really annoying, enable keyboard, and if the keyboard is enable do not display numpad, there is no place in this small monoblock."*
 
@@ -1337,7 +1353,7 @@ lanIps is unranked and can contain VPN or Docker addresses."
 
 ---
 
-### Task 9: Remove the Boshqa toggle
+### Task 9: Remove the Boshqa toggle  ✅ DONE (9d6d2f6)
 
 The operator's words: *"the 'boshqa' toggle no need just display all with scroll."*
 
