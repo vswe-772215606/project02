@@ -9,7 +9,11 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/renderer/**/*.test.ts'],
+    // src/main is included so the updater's pure modules (the state machine and
+    // the Uzbek prompt composition) are covered. Only modules with no electron,
+    // electron-updater or Prisma imports are testable this way — everything
+    // impure lives in `updater-service.ts`, which has no test file.
+    include: ['src/renderer/**/*.test.ts', 'src/main/**/*.test.ts'],
     passWithNoTests: false,
   },
 });

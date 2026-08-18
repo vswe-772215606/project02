@@ -52,6 +52,16 @@ export type AppIdentity = {
   label: string;
   /** Default HTTP + Socket.io port. Two variants must never share one. */
   port: number;
+  /**
+   * electron-updater generic feed, or null for "this build does not update
+   * itself". Lives here, beside appName and port, because those three fields
+   * describe the same install: the feed serves an installer that writes to a
+   * specific database, and a feed that drifted from its database would upgrade
+   * a build onto the wrong data. A setting that can move the database is a
+   * setting that can lose it — same argument as the comment at the top of this
+   * file, applied to updates.
+   */
+  updateFeedUrl: string | null;
 };
 
 /**
@@ -68,6 +78,7 @@ export const IDENTITIES: Record<AppVariant, AppIdentity> = {
     appName: null,
     label: 'Chayxana Master',
     port: 4000,
+    updateFeedUrl: 'https://updates.mutallib.uz/chayxana/master/production/',
   },
   // Installs beside production and shares nothing with it: its own userData
   // (own database), its own appId, install directory, shortcut, port and
@@ -77,6 +88,14 @@ export const IDENTITIES: Record<AppVariant, AppIdentity> = {
     appName: 'chayxana-master-next',
     label: 'Chayxana Master (Yangi)',
     port: 4100,
+    // Deliberately null, and it must stay null while `metadata.name` is shared.
+    // electron-builder derives updaterCacheDirName from package.json `name`
+    // (identical for both variants) and OVERWRITES anything you put in
+    // `publish`, so both builds would share
+    // %LOCALAPPDATA%\@chayxanamaster-updater — one update-info.json, one cached
+    // installer, and a production update could land on the trial's database.
+    // `publish: null` in electron-builder.next.js is the other half of this.
+    updateFeedUrl: null,
   },
 };
 

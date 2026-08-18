@@ -9,13 +9,14 @@ import {
   Save,
   RefreshCw,
   AlertTriangle,
+  Download,
 } from 'lucide-react';
 
 import { settingsApi } from '../api/settings';
 import { useAuthStore } from '../stores/auth.store';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Screen } from '@/components/layout/Screen';
-import { Chip } from '@/components/blocks';
+import { Chip, Field, FieldLabel } from '@/components/blocks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,9 @@ import { SettingsGroup } from '@/components/settings/SettingsGroup';
 import { SettingField } from '@/components/settings/SettingField';
 import { SettingsToggle } from '@/components/settings/SettingsToggle';
 import { PrinterPicker } from '@/components/settings/PrinterPicker';
+import { formatDateTime } from '@/lib/format';
+import { updaterSettingsModel } from '@/lib/updater-view';
+import { useUpdaterStore } from '@/stores/updater.store';
 
 /**
  * Sozlamalar — rebuilt on Blocks C1.
@@ -84,8 +88,14 @@ export function SettingsPage() {
         <form onSubmit={handleSubmit} className="flex h-full min-h-0 flex-col gap-seam">
           <div className="min-h-0 flex-1 overflow-auto">
             <div className="grid grid-cols-1 gap-pad p-pad lg:grid-cols-2 lg:items-start">
-              {/* Left column — money, printing, the shop's own identity. */}
+              {/* Left column — the build itself, then money, printing and the
+                  shop's own identity. */}
               <div className="flex flex-col gap-pad">
+                {/* First, and above the fold on a 623px panel: this is the
+                    block somebody is told to read out over the phone, and the
+                    only place a check can be started by hand. */}
+                <UpdateSettingsGroup />
+
                 <SettingsGroup title="Moliyaviy sozlamalar" icon={Coins}>
                   <SettingField
                     label="Maksimal chegirma summasi (UZS)"
@@ -318,6 +328,70 @@ function PrinterSettingsGroup({
           ) : null}
         </div>
       </SettingField>
+    </SettingsGroup>
+  );
+}
+
+/**
+ * Dastur yangilanishi — the version the till is running, and the only manual
+ * route to a check or an install.
+ *
+ * It lives on this screen rather than in the hub because the hub is a set of
+ * six doors onto other screens and this is one group of two rows, and because
+ * `lib/navigation.ts` shows the rail is already at its ten-slot ceiling.
+ * Everything else in `Tizim sozlamalari` describes how this installation
+ * behaves; so does this.
+ *
+ * It renders as `Field`s rather than `SettingField`s: that primitive spends a
+ * 300px track on its label, which leaves roughly 190px for the control in this
+ * two-column layout — not enough for two buttons at the 48px touch floor, and
+ * this screen already has an open horizontal-overflow finding. A status block
+ * is not a labelled input anyway.
+ *
+ * Absent entirely when the build has no update feed — dev runs, the browser
+ * preview, the gallery, and the `next` variant.
+ */
+function UpdateSettingsGroup() {
+  const state = useUpdaterStore((s) => s.state);
+  const check = useUpdaterStore((s) => s.check);
+  const openPrompt = useUpdaterStore((s) => s.openPrompt);
+  const model = updaterSettingsModel(state);
+
+  if (!model.visible) return null;
+
+  return (
+    <SettingsGroup title="Dastur yangilanishi" icon={Download}>
+      <Field className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <FieldLabel>Joriy versiya</FieldLabel>
+          <div className="mt-1 text-[17px] font-semibold tabular-nums">{state.currentVersion}</div>
+        </div>
+        <Chip tone={model.stateTone}>{model.stateWord}</Chip>
+      </Field>
+
+      <Field className="flex flex-col gap-3">
+        {model.showLine ? <span className="text-[13px]">{model.line}</span> : null}
+        <div className="flex flex-wrap items-center gap-seam">
+          {model.canInstall ? (
+            <Button type="button" size="action" onClick={() => void openPrompt()}>
+              Hozir o'rnatish
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void check()}
+            disabled={model.checkDisabled}
+          >
+            <RefreshCw className={cn('h-4 w-4', state.status === 'checking' && 'animate-spin')} />
+            {model.checkLabel}
+          </Button>
+        </div>
+        <span className="text-[12px] text-muted-foreground">
+          Oxirgi tekshiruv:{' '}
+          {state.lastCheckedAt === null ? '—' : formatDateTime(new Date(state.lastCheckedAt))}
+        </span>
+      </Field>
     </SettingsGroup>
   );
 }

@@ -36,6 +36,20 @@ module.exports = {
   // Keeps the two installers apart in the artifacts list and in Downloads.
   artifactName: 'ChayxanaMaster-Yangi-Setup-${version}.${ext}',
 
+  // The production feed must never reach this build: it installs beside a live
+  // till and owns a different database. See src/main/app-identity.ts.
+  // Literal null, NOT []: getPublishConfigs short-circuits only on null; an
+  // empty array falls through to repository detection and can synthesise a
+  // github config. With null, neither latest.yml nor app-update.yml is produced
+  // and `next` simply has no updater.
+  //
+  // This is one of two independent guards. The other is
+  // `updateFeedUrl: null` in app-identity.ts, which makes the runtime return
+  // before it ever touches electron-updater. Both exist because
+  // `updaterCacheDirName` is derived from package.json `name` — identical for
+  // both variants, and `name` is the database path, so it cannot be changed.
+  publish: null,
+
   nsis: {
     ...base.nsis,
     shortcutName: 'Chayxana Master (Yangi)',

@@ -6,7 +6,9 @@
 ;    The rule is scoped to Private and Domain network profiles (i.e.
 ;    trusted LANs) and bound to the master executable path.
 ;
-; 2. Offers to wipe the existing database when an old install is detected.
+; 2. Offers to wipe the existing database when an old install is detected —
+;    but only on a hand-run install, never on an auto-update (see the
+;    ${isUpdated} guard below).
 ;    The chayxana-master Electron app stores its SQLite database under
 ;    %APPDATA%\Chayxana Master\data\master.sqlite via app.getPath('userData').
 ;    On a clean-slate redeploy the operator might want to start fresh
@@ -17,28 +19,41 @@
 
 !macro customInstall
   ; ─── Database cleanup prompt ────────────────────────────────────────
-  ; Only ask if a db file actually exists; first installs skip the prompt.
-  StrCpy $0 "$APPDATA\${PRODUCT_NAME}\data\master.sqlite"
-  ${If} ${FileExists} "$0"
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 \
-      "Eski Chayxana Master ma'lumotlar bazasi topildi:$\r$\n$0$\r$\n$\r$\nBarcha buyurtmalar, chiqimlar, mahsulot va retseptlar o'chirilsinmi?$\r$\n$\r$\nDIQQAT: bu amalni qaytarib bo'lmaydi. Tozalashdan oldin zaxira nusxa olishni tavsiya qilamiz." \
-      /SD IDNO \
-      IDNO skip_db_wipe
-    DetailPrint "Wiping existing master database at $0..."
-    Delete "$0"
-    Delete "$0-journal"
-    Delete "$0-shm"
-    Delete "$0-wal"
-    ; Also clear the file logs from previous sessions so support diagnostics
-    ; start fresh — these are large and confusing after a wipe.
-    Delete "$APPDATA\${PRODUCT_NAME}\*.log"
-    ${If} ${FileExists} "$APPDATA\${PRODUCT_NAME}\data\master.sqlite"
-      DetailPrint "Database wipe FAILED. App may be running."
-    ${Else}
-      DetailPrint "Database wiped successfully — app will seed a fresh schema on next launch."
+  ; NEVER on an auto-update. `${isUpdated}` is true whenever the installer was
+  ; launched with --updated, which is exactly what electron-updater does, so
+  ; without this guard an unattended update would stop dead on a MessageBox
+  ; offering to delete the chayxana's orders. The prompt is for a human
+  ; deliberately reinstalling, and only then.
+  ;
+  ; Note the path below has never matched a real install: the app's userData is
+  ; %APPDATA%\@chayxana\master (Electron derives it from package.json `name`,
+  ; not from PRODUCT_NAME), so this block has been dead code since it was
+  ; written. Do not "fix" the path without keeping this guard — correcting one
+  ; without the other is what turns dead code into a wiped till.
+  ${ifNot} ${isUpdated}
+    ; Only ask if a db file actually exists; first installs skip the prompt.
+    StrCpy $0 "$APPDATA\${PRODUCT_NAME}\data\master.sqlite"
+    ${If} ${FileExists} "$0"
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 \
+        "Eski Chayxana Master ma'lumotlar bazasi topildi:$\r$\n$0$\r$\n$\r$\nBarcha buyurtmalar, chiqimlar, mahsulot va retseptlar o'chirilsinmi?$\r$\n$\r$\nDIQQAT: bu amalni qaytarib bo'lmaydi. Tozalashdan oldin zaxira nusxa olishni tavsiya qilamiz." \
+        /SD IDNO \
+        IDNO skip_db_wipe
+      DetailPrint "Wiping existing master database at $0..."
+      Delete "$0"
+      Delete "$0-journal"
+      Delete "$0-shm"
+      Delete "$0-wal"
+      ; Also clear the file logs from previous sessions so support diagnostics
+      ; start fresh — these are large and confusing after a wipe.
+      Delete "$APPDATA\${PRODUCT_NAME}\*.log"
+      ${If} ${FileExists} "$APPDATA\${PRODUCT_NAME}\data\master.sqlite"
+        DetailPrint "Database wipe FAILED. App may be running."
+      ${Else}
+        DetailPrint "Database wiped successfully — app will seed a fresh schema on next launch."
+      ${EndIf}
+      skip_db_wipe:
     ${EndIf}
-    skip_db_wipe:
-  ${EndIf}
+  ${endIf}
 
   ; ─── Windows Firewall rule ──────────────────────────────────────────
   DetailPrint "Adding Windows Firewall rule for Chayxana Master (TCP 4000)..."

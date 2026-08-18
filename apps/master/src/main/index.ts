@@ -45,6 +45,14 @@ import {
   installConsoleCapture,
   logProcessContext,
 } from './startup-log';
+import { isUpdateTeardownDone, registerHttpServer } from './shutdown';
+import {
+  getUpdaterState,
+  initUpdater,
+  requestUpdaterCheck,
+  requestUpdaterInstall,
+} from './updater/updater-service';
+import { UPDATER_CHANNELS } from './updater/updater-contract';
 
 // Force Chromium's UI locale to ru-RU so `<input type="date">` renders
 // DD.MM.YYYY (matching Tashkent / Uzbek convention) instead of falling back
@@ -77,6 +85,15 @@ const rendererLogger = createFileLogger(
   app.getPath('userData'),
   'renderer.log',
   '--- renderer diagnostics session ---',
+);
+// Its own file: an update is the one thing that happens on this machine
+// without anybody watching, and when it goes wrong the question is always
+// "what did the updater do, in order" — which is unanswerable if it is
+// interleaved with startup noise.
+const updaterLogger = createFileLogger(
+  app.getPath('userData'),
+  'updater.log',
+  '--- updater session ---',
 );
 
 installConsoleCapture(runtimeLogger);
@@ -132,6 +149,10 @@ async function startServer(): Promise<void> {
     await settingsService.loadAll();
     const expressApp = createApp();
     const httpServer = createServer(expressApp);
+    // The only scope this handle is otherwise reachable from. `shutdown.ts`
+    // needs it to close the listener (and its keep-alive sockets) before NSIS
+    // replaces the binary.
+    registerHttpServer(httpServer);
     attachSocket(httpServer);
     
     // Start bot in background to not block UI/Server startup
@@ -393,6 +414,17 @@ if (singleInstanceLockAcquired) {
     }
   });
 
+  /**
+   * Updater bridge. Registered here at module scope rather than inside
+   * `initUpdater`, because `createWindow()` runs before the updater is
+   * initialised — a renderer that mounts fast would otherwise hit "no handler
+   * registered" instead of being told the updater is disabled. All three are
+   * safe to call before (and without) init.
+   */
+  ipcMain.handle(UPDATER_CHANNELS.getState, () => getUpdaterState());
+  ipcMain.handle(UPDATER_CHANNELS.checkNow, () => requestUpdaterCheck());
+  ipcMain.handle(UPDATER_CHANNELS.installNow, () => requestUpdaterInstall());
+
   app.on('second-instance', () => {
     focusExistingWindow();
   });
@@ -410,6 +442,18 @@ if (singleInstanceLockAcquired) {
           logger.info('recreating Electron window on activate');
           createWindow();
         }
+      });
+
+      // Deliberately not inside runStartup(): that chain's rejection handler
+      // shows an error box and calls app.quit(), so a DNS failure reaching the
+      // update feed would close the POS. Deliberately not before it either —
+      // runStartup is strictly sequential and anything ahead of it delays the
+      // Express listen and the first paint.
+      void initUpdater({
+        logger: updaterLogger,
+        getWindow: () => mainWindow,
+      }).catch((error) => {
+        updaterLogger.error(`[updater] init failed: ${formatErrorForLog(error)}`);
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -433,6 +477,13 @@ if (singleInstanceLockAcquired) {
   });
 
   app.on('will-quit', () => {
+    // The update path already tore everything down, in order and awaited.
+    // Repeating it here would fire mDNS unpublish against a Bonjour instance
+    // that is already gone.
+    if (isUpdateTeardownDone()) {
+      logger.info('will-quit after update teardown; nothing left to stop');
+      return;
+    }
     void stopAdvertising();
   });
 }

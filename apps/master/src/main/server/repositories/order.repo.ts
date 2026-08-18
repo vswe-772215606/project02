@@ -79,6 +79,19 @@ export const orderRepo = {
     });
   },
 
+  /**
+   * How many orders are open right now — the number the update prompt shows so
+   * the operator knows what a restart costs. Stated positively rather than as
+   * `notIn: [CLOSED, CANCELED]` (which is what `listActive` does) so a status
+   * added to the enum later cannot silently join the "open" bucket.
+   * `@@index([status])` exists (schema.prisma:342), so this is an indexed count.
+   */
+  async countOpen(tx?: Tx) {
+    return (tx ?? getPrisma()).order.count({
+      where: { status: { in: [OrderStatus.DRAFT, OrderStatus.SENT] } },
+    });
+  },
+
   async listByWaiter(waiterId: string, tx?: Tx) {
     return (tx ?? getPrisma()).order.findMany({
       where: { waiterId },

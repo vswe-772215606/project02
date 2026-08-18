@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { NavRail } from './NavRail';
 import { ConnectionBanner } from '@/components/feedback/ConnectionBanner';
+import { UpdateBanner, UpdateInstallingOverlay } from '@/components/feedback/UpdateNotice';
 
 /**
  * Top-level shell: nav rail left, everything else right.
@@ -22,8 +23,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           stretching it past the display. */}
       <div className="ml-seam flex min-h-0 min-w-0 flex-1 flex-col gap-seam">
         <ConnectionBanner />
+        {/* Under the connection bar on purpose: a lost server is the more
+            urgent of the two, and both are rare enough that they will almost
+            never be up together. Renders nothing in most states. */}
+        <UpdateBanner />
         {children}
       </div>
+      {/* Last, and outside the work column, so it covers the rail too. */}
+      <UpdateInstallingOverlay />
     </div>
   );
 }

@@ -10,7 +10,14 @@ name: Build Windows installer (master)
 #
 # The installer upgrades an existing install in place (perMachine, same appId)
 # and keeps the SQLite database (deleteAppDataOnUninstall: false). To update a
-# POS, download the .exe from the Release / artifact and run it on the machine.
+# POS by hand, download the .exe from the Release / artifact and run it there.
+#
+# Tag builds also feed the auto-updater. electron-updater reads `latest.yml`
+# first and fetches the .exe named inside it, so a Release is only usable as an
+# update if all three files are attached and agree with each other; the two
+# tag-only steps below enforce that. Nothing here publishes to the update
+# server — the maintainer downloads the Release and runs
+# `deploy/publish-update.sh` by hand. See docs/UPDATE_FEED_RUNBOOK.md.
 
 on:
   workflow_dispatch:
@@ -47,6 +54,22 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      # The worst failure this feed has is silent: `app.getVersion()` reads the
+      # packaged package.json, so a v0.1.4 tag carrying a 0.1.3 binary makes
+      # every till compare 0.1.3 against 0.1.3, decide it is up to date, and sit
+      # on the old build forever with no error anywhere. Fail here instead.
+      - name: Check package version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(node -p "require('./apps/master/package.json').version")
+          if [ "v$version" != "${{ github.ref_name }}" ]; then
+            echo "Tag ${{ github.ref_name }} does not match apps/master/package.json version $version."
+            echo "Bump the version in apps/master/package.json, commit it, delete the tag, then retag."
+            exit 1
+          fi
+          echo "apps/master version $version matches tag ${{ github.ref_name }}"
+
       - name: Install dependencies (master + workspace deps)
         run: pnpm install --filter "@chayxana/master..." --frozen-lockfile
 
@@ -59,6 +82,37 @@ jobs:
         shell: bash
         run: ls -la apps/master/dist
 
+      # electron-updater fetches latest.yml, then the file its `path:` names,
+      # then that file's .blockmap for a differential download. A Release that
+      # is missing any of the three, or whose latest.yml points at a filename
+      # that is not beside it, is a feed that 404s on the till after the
+      # operator has already agreed to restart. Catch it on the runner.
+      - name: Verify update feed artifacts (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        working-directory: apps/master/dist
+        run: |
+          if [ ! -f latest.yml ]; then
+            echo "latest.yml was not produced. Is build.publish still configured in apps/master/package.json?"
+            exit 1
+          fi
+          cat latest.yml
+          yml_version=$(sed -n 's/^version: *//p' latest.yml | tr -d '\r')
+          if [ "v$yml_version" != "${{ github.ref_name }}" ]; then
+            echo "latest.yml says version $yml_version but the tag is ${{ github.ref_name }}."
+            exit 1
+          fi
+          exe=$(sed -n 's/^path: *//p' latest.yml | tr -d '\r')
+          if [ ! -f "$exe" ]; then
+            echo "latest.yml names $exe, which is not in dist."
+            exit 1
+          fi
+          if [ ! -f "$exe.blockmap" ]; then
+            echo "$exe.blockmap is missing. Differential updates need it."
+            exit 1
+          fi
+          echo "feed artifacts OK: latest.yml -> $exe (+ blockmap)"
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,11 +124,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach installer to GitHub Release (tag builds only)
+      # latest.yml belongs on the Release, not only in the CI artifact: it is
+      # the file the update feed is built from, and `deploy/publish-update.sh`
+      # pulls all three from here with `gh release download`.
+      - name: Attach installer and update manifest to GitHub Release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             apps/master/dist/*.exe
             apps/master/dist/*.exe.blockmap
+            apps/master/dist/latest.yml
+          fail_on_unmatched_files: true
           generate_release_notes: true

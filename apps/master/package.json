@@ -87,12 +87,22 @@
         }
       ]
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.mutallib.uz/chayxana/master/production/",
+        "channel": "latest",
+        "useMultipleRangeRequest": false
+      }
+    ],
+    "artifactName": "ChayxanaMaster-Setup-${version}.${ext}",
     "portable": {
       "artifactName": "ChayxanaMaster-portable.exe"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
+      "packElevateHelper": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
@@ -119,6 +129,7 @@
     "clsx": "^2.1.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
     "express": "^4.19.0",
     "lucide-react": "^1.14.0",

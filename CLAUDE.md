@@ -86,6 +86,9 @@ Source-of-truth docs (read these before non-trivial changes):
 - `docs/agent-plans/00-shared/conventions.md` — code style and naming. Current.
 - `docs/FINANCE_IMPLEMENTATION_SPEC.md` — finance module spec. Current.
 - `docs/PROJECT_TECHNICAL_OVERVIEW.md` — system overview; partly historical, verify before relying.
+- **`docs/UPDATE_FEED_RUNBOOK.md` — read before cutting a release.** The master app auto-updates
+  from an HTTPS feed on avtobron. Covers the one-time server setup, how to cut and publish a
+  release, how to roll one back, and how to test the feed without touching the server.
 
 ## Commands
 
@@ -127,7 +130,11 @@ pnpm build:printer:win                     # build receipt.exe via MSVC (Windows
 Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`.
 
 **Vitest is configured** (`pnpm test` / `pnpm test:watch` in `apps/master`) — added on
-`fix/customer-feedback`, currently **23 tests** over `payment-legs`, `server-port` and `format`.
+`fix/customer-feedback`, currently **82 tests over 7 files**: `format`, `payment-legs`,
+`server-port`, `navigation`, `updater-view` in the renderer, plus `updater-state` and
+`updater-messages` in the main process. `vitest.config.ts` includes
+`src/main/**/*.test.ts` as well as `src/renderer/**/*.test.ts` — added on `feat/auto-update`,
+which put the first testable pure logic in `src/main`.
 It covers pure modules only; there is no component or integration testing. Everything else is
 verified by the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
 
@@ -172,6 +179,22 @@ build `production`.
 
 Waiter clients default to `:4000`, so a `next` master needs the order app and mobile pointed at
 `:4100` by hand.
+
+### Shipping a release
+
+The master app auto-updates. `docs/UPDATE_FEED_RUNBOOK.md` is the authority; the short version:
+
+1. Bump `version` in `apps/master/package.json` and merge it. A tag whose binary carries the
+   old version updates nothing and reports no error — CI fails the tag build rather than allow it.
+2. `git tag v0.1.4 && git push origin v0.1.4`. `.github/workflows/build-windows.yml` builds on
+   Windows and attaches `.exe`, `.exe.blockmap` and `latest.yml` to the GitHub Release.
+3. `deploy/publish-update.sh 0.1.4` — a person runs this, by hand, to push the Release to
+   `https://updates.mutallib.uz/chayxana/master/production/` on avtobron. Nothing in CI touches
+   the server: the electron-updater `generic` provider is download-only.
+
+Rollback is one command against the feed (runbook §4) and stops the spread; it does not revert a
+till that already updated. The `next` variant deliberately has **no** feed — see
+`src/main/app-identity.ts` and `electron-builder.next.js` before changing anything near it.
 
 ### Headless dev server (Docker)
 
