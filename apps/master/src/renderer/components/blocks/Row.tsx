@@ -60,6 +60,11 @@ export const Row = React.forwardRef<HTMLElement, RowProps>(
   ({ className, columns, selected = false, inert = false, style, onClick, ...props }, ref) => {
     const classes = cn(
       'grid w-full items-center gap-2.5 px-pad text-left text-[14.5px] h-row',
+      // Every cell must be allowed to shrink. A grid child defaults to
+      // `min-width: auto`, so a `1fr` track is floored at its content width —
+      // which means a long cell pushes the row wider instead of truncating,
+      // and `truncate` on anything inside it never fires.
+      '[&>*]:min-w-0',
       selected
         ? 'bg-selected text-selected-foreground'
         : inert
@@ -94,14 +99,26 @@ export const Row = React.forwardRef<HTMLElement, RowProps>(
 );
 Row.displayName = 'Row';
 
-/** Secondary line inside a Row cell — waiter name, timestamp, note. */
+/**
+ * Secondary line inside a Row cell — waiter name, timestamp, note.
+ *
+ * Held to a single truncated line on purpose. A Row is a fixed 48px box, so
+ * anything that wraps inside one escapes it: the Kassa panel's "Ketgan"
+ * sub-line wrapped to three lines, 60px of text in a 48px row, and spilled
+ * 32px over whatever sat beneath. With 36 call sites the failure was not
+ * specific to that panel — any long note in any narrow column did it.
+ *
+ * `min-w-0` is the half that is easy to miss: a grid or flex child defaults to
+ * `min-width: auto`, so it refuses to shrink below its content and `truncate`
+ * never gets the chance to fire.
+ */
 export const RowSub = React.forwardRef<
   HTMLSpanElement,
   React.HTMLAttributes<HTMLSpanElement>
 >(({ className, ...props }, ref) => (
   <span
     ref={ref}
-    className={cn('block text-[13px] text-muted-foreground', className)}
+    className={cn('block min-w-0 truncate text-[13px] text-muted-foreground', className)}
     {...props}
   />
 ));
