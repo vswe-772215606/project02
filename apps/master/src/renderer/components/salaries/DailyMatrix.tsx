@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ServiceChargeMatrix } from '@/api/finance';
 import { Seam } from '@/components/blocks';
 import { Button } from '@/components/ui/button';
+import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const UZ_WEEKDAY_SHORT = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'] as const;
@@ -18,11 +19,11 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${dd}`;
 }
 
-/** Same zero-as-dash convention as the summary table — kept verbatim. */
+/** Same zero-as-dash convention as the summary table. Grouping delegates to the shared formatter. */
 function fmtMoney(value: string | number): string {
   const n = typeof value === 'string' ? Number(value) : value;
   if (!Number.isFinite(n) || n === 0) return '—';
-  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
+  return formatMoney(n);
 }
 
 /**

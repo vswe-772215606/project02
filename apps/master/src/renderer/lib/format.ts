@@ -5,10 +5,16 @@
 
 const TASHKENT_TZ = 'Asia/Tashkent';
 
-const moneyFormatter = new Intl.NumberFormat('uz-UZ', {
-  maximumFractionDigits: 0,
-  useGrouping: true,
-});
+/**
+ * Thousands separator for money. A non-breaking space, so a figure never
+ * wraps across two lines in a narrow column.
+ *
+ * ⚠ Screen only. The printer path has its own formatter
+ * (`src/main/server/lib/format.ts`) which must stay on an ASCII space —
+ * NBSP is 0xC2 0xA0 in UTF-8 and renders as a Chinese glyph on a thermal
+ * printer whose default code page is GB18030.
+ */
+const MONEY_GROUP_SEPARATOR = ' ';
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   timeZone: TASHKENT_TZ,
@@ -41,12 +47,28 @@ function toDate(value: string | Date | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value);
 }
 
-/** "1 234 567" — uz-UZ grouping, no decimal places, no UZS suffix. Null → "—". */
+/**
+ * "1 234 567" — space-grouped, no decimal places, no UZS suffix. Null → "—".
+ *
+ * Grouping is applied explicitly rather than by `Intl.NumberFormat`. The
+ * `uz-UZ` locale resolves to a **comma** separator in Chromium's CLDR data
+ * (`uz-Cyrl-UZ` and `ru-RU` both give a space, `uz-UZ` does not), so every
+ * money value in the admin UI rendered as "1,673,000" against a rule — and
+ * against this function's own documented contract — that says otherwise. A
+ * comma is a decimal separator in local convention, which made every figure
+ * on the till ambiguous to the person paying it.
+ *
+ * Doing the grouping here also pins the behaviour: it cannot drift again when
+ * a Chrome update ships new CLDR data.
+ */
 export function formatMoney(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return '—';
-  return moneyFormatter.format(n);
+  const rounded = Math.round(n);
+  const sign = rounded < 0 ? '-' : '';
+  const digits = Math.abs(rounded).toFixed(0);
+  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, MONEY_GROUP_SEPARATOR);
 }
 
 /** "15.05.2026" in Asia/Tashkent. Null → "—". */

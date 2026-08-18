@@ -1,15 +1,16 @@
 import type { ServiceChargeMatrix } from '@/api/finance';
 import { Row, RowHeader, RowMoney, Seam } from '@/components/blocks';
+import { formatMoney } from '@/lib/format';
 
 const COLUMNS = '1fr 170px 200px 220px';
 
 /** Same zero-as-dash convention as the original page: a day with no service
- * charge reads as "—", not "0". Kept verbatim — this is a display choice,
- * not a math change. */
+ * charge reads as "—", not "0". Grouping delegates to the shared
+ * formatter; only the zero convention is local. */
 function fmtMoney(value: string | number): string {
   const n = typeof value === 'string' ? Number(value) : value;
   if (!Number.isFinite(n) || n === 0) return '—';
-  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
+  return formatMoney(n);
 }
 
 /**

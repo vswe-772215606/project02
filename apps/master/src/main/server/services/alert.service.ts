@@ -1,3 +1,4 @@
+import { formatUZS } from '../lib/format';
 import { settingsService } from './settings.service';
 
 /**
@@ -21,9 +22,10 @@ import { settingsService } from './settings.service';
  *    Telegram delivery itself no-ops safely when the bot isn't configured.
  */
 
-function money(value: string | number): string {
-  return new Intl.NumberFormat('uz-UZ', { maximumFractionDigits: 0 }).format(Number(value));
-}
+// Shared with the receipt path. `Intl.NumberFormat('uz-UZ')` used to be called
+// here directly, which grouped with commas — so every owner alert disagreed
+// with the bill the same money was printed on.
+const money = formatUZS;
 
 /** Boolean setting that defaults to `fallback` when the key is missing/blank. */
 function boolSetting(key: string, fallback: boolean): boolean {

@@ -7,6 +7,7 @@ import { Screen } from '@/components/layout/Screen';
 import { Field } from '@/components/blocks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatMoney } from '@/lib/format';
 import { WaiterSummaryTable } from '@/components/salaries/WaiterSummaryTable';
 import { DailyMatrix } from '@/components/salaries/DailyMatrix';
 
@@ -58,11 +59,11 @@ const PRESETS: Array<{ key: PresetKey; label: string }> = [
   { key: 'last-30', label: 'Oxirgi 30 kun' },
 ];
 
-/** Same zero-as-dash convention as the tables below — kept verbatim. */
+/** Same zero-as-dash convention as the tables below. Grouping delegates to the shared formatter. */
 function fmtMoney(value: string | number): string {
   const n = typeof value === 'string' ? Number(value) : value;
   if (!Number.isFinite(n) || n === 0) return '—';
-  return n.toLocaleString('uz-UZ').replace(/,/g, ' ');
+  return formatMoney(n);
 }
 
 /**
