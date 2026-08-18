@@ -89,7 +89,6 @@ export function SettingsPage() {
                 <SettingsGroup title="Moliyaviy sozlamalar" icon={Coins}>
                   <SettingField
                     label="Maksimal chegirma summasi (UZS)"
-                    description="Adminlar ruxsat bera oladigan eng yuqori chegirma"
                     readonly={!isOwner}
                   >
                     <Input
@@ -105,21 +104,21 @@ export function SettingsPage() {
                 <PrinterSettingsGroup getVal={getVal} onChange={handleChange} />
 
                 <SettingsGroup title="Do'kon ma'lumotlari" icon={Store}>
-                  <SettingField label="Muassasa nomi" description="Chekning yuqori qismida chiqadigan nom">
+                  <SettingField label="Muassasa nomi">
                     <Input
                       type="text"
                       value={getVal('store_heading')}
                       onChange={(e) => handleChange('store_heading', e.target.value)}
                     />
                   </SettingField>
-                  <SettingField label="Telefon raqami" description="Mijozlar uchun aloqa raqami">
+                  <SettingField label="Telefon raqami">
                     <Input
                       type="text"
                       value={getVal('store_phone')}
                       onChange={(e) => handleChange('store_phone', e.target.value)}
                     />
                   </SettingField>
-                  <SettingField label="Manzil" description="Chekning yuqori qismida chiqadigan manzil">
+                  <SettingField label="Manzil">
                     <Input
                       type="text"
                       value={getVal('store_address')}
@@ -134,7 +133,6 @@ export function SettingsPage() {
                 <SettingsGroup title="Telegram bot sozlamalari" icon={Send}>
                   <SettingField
                     label="Kunlik hisobot (Telegram)"
-                    description="Har kuni belgilangan vaqtda ownerga hisobot yuborish"
                     readonly={!isOwner}
                   >
                     <SettingsToggle
@@ -145,7 +143,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Bot token"
-                    description="Telegram @BotFather orqali olingan token"
                     readonly={!isOwner}
                   >
                     <Input
@@ -158,7 +155,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Owner Chat ID"
-                    description="Hisobot yuboriladigan foydalanuvchi ID raqami"
                     readonly={!isOwner}
                   >
                     <Input
@@ -171,7 +167,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Hisobot vaqti"
-                    description="Har kuni qaysi vaqtda hisobot yuborilsin (HH:mm)"
                     readonly={!isOwner}
                   >
                     <Input
@@ -187,7 +182,6 @@ export function SettingsPage() {
                 <SettingsGroup title="Tezkor ogohlantirishlar (Telegram)" icon={AlertCircle}>
                   <SettingField
                     label="Ogohlantirishlar"
-                    description="Muhim hodisalarda darhol xabar: katta chegirma/chiqim, nasiya sotuv, qarz yo'qotish, mahsulot tugashi"
                     readonly={!isOwner}
                   >
                     <SettingsToggle
@@ -198,7 +192,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Katta chegirma chegarasi (so'm)"
-                    description="Shu summadan katta chegirma qo'llanilsa xabar keladi"
                     readonly={!isOwner}
                   >
                     <Input
@@ -214,7 +207,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Katta chiqim chegarasi (so'm)"
-                    description="Shu summadan katta chiqim kiritilsa xabar keladi"
                     readonly={!isOwner}
                   >
                     <Input
@@ -230,7 +222,6 @@ export function SettingsPage() {
                   </SettingField>
                   <SettingField
                     label="Mahsulot tugashi haqida xabar"
-                    description="Sotuvda biror mahsulot zaxirasi 0 ga tushsa xabar"
                     readonly={!isOwner}
                   >
                     <SettingsToggle
@@ -305,7 +296,7 @@ function PrinterSettingsGroup({
         </Button>
       }
     >
-      <SettingField label="Kassa printeri nomi" description="Hisob cheki chiqaradigan printer">
+      <SettingField label="Kassa printeri nomi">
         <div className="flex flex-col gap-2">
           <PrinterPicker
             value={adminPrinter}

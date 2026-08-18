@@ -8,10 +8,9 @@ import { cn } from '@/lib/utils';
 type ProfitProps = {
   label: string;
   value: string;
-  hint: string;
 };
 
-function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { prominent?: boolean }) {
+function ProfitHeadline({ label, value, prominent }: ProfitProps & { prominent?: boolean }) {
   const n = Number(value);
   const isProfit = n > 0;
   const isLoss = n < 0;
@@ -41,7 +40,6 @@ function ProfitHeadline({ label, value, hint, prominent }: ProfitProps & { promi
       >
         {formatMoney(value)}
       </div>
-      <div className="text-[13px] text-muted-foreground">{hint}</div>
     </div>
   );
 }
@@ -59,13 +57,11 @@ export function ResultsSection({ report }: { report: DailyReport }) {
         <ProfitHeadline
           label="Sof foyda"
           value={pnl.profit}
-          hint="Biznes foydasi: sotuv − tan narxi − chiqim. Xaridlar faqat sotilganda hisobga olinadi."
           prominent
         />
         <ProfitHeadline
           label="Kassa o'zgarishi"
           value={report.results.cashflowBasedNet}
-          hint="Bugun kassada real ko'paygan/kamaygan pul: kelgan − ketgan. Foydadan farq qiladi."
         />
       </div>
 

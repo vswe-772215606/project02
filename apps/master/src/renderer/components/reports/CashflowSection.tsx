@@ -49,7 +49,6 @@ export function CashflowSection({ report }: { report: DailyReport }) {
             label="Bekor qilingan (shu kun)"
             value={formatMoney(report.checks.expenses.sameDayReversalAmount)}
             tone={Number(report.checks.expenses.sameDayReversalAmount) > 0 ? 'warning' : 'muted'}
-            hint="Faqat shu kuni kiritilib, shu kuni bekor qilingan chiqimlar kassadan ayriladi"
           />
           <Row label="Jami ketgan pul" value={formatMoney(report.cashflow.cashOut)} bold />
         </div>

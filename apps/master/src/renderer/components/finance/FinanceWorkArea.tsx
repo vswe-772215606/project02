@@ -21,11 +21,10 @@ const REPAY_CHIP: Record<FinanceDaily['operatingExpenses'][number]['repayStatus'
   WRITTEN_OFF: { tone: 'owed', label: "Yo'qotildi" },
 };
 
-function SectionHead({ title, hint }: { title: string; hint?: string }) {
+function SectionHead({ title }: { title: string }) {
   return (
     <Field tone="raised" className="py-2">
       <FieldLabel>{title}</FieldLabel>
-      {hint ? <div className="mt-0.5 text-[13px] text-muted-foreground">{hint}</div> : null}
     </Field>
   );
 }
@@ -92,10 +91,7 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
       </Seam>
 
       {/* ─── Sotilgan ovqatlar ─────────────────────────────────────── */}
-      <SectionHead
-        title="Sotilgan ovqatlar"
-        hint="Har bir taom o'z narxida — Sotuv (yalpi) xizmat haqi bilan va chegirmagacha, yuqoridagi Sotuv (sof)dan farq qiladi"
-      />
+      <SectionHead title="Sotilgan ovqatlar" />
       <RowHeader columns={MEAL_COLUMNS}>
         <span>Ovqat / Kategoriya</span>
         <span className="text-right">Soni</span>
@@ -140,10 +136,7 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
       {/* ─── Xaridlar ──────────────────────────────────────────────── */}
       {data.ingredientPurchases.length > 0 ? (
         <>
-          <SectionHead
-            title="Xaridlar"
-            hint="Bu summa omborga kirdi. Foydaga sotilgandan keyin tan narxi sifatida kiradi."
-          />
+          <SectionHead title="Xaridlar" />
           <RowHeader columns={PURCHASE_COLUMNS}>
             <span>Vaqti</span>
             <span>Mahsulot</span>
@@ -175,7 +168,7 @@ export function FinanceWorkArea({ data, isLoading }: { data: FinanceDaily | unde
       {/* ─── Chiqimlar ─────────────────────────────────────────────── */}
       {data.operatingExpenses.length > 0 ? (
         <>
-          <SectionHead title="Chiqimlar (xaridlarsiz)" hint="Ijara, maosh, kommunal va h.k." />
+          <SectionHead title="Chiqimlar (xaridlarsiz)" />
           <RowHeader columns={EXPENSE_COLUMNS}>
             <span>Sabab</span>
             <span>Holat</span>
