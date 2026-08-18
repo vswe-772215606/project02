@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Info } from 'lucide-react';
 
 import { discountsApi, type Discount } from '@/api/discounts';
 import { settingsApi } from '@/api/settings';
@@ -131,15 +130,6 @@ export function DiscountsPage() {
         }
       >
         <Seam className="content-start">
-          <div className="flex items-start gap-2.5 bg-field-raised px-pad py-2.5 text-[13px] text-muted-foreground">
-            <Info className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Bu chegirmalar buyurtmani tasdiqlashda hozircha avtomatik qo'llanilmaydi — chegirma summasi
-              tasdiqlash oynasida qo'lda, so'm miqdorida kiritiladi. Shu sababli bu yerdagi foiz yoki summa
-              chegarasi amalda hali ishlamaydi.
-            </span>
-          </div>
-
           <DiscountList
             discounts={visibleDiscounts}
             selectedId={creating ? null : selectedId}
