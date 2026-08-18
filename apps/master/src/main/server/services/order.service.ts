@@ -58,10 +58,20 @@ function mapToDto(order: any) {
       .reduce((sum: number, l: any) => sum + decimalToInt(l.unitPriceSnapshot) * l.quantity, 0);
   }
 
+  // Active line count. Three components render `{order.itemCount} pozitsiya`
+  // — the queue row, the confirm ticket header and the table panel — and the
+  // field was never on the wire, so all three printed " · pozitsiya" with a
+  // blank where the number goes. The renderer's Order type declares it as
+  // required, which is why TypeScript never caught it.
+  const itemCount = Array.isArray(order.lines)
+    ? order.lines.filter((line: any) => !line.isCanceled).length
+    : 0;
+
   return {
     ...order,
     orderNumber: order.id.slice(-6).toUpperCase(),
     tableName: order.table?.name ?? null,
+    itemCount,
     totalAmount,
     subtotalSnapshot: order.subtotalSnapshot ? decimalToInt(order.subtotalSnapshot) : null,
     discountAmountSnapshot: order.discountAmountSnapshot ? decimalToInt(order.discountAmountSnapshot) : null,
@@ -144,6 +154,15 @@ export const orderService = {
     let orders;
     if (input.requestingUser.role === UserRole.WAITER || input.mine) {
       orders = await orderRepo.listByWaiter(input.requestingUser.id);
+    } else if (input.status && input.date) {
+      // Both filters apply together. This branch did not exist: `status` was
+      // tested before `date` and won, so a request for one day's closed
+      // orders silently returned every closed order ever recorded —
+      // `date=1999-01-01` and `date=today` gave byte-identical results. The
+      // Buyurtmalar history tab is that request, so it was labelled as a day
+      // and was in fact unbounded, unpaginated history.
+      const { start, end } = localDayRange(input.date);
+      orders = await orderRepo.listByStatusAndDateRange(input.status, start, end);
     } else if (input.status) {
       orders = await orderRepo.listByStatus(input.status);
     } else if (input.date) {

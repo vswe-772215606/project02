@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 
 import { ordersApi, type Order } from '@/api/orders';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { tashkentDayKey } from '@/lib/format';
 import { Screen } from '@/components/layout/Screen';
 import { Button } from '@/components/ui/button';
 import { OrderList } from '@/components/orders/OrderList';
@@ -19,19 +20,15 @@ const TAB_LABELS: Record<HistoryStatus, string> = {
   CANCELED: 'Bekor qilingan',
 };
 
-function localDateString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
-}
-
 /**
  * Buyurtmalar — order history and detail.
  *
  * The list scopes to one status tab; the panel holds whichever order is
  * selected, its lines, and the one action its status allows. Cancelling
  * asks for a reason in a dialog.
+ *
+ * SENT is live state and stays unscoped — it is small by definition. CLOSED
+ * and CANCELED are scoped to the Tashkent day, because they only grow.
  */
 export function OrdersPage() {
   usePageTitle('Buyurtmalar');
@@ -41,27 +38,38 @@ export function OrdersPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
-  const { data: orders = [] } = useQuery({
-    queryKey: ['orders', activeTab],
-    queryFn: () =>
-      ordersApi.list({
-        status: activeTab,
-        date: activeTab === 'CLOSED' ? localDateString() : undefined,
-      }),
+  // Tashkent day, matching the server's own bucketing. This page used to roll
+  // its own `localDateString()` off the browser's timezone while the rest of
+  // the app used `tashkentDayKey()` — a divergence that only shows up on a
+  // host outside Tashkent, and then silently asks for the wrong day.
+  const today = tashkentDayKey();
+
+  const dayScoped = (status: HistoryStatus) => (status === 'SENT' ? undefined : today);
+
+  // One query per tab, so a tab's count is the number of rows that tab shows.
+  // The count used to come from a separate unfiltered call, which the server
+  // answers with active orders only — CLOSED and CANCELED were never in it, so
+  // both tabs read "0" above the rows they were listing.
+  const tabQueries = useQueries({
+    queries: FILTER_TABS.map((status) => ({
+      queryKey: ['orders', status, dayScoped(status) ?? 'all'] as const,
+      queryFn: () => ordersApi.list({ status, date: dayScoped(status) }),
+      refetchInterval: 10000,
+    })),
   });
 
-  // Unfiltered, polled — only used to keep the tab counts live.
-  const { data: allOrders = [] } = useQuery({
-    queryKey: ['orders', 'active_counts'],
-    queryFn: () => ordersApi.list(),
-    refetchInterval: 10000,
-  });
+  const orders = useMemo(
+    () => tabQueries[FILTER_TABS.indexOf(activeTab)]?.data ?? [],
+    [tabQueries, activeTab],
+  );
 
   const counts = useMemo(() => {
     const acc: Record<string, number> = {};
-    for (const order of allOrders) acc[order.status] = (acc[order.status] ?? 0) + 1;
+    FILTER_TABS.forEach((status, index) => {
+      acc[status] = tabQueries[index]?.data?.length ?? 0;
+    });
     return acc;
-  }, [allOrders]);
+  }, [tabQueries]);
 
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();

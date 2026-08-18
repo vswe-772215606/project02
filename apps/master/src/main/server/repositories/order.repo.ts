@@ -110,6 +110,33 @@ export const orderRepo = {
     });
   },
 
+  /**
+   * One status, bucketed to one Tashkent day.
+   *
+   * Buckets by the lifecycle timestamp that *produced* the status, not by
+   * `createdAt` — an order opened before midnight and closed after it belongs
+   * to the day it was closed, which is the day its money landed and the day
+   * every finance report already counts it in. `schema.prisma` sets each of
+   * these exactly once for that reason.
+   */
+  async listByStatusAndDateRange(status: OrderStatus, from: Date, to: Date, tx?: Tx) {
+    const stampedAt = { gte: from, lt: to };
+    const bucket =
+      status === OrderStatus.CLOSED
+        ? { closedAt: stampedAt }
+        : status === OrderStatus.CANCELED
+          ? { canceledAt: stampedAt }
+          : status === OrderStatus.SENT
+            ? { sentAt: stampedAt }
+            : { createdAt: stampedAt };
+
+    return (tx ?? getPrisma()).order.findMany({
+      where: { status, ...bucket },
+      include: LIST_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
   async setStatus(
     id: string,
     status: OrderStatus,
