@@ -3,13 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 
 import { Panel } from '@/components/layout/Screen';
 import {
-  Keypad,
+  AmountField,
   Row,
   RowHeader,
   RowMoney,
   RowSub,
   Seam,
-  type KeypadKey,
 } from '@/components/blocks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,15 +28,6 @@ const METHOD_LABEL: Record<PaymentMethod, string> = {
   CARD: 'Karta',
   DEBT: 'Nasiya',
 };
-
-function applyKey(current: number, key: KeypadKey): number {
-  if (key === 'backspace') return Math.floor(current / 10);
-  if (key === 'decimal') return current;
-  if (key === '000') return current * 1000;
-  const digit = Number(key);
-  if (!Number.isFinite(digit)) return current;
-  return current * 10 + digit;
-}
 
 /**
  * Collapse the debt ledger into one row per person, most recently seen first.
@@ -118,6 +108,8 @@ export function OrderTicket({
   const [debtorName, setDebtorName] = useState('');
   const [debtorPhone, setDebtorPhone] = useState<string | null>(null);
   const [typingNewDebtor, setTypingNewDebtor] = useState(false);
+  /** On-screen pad, opt-in — see the toggle below the amount field. */
+  const [showPad, setShowPad] = useState(false);
 
   const due = useMemo(() => Math.max(food - discount, 0) + (order.serviceChargeSnapshot ?? 0), [food, discount, order.serviceChargeSnapshot]);
   const paid = useMemo(() => legs.reduce((sum, leg) => sum + leg.amount, 0), [legs]);
@@ -151,18 +143,17 @@ export function OrderTicket({
         ? METHOD_LABEL[legs[editing.index]?.method ?? 'CASH']
         : '';
 
-  const onKey = (key: KeypadKey) => {
+  // AmountField owns key handling now — both the on-screen pad and the
+  // hardware keyboard land here as a finished number.
+  const setEditingValue = (next: number) => {
     if (!editing) return;
     if (editing.kind === 'discount') {
-      setDiscount((value) => Math.min(applyKey(value, key), food));
+      setDiscount(Math.min(next, food));
       return;
     }
     if (editing.kind !== 'payment') return;
     const index = editing.index;
-    setLegs((current) => {
-      const nextAmount = applyKey(current[index]?.amount ?? 0, key);
-      return setLegAmount(current, index, nextAmount, due, balancingIndex);
-    });
+    setLegs((current) => setLegAmount(current, index, next, due, balancingIndex));
   };
 
   const addLeg = (method: PaymentMethod) => {
@@ -301,15 +292,33 @@ export function OrderTicket({
           )}
         </div>
       ) : editing ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-seam bg-field-raised p-seam">
-          <div className="flex items-baseline justify-between bg-field px-pad py-2.5">
-            <span className="text-[12px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
-              {editingLabel}
-            </span>
-            <span className="text-[22px] font-semibold tabular-nums">{formatMoney(editingValue)}</span>
-          </div>
-          <Keypad onKey={onKey} className="w-full [&>*]:w-full" />
-          <Button variant="secondary" className="w-full" onClick={() => setEditing(null)}>
+        /* `overflow-auto` is the fix for the clipping: the pad is a fixed
+           270px and this column shrinks by 48px for every payment leg above
+           it, so on a short panel the bottom row used to be cut in half. */
+        <div className="flex min-h-0 flex-1 flex-col gap-seam overflow-auto bg-field-raised p-seam">
+          <AmountField
+            value={editingValue}
+            onChange={setEditingValue}
+            onDone={() => setEditing(null)}
+            label={editingLabel}
+            showKeypad={showPad}
+          />
+          {/* Off by default. The operator's words: "enable keyboard, and if the
+              keyboard is enable do not display numpad, there is no place in
+              this small monoblock." Every till on site has a keyboard, so the
+              pad is opt-in for finger use rather than a 270px block competing
+              for a panel that does not have the room. */}
+          {/* `outline` is bg-field, not bg-field-raised. A `secondary` button
+              here carried the same fill as the container behind it, so both
+              controls read as plain text rather than targets. */}
+          <Button
+            variant={showPad ? 'default' : 'outline'}
+            className="w-full shrink-0"
+            onClick={() => setShowPad((open) => !open)}
+          >
+            {showPad ? 'Raqam panelini yashirish' : 'Raqam paneli'}
+          </Button>
+          <Button variant="outline" className="w-full shrink-0" onClick={() => setEditing(null)}>
             Tayyor
           </Button>
         </div>

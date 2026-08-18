@@ -55,9 +55,14 @@ export function Keypad({ onKey, showDecimal = false, className }: KeypadProps) {
           ,
         </Key>
       ) : (
-        /* Hidden from the accessibility tree as well as disabled: a nameless
-           dimmed button is noise to anyone reading the pad with a cursor. */
-        <Key disabled aria-hidden="true" />
+        /* Every so'm amount is a round thousand, so this slot earns its place
+           better than the disabled placeholder that used to sit here. Three
+           components have handled a '000' key since the C1 rebuild and the pad
+           never drew one, so all three branches were dead code — and a
+           1 500 000 entry cost seven taps. */
+        <Key onClick={() => onKey('000')} aria-label="Uch nol" className="text-[18px]">
+          000
+        </Key>
       )}
       <Key onClick={() => onKey('0')} aria-label="0">
         0
