@@ -1,6 +1,6 @@
 # PRD 14 — Server money guards
 
-- **Status:** Decided 2026-09-30 — G1–G6 as Option A; G7 measured first (§6, §7)
+- **Status:** Decided 2026-09-30 — G1–G6 as Option A; G7 as Option B after measuring (§6, §7)
 - **Author / date:** 2026-09-30
 - **Area:** Domain correctness (confirm, payments, debts, auth, SQLite writes)
 - **Slice:** 1 of `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7
@@ -47,6 +47,10 @@ both on 2026-09-30 (§6).
 - Sale reversal and refunds (FIN-3).
 - Correcting data already damaged in production; the diagnostic (`e2e/prod-forensics.ts`,
   STATE item 1) measures it first.
+- Line edits, found while planning: `addLine`, `addCombo`, `updateLineQuantity` and `cancelLine`
+  check the order's status before their transaction (`order.service.ts:248, 325, 389, 466`), the
+  same cause as G1. A dish added while the admin confirms can land on a closed bill — its stock
+  taken, its price in no total. Not tested yet; it belongs to the next slice.
 
 ## 3. Current state
 
@@ -58,7 +62,7 @@ both on 2026-09-30 (§6).
 | G4 | Draft cleanup | `lib/scheduler.ts:7-22` | `order.deleteMany` on drafts older than 12 h. Lines cascade away; no `stockService.restore`, no StockEntry, no audit row. Runs at start-up and every 6 h. |
 | G5 | PIN lockout | `auth.service.ts:30-46, 102-123`, `user.repo.ts:19-29` | `loginPin` loads every active waiter, runs `ensureNotLocked` on each before comparing the PIN, and charges a wrong PIN to the first waiter in the list. Once that waiter is locked, every PIN login throws LOCKED inside the loop. A PIN-only login cannot know who mistyped. |
 | G6 | Print outside the write lock | `order.service.ts:708-790`, `print.service.ts:67-69` | The bill prints (`:744`) inside `$transaction`, after payments are written, so SQLite's single write lock is held for the whole print: up to 15 s (`execFile` timeout) within a 30 s transaction. Other writers wait about 5 s and fail with a 500 (P1008). The print sits inside so that a print failure rolls the sale back (`:667-668`, CLAUDE.md "Single confirm action"). PRD 03 already rejected holding a transaction across a print. |
-| G7 | Write bursts | `e2e/13-contention.test.ts`, `sqlite-bootstrap.ts:213` | 78 sequential menu creates produced a 500. No `journal_mode` or busy timeout is set anywhere; `DATABASE_URL` is a bare `file:` URL. Cause not yet confirmed. |
+| G7 | Write bursts | `e2e/13-contention.test.ts`, `middleware/requireAuth.ts:35`, `lib/prisma.ts` | 78 sequential menu creates produced a 500. Measured 2026-09-30: ten unhandled `P1008` rejections ("Socket timeout") in one burst. Every authenticated request fires `void sessionRepo.touchLastUsed(…)`; on a second connection that write deadlocks against the request's own transaction until Prisma's 5 s timeout. No `journal_mode`, busy timeout or connection limit is set; `DATABASE_URL` is a bare `file:` URL. |
 
 ## 4. Options
 
@@ -134,7 +138,10 @@ both on 2026-09-30 (§6).
   1 already copies with the app closed).
 - **B. A single connection** (`connection_limit=1`), so the process never contends with itself.
   Simple, but every read queues behind every write; tolerable only once G6 keeps transactions
-  short.
+  short. **Chosen after measuring:** a copy of the whole suite run with `connection_limit=1`
+  passed the burst and failed nothing new. WAL was not tried: by SQLite's documented behaviour it
+  would turn the deadlock into an immediate `SQLITE_BUSY_SNAPSHOT` for a transaction that reads
+  before it writes (Prisma's nested `connect` does), rather than remove it.
 
 ## 5. Decision matrix
 
@@ -146,7 +153,7 @@ both on 2026-09-30 (§6).
 | G4 | A | no decision needed | no | no | `04-stock-cost` issue 7 |
 | G5 | A | Barkamol, 2026-09-30 | no | no | `08-staff-access` PIN lockout; new: a locked device does not block another |
 | G6 | A | Barkamol, 2026-09-30 | no | ticket: print-failure state | `13-contention` slow print; new: failed print leaves the bill CLOSED and reprintable |
-| G7 | A, after measuring | implementation | no | no | `13-contention` 78 writes |
+| G7 | B | measured 2026-09-30 | no | no | `13-contention` 78 writes |
 
 ## 6. Open questions
 
@@ -155,14 +162,19 @@ both on 2026-09-30 (§6).
 2. **Decided, Barkamol 2026-09-30 — PIN login:** one-step PIN stays; five misses lock the device,
    not the floor (G5 A). This assumes each waiter logs in from their own phone; a shared terminal
    would lock for everyone on it, and would call for G5 B instead.
-3. **Open, implementation — G7's cause**, measured before choosing between A and B.
+3. **Decided, measured 2026-09-30 — G7's cause** is the unawaited session touch deadlocking on a
+   second connection (§3); Option B.
 
 ## 7. Recommendation
 
-G1–G6 as Option A. G1–G4 needed no decision, need no schema change, and each closes a way money
-is lost or miscounted today; G5 and G6 are Barkamol's choices. G7 is measured first.
+G1–G6 as Option A, G7 as Option B. G1–G4 needed no decision, need no schema change, and each
+closes a way money is lost or miscounted today; G5 and G6 are Barkamol's choices; G7 follows the
+measurement.
 
-Order, by money at risk: G1, G2, G6, G3, G4, G7, G5.
+Order, by money at risk: G1, G2, G6, G3, G4, G7, G5. The implementation plan
+(`docs/superpowers/plans/2026-09-30-server-money-guards.md`) moves G7 up to just before G6: until
+one connection is in place, the session-touch deadlock can stall any request for 5 s and makes
+G6's timing test flaky.
 
 ## 8. Rollout
 

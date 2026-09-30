@@ -24,10 +24,11 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    expectations listed in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §5 first.
 3. Build the slices in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7, each
    with its own design and plan, test-first. Slice 1, the server guards, is decided in
-   `docs/prd/14-server-money-guards.md` (print after commit, per-device PIN lock); next is
-   its implementation plan, on `fix/server-money-guards` off `feat/auto-update`. Each fix
-   flips its e2e test green. Verify: suite + `pnpm test` + `pnpm typecheck` (floor 48).
-   Shipping needs items 4–5.
+   `docs/prd/14-server-money-guards.md` and planned in
+   `docs/superpowers/plans/2026-09-30-server-money-guards.md` — 9 tasks, not started; its
+   Task 1 creates `fix/server-money-guards` off `feat/auto-update` and versions the e2e suite
+   (item 2). Run it with superpowers:subagent-driven-development. Verify: suite +
+   `pnpm test` + `pnpm typecheck` (floor 48). Shipping needs items 4–5.
 4. Restore the update feed on avtobron — production, human-run, per
    `docs/UPDATE_FEED_RUNBOOK.md` §2.5 (serves carmap.uz's cert and SPA). Verify:
    `curl -sS https://updates.mutallib.uz/chayxana/master/production/latest.yml` prints YAML
