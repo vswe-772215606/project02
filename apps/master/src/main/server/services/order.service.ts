@@ -629,12 +629,30 @@ export const orderService = {
       }
 
       return getPrisma().$transaction(async (tx) => {
-        const updated = await orderRepo.setCanceled(order.id, input.reason, tx);
+        // Claim the order first: if a confirm closed it meanwhile, the confirm
+        // stands and this cancel writes nothing (PRD 14 G1). The claim is from
+        // the status the checks above ran against, so the permission decision
+        // and the audit's fromStatus describe the transition actually made.
+        const claimed = await orderRepo.cancelIfIn(
+          order.id,
+          [order.status],
+          input.reason,
+          tx,
+        );
+        if (!claimed) {
+          const current = await orderRepo.findById(order.id, tx);
+          throw Errors.IllegalStateTransition(current?.status ?? order.status, OrderStatus.CANCELED);
+        }
 
         // Bekor qilish: DRAFT yoki SENT — barcha faol qatorlardagi ingredient
         // omborga qaytariladi.
-        for (const line of order.lines) {
-          await maybeRestoreLineStock(line, order, input.requestingUser.id, tx);
+        // The lines are re-read here, inside the transaction and after the claim,
+        // not taken from the read before it: a line added since was never
+        // restored, and one cancelled since would be restored twice, because
+        // maybeRestoreLineStock trusts the isCanceled it is handed.
+        const freshOrder = await getOrderOrThrow(order.id, tx);
+        for (const line of freshOrder.lines) {
+          await maybeRestoreLineStock(line, freshOrder, input.requestingUser.id, tx);
         }
 
         await auditService.log({
@@ -652,7 +670,7 @@ export const orderService = {
         deferEmit('admin', 'order:canceled', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:canceled', { orderId: order.id });
 
-        return mapToDto(updated);
+        return mapToDto(await orderRepo.findById(order.id, tx));
       });
     });
   },
@@ -660,12 +678,13 @@ export const orderService = {
   /**
    * Combined "Tasdiqlash + To'lov" — the only path from SENT to CLOSED.
    *
-   * Atomically: compute bill → validate payment sum → snapshot totals →
-   * insert payments (and debt if any) → print bill (blocking) → set CLOSED →
-   * audit ORDER_CONFIRMED → emit order:closed.
+   * Atomically: compute bill → validate payment sum → claim the bill (SENT →
+   * CLOSED, one conditional statement, the first write) → snapshot totals →
+   * insert payments (and debt if any) → print bill (blocking) → audit
+   * ORDER_CONFIRMED → emit order:closed.
    *
-   * If the bill print fails, the whole transaction rolls back; status stays SENT
-   * so the admin can retry.
+   * If the bill print fails, the whole transaction rolls back, the claim with
+   * it; status stays SENT so the admin can retry.
    */
   async confirm(input: {
     orderId: string;
@@ -708,6 +727,14 @@ export const orderService = {
       return getPrisma().$transaction(async (tx) => {
         const closedAt = new Date();
 
+        // Claim the bill before writing anything else. A second confirm — another
+        // station, a double tap, a retry after a timeout — or a racing cancel
+        // finds it no longer SENT here and writes nothing (PRD 14 G1).
+        if (!(await orderRepo.closeIfSent(order.id, closedAt, tx))) {
+          const current = await orderRepo.findById(order.id, tx);
+          throw Errors.IllegalStateTransition(current?.status ?? order.status, OrderStatus.CLOSED);
+        }
+
         await orderRepo.setApproval(
           order.id,
           input.requestingUser.id,
@@ -742,11 +769,6 @@ export const orderService = {
         // client (which would deadlock).
         const freshOrder = await getOrderOrThrow(order.id, tx);
         await printService.printBill(freshOrder, tx);
-
-        const updated = await orderRepo.setClosed(order.id, closedAt, tx);
-        if (!updated) {
-          throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
-        }
 
         await auditService.log({
           userId: input.requestingUser.id,
@@ -786,7 +808,7 @@ export const orderService = {
           );
         }
 
-        return mapToDto(updated);
+        return mapToDto(await orderRepo.findById(order.id, tx));
       }, { timeout: 30_000, maxWait: 10_000 });
     });
   },

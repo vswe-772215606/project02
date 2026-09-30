@@ -250,25 +250,29 @@ export const orderRepo = {
     return client.order.findUnique({ where: { id }, include: LIST_INCLUDE });
   },
 
-  async setClosed(id: string, closedAt = new Date(), tx?: Tx) {
-    return (tx ?? getPrisma()).order.update({
-      where: { id },
-      data: {
-        status: OrderStatus.CLOSED,
-        closedAt,
-      },
+  /**
+   * SENT → CLOSED as one conditional statement — the first write of a confirm,
+   * so a second confirm or a racing cancel finds the order no longer SENT and
+   * writes nothing (PRD 14 G1). False when the order has left SENT.
+   */
+  async closeIfSent(id: string, closedAt: Date, tx: Tx): Promise<boolean> {
+    const result = await tx.order.updateMany({
+      where: { id, status: OrderStatus.SENT },
+      data: { status: OrderStatus.CLOSED, closedAt },
     });
+    return result.count === 1;
   },
 
-  async setCanceled(id: string, reason: string, tx?: Tx) {
-    return (tx ?? getPrisma()).order.update({
-      where: { id },
-      data: {
-        status: OrderStatus.CANCELED,
-        canceledAt: new Date(),
-        cancelReason: reason,
-      },
+  /**
+   * → CANCELED, only from one of `from`, as one conditional statement
+   * (PRD 14 G1). False when the order has left those states meanwhile.
+   */
+  async cancelIfIn(id: string, from: OrderStatus[], reason: string, tx: Tx): Promise<boolean> {
+    const result = await tx.order.updateMany({
+      where: { id, status: { in: from } },
+      data: { status: OrderStatus.CANCELED, canceledAt: new Date(), cancelReason: reason },
     });
+    return result.count === 1;
   },
 
   async setTransfer(id: string, newTableId: string | null, tx?: Tx) {

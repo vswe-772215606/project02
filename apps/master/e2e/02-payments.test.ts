@@ -73,4 +73,23 @@ describe('Payment legs', () => {
     }
     expect(duplicated, report.join('\n')).toBe(0);
   });
+
+  it('[PRD 14 G1] a cancel racing a confirm never cancels a paid bill', async () => {
+    const report: string[] = [];
+    let broken = 0;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const id = await sentOrder([[w.items.somsa, 1]]); // 8 000
+      const [confirm, cancel] = await Promise.all([
+        w.admin.call('POST', `/api/orders/${id}/confirm`, { payments: [{ method: 'CASH', amount: 8000 }] }),
+        w.admin.call('POST', `/api/orders/${id}/cancel`, { reason: 'Mehmon ketdi' }),
+      ]);
+      const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
+      const payments = await env.prisma.payment.count({ where: { orderId: id } });
+      report.push(`attempt ${attempt + 1}: confirm ${confirm.status}, cancel ${cancel.status}, order ${order.status}, payment rows ${payments}`);
+      const bothWon = confirm.status < 300 && cancel.status < 300;
+      const paidButCanceled = order.status === 'CANCELED' && payments > 0;
+      if (bothWon || paidButCanceled) broken += 1;
+    }
+    expect(broken, report.join('\n')).toBe(0);
+  });
 });
