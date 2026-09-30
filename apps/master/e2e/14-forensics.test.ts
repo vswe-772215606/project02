@@ -30,12 +30,17 @@ beforeAll(async () => {
   const old = await w.admin.post('/api/expenses', { amount: 70000, reason: 'Xarid', occurredAt: yesterdayNoon() });
   await env.prisma.expense.update({ where: { id: old.id }, data: { status: 'REVERSED' } });
   await env.prisma.expense.create({ data: { categoryId: 'seed-cat-operational', amount: 70000, reason: 'REVERSAL: Xarid', occurredAt: new Date(), status: 'REVERSAL', reversedExpenseId: old.id, createdById: 'seed-admin' } });
-  // The damage below is what the old build let through. The server now refuses
-  // it (PRD 14), so it is written the way it sits in an old database: directly.
-  // Double confirm: a second payment row on a closed bill.
+  // The damage below is what the old build let through. PRD 14's guards refuse it
+  // through the API, so it is written the way it sits in an old database: directly.
+  // Double confirm: a second payment row on a closed bill, with the ORDER_CONFIRMED
+  // audit row and the BILL print job that a real second confirm wrote beside it.
   for (let i = 0; i < 2; i += 1) {
     const { id } = await sale(w, w.w1, [[w.items.somsa, 1]], cash(8000));
     await env.prisma.payment.create({ data: { orderId: id, method: 'CASH', amount: 8000 } });
+    const { id: _auditId, ...audit } = await env.prisma.auditLog.findFirstOrThrow({ where: { entityId: id, action: 'ORDER_CONFIRMED' } });
+    await env.prisma.auditLog.create({ data: audit });
+    const { id: _jobId, ...job } = await env.prisma.printJob.findFirstOrThrow({ where: { orderId: id, type: 'BILL' } });
+    await env.prisma.printJob.create({ data: job });
   }
   // Negative leg: Naqd 20 000 + Karta −4 000 on a 16 000 bill.
   {
@@ -50,13 +55,14 @@ beforeAll(async () => {
     const leg = await env.prisma.payment.findFirstOrThrow({ where: { orderId: id, method: 'DEBT' } });
     await env.prisma.payment.update({ where: { id: leg.id }, data: { amount: 50000 } });
     await env.prisma.payment.create({ data: { orderId: id, method: 'DEBT', amount: 40000 } });
-    await env.prisma.debt.updateMany({ where: { orderId: id }, data: { originalAmount: 50000, remainingAmount: 50000 } });
+    await env.prisma.debt.update({ where: { orderId: id }, data: { originalAmount: 50000, remainingAmount: 50000 } });
   }
   // Repayment race: two repayment rows, the balance reduced once.
   const r1 = await sale(w, w.w2, [[w.items.osh, 1]], { payments: [{ method: 'DEBT', amount: 45000 }], debt: { debtorName: 'B' } });
   const d1 = await env.prisma.debt.findFirstOrThrow({ where: { orderId: r1.id } });
   await w.admin.post(`/api/debts/${d1.id}/repayments`, { amount: 5000, method: 'CASH' });
   await env.prisma.debtRepayment.create({ data: { debtId: d1.id, amount: 5000, method: 'CASH', paidAt: new Date(), receivedById: 'seed-admin' } });
+  // Write-off: debt C is given up on.
   const r2 = await sale(w, w.w2, [[w.items.somsa, 1]], { payments: [{ method: 'DEBT', amount: 8000 }], debt: { debtorName: 'C' } });
   const d2 = await env.prisma.debt.findFirstOrThrow({ where: { orderId: r2.id } });
   await w.admin.post(`/api/debts/${d2.id}/write-off`, { reason: 'Topilmadi' });
@@ -98,11 +104,26 @@ describe('prod-forensics detects every planted cause', () => {
     'repayment-race', 'debt-write-off', 'backdated', 'avans-write-off', 'avans-undone', 'keldi-undone', 'waiter-pay',
     'lines-cut', 'attribution', 'discounts', 'count-shrinkage',
   ];
+  // The four causes written row by row above are pinned to what was written, so a
+  // plant that loses a row cannot hide behind "more than 0". The double confirm also
+  // pins the diagnostic's own sentence: a real second confirm left an audit row and a
+  // bill print job, and the diagnostic counts both.
+  const pinned: Record<string, { count: number; amount: number; meaning?: string }> = {
+    'double-charge': { count: 2, amount: 16000, meaning: 'Confirmed twice: 2; printed as a bill twice: 2.' },
+    'odd-legs': { count: 1, amount: -4000 },
+    'lost-nasiya-leg': { count: 1, amount: 40000 },
+    'repayment-race': { count: 1, amount: 5000 },
+  };
   for (const id of planted) {
     it(`finds: ${id}`, () => {
       const f = result.findings.find((x) => x.id === id);
       expect(f, `finding ${id} missing`).toBeDefined();
       expect(f!.count, `${f!.title}: ${f!.meaning}`).toBeGreaterThan(0);
+      const pin = pinned[id];
+      if (pin) {
+        expect({ count: f!.count, amount: f!.amount }, f!.title).toEqual({ count: pin.count, amount: pin.amount });
+        if (pin.meaning) expect(f!.meaning).toContain(pin.meaning);
+      }
     });
   }
   it('reads settings without printing the bot token', () => {
