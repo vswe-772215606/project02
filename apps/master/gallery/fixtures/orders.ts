@@ -281,7 +281,7 @@ export const ordersRoutes: RouteHandler = (path, method, body) => {
       serviceChargeSnapshot: confirmBody.waiveServiceCharge ? 0 : order.serviceChargeSnapshot,
     };
     orders = orders.map((o) => (o.id === id ? closed : o));
-    return json(closed);
+    return json({ ...closed, billPrinted: true, printError: null });
   }
 
   const cancelMatch = /^\/api\/orders\/([^/]+)\/cancel$/.exec(base);

@@ -8,6 +8,35 @@ import { Screen } from '@/components/layout/Screen';
 import { Chip } from '@/components/blocks';
 import { QueueList } from '@/components/approval/QueueList';
 import { OrderTicket } from '@/components/approval/OrderTicket';
+import { printFailureNotice, type PrintFailureNotice } from '@/lib/confirm-result';
+
+/**
+ * The sale is closed and paid; only the slip is missing. The notice stays up
+ * until the admin reprints or dismisses it, and a reprint that fails too shows
+ * it again, in Uzbek, rather than the server's English message.
+ */
+function showPrintFailure(orderId: string, notice: PrintFailureNotice): void {
+  toast.error(notice.title, {
+    description: notice.description,
+    duration: Infinity,
+    // sonner draws its action at 24 px / 12 px; the till needs 48 px / 13 px.
+    classNames: { actionButton: '!h-12 !px-4 !text-[13px]' },
+    action: {
+      label: 'Qayta chop etish',
+      onClick: () => {
+        ordersApi
+          .reprintBill(orderId, 'Tasdiqlashda chop etilmadi')
+          .then(() => toast.success('Chek chop etildi'))
+          .catch((error: Error) => {
+            showPrintFailure(
+              orderId,
+              printFailureNotice({ billPrinted: false, printError: error.message }) ?? notice,
+            );
+          });
+      },
+    },
+  });
+}
 
 /**
  * The confirm loop: queue on the left, the order in hand on the right.
@@ -45,11 +74,16 @@ export function ApprovalQueuePage() {
 
   const confirmMutation = useMutation({
     mutationFn: (body: ConfirmBody) => ordersApi.confirm(selectedId as string, body),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['finance'] });
-      toast.success('Buyurtma tasdiqlandi');
       setSelectedId(null);
+      const notice = printFailureNotice(result);
+      if (!notice) {
+        toast.success('Buyurtma tasdiqlandi');
+        return;
+      }
+      showPrintFailure(result.id, notice);
     },
     onError: (err: Error) => toast.error(err.message),
   });

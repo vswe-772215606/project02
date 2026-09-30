@@ -678,13 +678,12 @@ export const orderService = {
   /**
    * Combined "Tasdiqlash + To'lov" — the only path from SENT to CLOSED.
    *
-   * Atomically: compute bill → validate payment sum → claim the bill (SENT →
-   * CLOSED, one conditional statement, the first write) → snapshot totals →
-   * insert payments (and debt if any) → print bill (blocking) → audit
-   * ORDER_CONFIRMED → emit order:closed.
+   * One transaction: claim SENT → CLOSED → snapshot totals → insert payments
+   * (and the debt, if any) → audit ORDER_CONFIRMED. After the commit:
+   * order:closed and the owner alerts go out, then the bill prints.
    *
-   * If the bill print fails, the whole transaction rolls back, the claim with
-   * it; status stays SENT so the admin can retry.
+   * A failed print leaves the sale CLOSED and paid; the result says
+   * `billPrinted: false` and the admin reprints (PRD 14 G6).
    */
   async confirm(input: {
     orderId: string;
@@ -701,7 +700,7 @@ export const orderService = {
       note?: string;
     };
   }) {
-    return completeEmitContext(async () => {
+    const closedOrder = await completeEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
       if (order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
@@ -763,13 +762,6 @@ export const orderService = {
           }, tx);
         }
 
-        // Print bill — blocking. If it throws, the transaction rolls back and
-        // status stays SENT so the admin can retry. Pass `tx` so the PrintJob row
-        // shares the open SQLite write lock instead of waiting on the default
-        // client (which would deadlock).
-        const freshOrder = await getOrderOrThrow(order.id, tx);
-        await printService.printBill(freshOrder, tx);
-
         await auditService.log({
           userId: input.requestingUser.id,
           action: 'ORDER_CONFIRMED',
@@ -788,9 +780,9 @@ export const orderService = {
         deferEmit('admin', 'order:closed', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:closed', { orderId: order.id });
 
-        // Owner alerts — fire only after this transaction (incl. the blocking
-        // bill print) commits. A large discount and/or a nasiya sale are the
-        // two confirm-time events worth pushing immediately.
+        // Owner alerts — fire only after this transaction commits. A large
+        // discount and/or a nasiya sale are the two confirm-time events worth
+        // pushing immediately.
         const orderNumber = order.id.slice(-6).toUpperCase();
         deferAfterCommit(() =>
           alertService.largeDiscount({
@@ -808,9 +800,24 @@ export const orderService = {
           );
         }
 
-        return mapToDto(await orderRepo.findById(order.id, tx));
+        return getOrderOrThrow(order.id, tx);
       }, { timeout: 30_000, maxWait: 10_000 });
     });
+
+    // completeEmitContext has flushed order:closed and the owner alerts, so a
+    // slow or jammed printer delays neither. The bill prints after the sale
+    // commits (PRD 14 G6): it never holds SQLite's write lock, and a failed
+    // print never undoes a paid bill. With a printer chosen, printBill records
+    // the attempt as a PrintJob; either way the result says billPrinted: false
+    // and the admin reprints.
+    let printError: string | null = null;
+    try {
+      await printService.printBill(closedOrder);
+    } catch (error) {
+      printError = error instanceof Error ? error.message : 'Chek chop etilmadi';
+    }
+
+    return { ...mapToDto(closedOrder), billPrinted: printError === null, printError };
   },
 
   async reprintBill(input: { orderId: string; requestingUserId: string; reason?: string }) {

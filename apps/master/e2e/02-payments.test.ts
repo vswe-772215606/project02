@@ -69,7 +69,8 @@ describe('Payment legs', () => {
       const payments = await env.prisma.payment.count({ where: { orderId: id } });
       const prints = printer.prints.filter((p) => p.orderId === id).length;
       report.push(`attempt ${attempt + 1}: HTTP ${a.status}/${b.status}, payment rows ${payments}, bills printed ${prints}`);
-      if (payments > 1) duplicated += 1;
+      // Charged and printed exactly once (PRD 14): a second bill slip is as wrong as a second payment.
+      if (payments > 1 || prints > 1) duplicated += 1;
     }
     expect(duplicated, report.join('\n')).toBe(0);
   });
@@ -85,10 +86,12 @@ describe('Payment legs', () => {
       ]);
       const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
       const payments = await env.prisma.payment.count({ where: { orderId: id } });
-      report.push(`attempt ${attempt + 1}: confirm ${confirm.status}, cancel ${cancel.status}, order ${order.status}, payment rows ${payments}`);
+      const prints = printer.prints.filter((p) => p.orderId === id).length;
+      report.push(`attempt ${attempt + 1}: confirm ${confirm.status}, cancel ${cancel.status}, order ${order.status}, payment rows ${payments}, bills printed ${prints}`);
       const bothWon = confirm.status < 300 && cancel.status < 300;
       const paidButCanceled = order.status === 'CANCELED' && payments > 0;
-      if (bothWon || paidButCanceled) broken += 1;
+      const canceledButPrinted = order.status === 'CANCELED' && prints > 0;
+      if (bothWon || paidButCanceled || canceledButPrinted) broken += 1;
     }
     expect(broken, report.join('\n')).toBe(0);
   });

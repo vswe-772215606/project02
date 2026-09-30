@@ -23,6 +23,12 @@ export interface ConfirmBody {
   };
 }
 
+/** What confirm answers: the closed order, and whether its bill printed (PRD 14 G6). */
+export type ConfirmResult = Order & {
+  billPrinted: boolean;
+  printError: string | null;
+};
+
 export interface OrderLine {
   id: string;
   orderId: string;
@@ -101,7 +107,7 @@ export const ordersApi = {
   cancelOrder: (id: string, reason: string) =>
     api.post<Order>(`/api/orders/${id}/cancel`, { reason }),
   confirm: (id: string, body: ConfirmBody) =>
-    api.post<Order>(`/api/orders/${id}/confirm`, body),
+    api.post<ConfirmResult>(`/api/orders/${id}/confirm`, body),
   reprintBill: (id: string, reason?: string) =>
     api.post<{ id: string }>(`/api/orders/${id}/reprint-bill`, { reason }),
 };
