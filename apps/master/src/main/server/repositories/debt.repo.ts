@@ -229,15 +229,16 @@ export const debtRepo = {
   },
 
   /**
-   * Takes `amount` off an open balance in one statement. False when the debt is
-   * not open or its balance is smaller than `amount` — a concurrent repayment
-   * may have landed since it was read (PRD 14 G2).
+   * Takes `amount` off a balance in one statement. False when the debt is PAID
+   * or its balance is smaller than `amount` — a concurrent repayment may have
+   * landed since it was read (PRD 14 G2). A written-off debt stays repayable:
+   * a payment made on it later is money in that day (money rules D14).
    */
   async applyRepayment(id: string, amount: Prisma.Decimal, tx: Tx): Promise<boolean> {
     const result = await tx.debt.updateMany({
       where: {
         id,
-        status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL] },
+        status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL, DebtStatus.WRITTEN_OFF] },
         remainingAmount: { gte: amount },
       },
       data: { remainingAmount: { decrement: amount } },
@@ -246,10 +247,11 @@ export const debtRepo = {
   },
 
   /**
-   * → WRITTEN_OFF, only from an open debt, as one conditional statement — so a
-   * debt a repayment has just closed is never written off on top of it, and a
-   * written-off one is never written off twice (PRD 14 G2). False when the debt
-   * is no longer OPEN or PARTIAL.
+   * → WRITTEN_OFF, only from a debt that still has a balance open (OPEN or
+   * PARTIAL), as one conditional statement — so a debt a repayment has just
+   * closed is never written off on top of it, and two write-offs at the same
+   * moment write it off once (PRD 14 G2). False when the debt is no longer
+   * OPEN or PARTIAL.
    */
   async writeOffIfOpen(
     id: string,

@@ -155,10 +155,13 @@ export const debtService = {
     await getPrisma().$transaction(async (tx) => {
       // Take the amount off the balance in one conditional statement, so two
       // repayments at the same moment both count and together can never
-      // overpay (PRD 14 G2). The checks above only choose the error message.
+      // overpay (PRD 14 G2). Who can be repaid does not change: any debt that
+      // is not PAID, a written-off one included (money rules D14). If the
+      // statement matches nothing, a repayment that landed since the checks
+      // above has used the balance up, and the re-read only picks the error.
       if (!(await debtRepo.applyRepayment(debt.id, amount, tx))) {
         const current = await debtRepo.findById(debt.id, tx);
-        if (!current || current.status === DebtStatus.PAID || current.status === DebtStatus.WRITTEN_OFF) {
+        if (!current || current.status === DebtStatus.PAID) {
           throw Errors.DebtNotOpen();
         }
         throw Errors.DebtOverpay();
@@ -245,7 +248,13 @@ export const debtService = {
       // read here: the transaction opens with BEGIN IMMEDIATE, so nothing else
       // writes between this read and the commit (PRD 14 G2).
       const current = await debtRepo.findById(debt.id, tx);
-      if (!current || (current.status !== DebtStatus.OPEN && current.status !== DebtStatus.PARTIAL)) {
+      if (!current) {
+        throw Errors.NotFound('Debt');
+      }
+      if (current.status === DebtStatus.WRITTEN_OFF) {
+        throw Errors.DebtAlreadyWrittenOff();
+      }
+      if (current.status !== DebtStatus.OPEN && current.status !== DebtStatus.PARTIAL) {
         throw Errors.DebtNotOpen();
       }
 

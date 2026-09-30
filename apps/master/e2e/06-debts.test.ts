@@ -114,25 +114,77 @@ describe('Nasiya', () => {
       // orders are tried: the repayment leads in attempts 1 and 2, the write-off in 3 to 5.
       const order: Array<keyof typeof requests> = i > 2 ? ['write-off', 'repayment'] : ['repayment', 'write-off'];
       const answers = await Promise.all(order.map(async (what) => ({ what, status: (await requests[what]()).status })));
+      const http = Object.fromEntries(answers.map((a) => [a.what, a.status]));
 
       const after = await env.prisma.debt.findUniqueOrThrow({ where: { id: debt.id }, include: { repayments: true } });
       const repaid = after.repayments.reduce((s, r) => s + n(r.amount), 0);
+      const left = n(after.remainingAmount);
       const recorded = (await env.prisma.auditLog.findMany({ where: { action: 'DEBT_WRITTEN_OFF', entityId: debt.id } }))
         .map((a) => n((a.metadata as any).remainingAtWriteOff));
       const alerts = alerted.mock.calls.filter(([c]) => c.debtorName === name).map(([c]) => n(c.amount));
-      const writtenOff = after.status === 'WRITTEN_OFF';
-      const balance = writtenOff ? recorded.reduce((s, x) => s + x, 0) : n(after.remainingAmount);
+      // A payment that lands on a written-off debt turns it PARTIAL or PAID (the D14 test below), so a
+      // debt still WRITTEN_OFF took its payment before the write-off, and one that is not took it after.
+      const heldAtWriteOff = after.status === 'WRITTEN_OFF' ? left : 45000;
 
       const problems: string[] = [];
-      if (balance + repaid !== 45000) problems.push(`${writtenOff ? 'written off' : 'balance'} ${balance} + repayments ${repaid} is not 45000`);
-      if (writtenOff && repaid === 45000) problems.push('a fully repaid debt was written off');
-      if (recorded.length !== (writtenOff ? 1 : 0)) problems.push(`${recorded.length} write-off(s) on record, yet the debt is ${after.status}`);
+      if (left + repaid !== 45000) problems.push(`${left} left + repayments ${repaid} is not 45000`);
+      if (http.repayment !== 201) problems.push(`the repayment answered ${http.repayment}, yet a written-off debt stays repayable (D14)`);
+      if (http['write-off'] !== 200 && repaying !== 45000) problems.push(`the write-off answered ${http['write-off']} on a debt that still owed money`);
+      if (recorded.length !== (http['write-off'] === 200 ? 1 : 0)) problems.push(`${recorded.length} write-off(s) on record after HTTP ${http['write-off']}`);
+      if (recorded.length === 1 && recorded[0] !== heldAtWriteOff) problems.push(`written off at ${recorded[0]}, but the debt held ${heldAtWriteOff} then`);
+      if (after.status === 'WRITTEN_OFF' && left === 0) problems.push('a fully repaid debt was written off');
       if (alerts.join() !== recorded.join()) problems.push(`the owner alert said ${alerts.join() || 'nothing'}, the record says ${recorded.join() || 'nothing'}`);
-      if (answers.every((a) => a.status >= 300)) problems.push('both requests were refused');
       if (problems.length > 0) miscounted += 1;
-      lines.push(`debt ${i}: repaying ${repaying}, sent ${answers.map((a) => `${a.what} ${a.status}`).join(', then ')}; now ${after.status}, repayment rows ${repaid}${problems.length > 0 ? ` — ${problems.join('; ')}` : ''}`);
+      lines.push(`debt ${i}: repaying ${repaying}, sent ${answers.map((a) => `${a.what} ${a.status}`).join(', then ')}; now ${after.status}, ${left} left, repayment rows ${repaid}, written off at ${recorded.join() || 'never'}${problems.length > 0 ? ` — ${problems.join('; ')}` : ''}`);
     }
     alerted.mockRestore();
     expect(miscounted, lines.join('\n')).toBe(0);
+  });
+
+  it('[D14] a payment on a written-off debt is accepted, lowers the balance and is money in that day', async () => {
+    await sale(w, w.w1, [[w.items.osh, 1]], { payments: [{ method: 'DEBT', amount: 45000 }], debt: { debtorName: 'Keyinroq' } });
+    const debt = await debtByName('Keyinroq');
+    await w.admin.post(`/api/debts/${debt.id}/write-off`, { reason: 'Shahardan ketgan' });
+    const today = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10); // the clock's Tashkent day
+    const moneyInBefore = n((await ledger(today)).cashflow.realCashIn);
+    const seen: string[] = [];
+    for (const amount of [5000, 40000]) {
+      const paid = await w.admin.call('POST', `/api/debts/${debt.id}/repayments`, { amount, method: 'CASH' });
+      const now = await env.prisma.debt.findUniqueOrThrow({ where: { id: debt.id } });
+      seen.push(`${amount}: HTTP ${paid.status}, ${now.status}, ${n(now.remainingAmount)} left`);
+    }
+    const moneyIn = n((await ledger(today)).cashflow.realCashIn) - moneyInBefore;
+    expect(
+      { seen, moneyIn },
+      `money rules D14: a payment made later on a written-off debt is Kirim on that day; after the write-off: ${seen.join(' | ')}, Kirim +${moneyIn}`,
+    ).toEqual({ seen: ['5000: HTTP 201, PARTIAL, 40000 left', '40000: HTTP 201, PAID, 0 left'], moneyIn: 45000 });
+  });
+
+  it('[PRD 14 G2] two repayments that together exceed the balance: exactly one lands, the other is an overpay', async () => {
+    const lines: string[] = [];
+    let wrong = 0;
+    const pairs = [[25000, 25000], [30000, 20000], [20000, 30000], [40000, 10000], [10000, 40000]];
+    for (let i = 1; i <= pairs.length; i += 1) {
+      const [first, second] = pairs[i - 1]!;
+      const name = `Ortiqcha ${i}`;
+      await sale(w, w.w1, [[w.items.osh, 1]], { payments: [{ method: 'DEBT', amount: 45000 }], debt: { debtorName: name } });
+      const debt = await debtByName(name);
+      const pay = (amount: number) => w.admin.call('POST', `/api/debts/${debt.id}/repayments`, { amount, method: 'CASH' });
+      const answers = await Promise.all([pay(first!), pay(second!)]);
+      const after = await env.prisma.debt.findUniqueOrThrow({ where: { id: debt.id }, include: { repayments: true } });
+      const repaid = after.repayments.reduce((s, r) => s + n(r.amount), 0);
+      const left = n(after.remainingAmount);
+      const refused = answers.filter((a) => a.status !== 201);
+
+      const problems: string[] = [];
+      if (answers.filter((a) => a.status === 201).length !== 1 || refused.length !== 1) problems.push('not exactly one repayment landed');
+      if (refused.some((a) => a.status !== 400 || a.body?.error?.code !== 'DEBT_OVERPAY')) problems.push(`the other answered ${refused.map((a) => `${a.status} ${a.body?.error?.code}`).join()}, not 400 DEBT_OVERPAY`);
+      if (after.repayments.length !== 1) problems.push(`${after.repayments.length} repayment rows`);
+      if (left < 0) problems.push(`the balance went below 0 (${left})`);
+      if (left + repaid !== 45000) problems.push(`${left} left + repayments ${repaid} is not 45000`);
+      if (problems.length > 0) wrong += 1;
+      lines.push(`debt ${i}: repaying ${first} and ${second} together, HTTP ${answers.map((a) => a.status).join('/')}, ${after.status}, ${left} left, repayment rows ${repaid}${problems.length > 0 ? ` — ${problems.join('; ')}` : ''}`);
+    }
+    expect(wrong, lines.join('\n')).toBe(0);
   });
 });
