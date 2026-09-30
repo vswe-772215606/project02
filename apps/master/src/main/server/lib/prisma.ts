@@ -1,12 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 import { setupPrismaRuntime } from '../../prisma-runtime';
+import { singleConnectionUrl } from './sqlite-url';
 
 let prisma: PrismaClient | null = null;
 
 export function getPrisma(): PrismaClient {
   if (!prisma) {
     setupPrismaRuntime();
+    const url = singleConnectionUrl(process.env.DATABASE_URL);
     prisma = new PrismaClient({
+      ...(url ? { datasourceUrl: url } : {}),
+      // One connection means a $transaction waits for it. Prisma's default
+      // maxWait of 2 s would turn that wait into P2028 (a 500); 10 s is what
+      // confirm already asks for.
+      transactionOptions: { maxWait: 10_000 },
       log:
         process.env.NODE_ENV === 'development'
           ? ['warn', 'error']

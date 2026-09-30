@@ -23,12 +23,25 @@ afterAll(async () => {
 describe('Write contention', () => {
   it('[new] 78 writes back to back (machine speed) raise no database errors', async () => {
     const before = rejections.length;
-    const cat = (await w.admin.get('/api/menu/categories'))[0].id;
-    for (let i = 1; i <= 78; i += 1) {
-      await w.admin.post('/api/menu/items', { categoryId: cat, name: `Taom ${i}`, price: 30000, mode: 'COUNTED', costPrice: 12000, initialCount: 20 });
+    // requireAuth touches the session without awaiting it and logs a failed touch
+    // instead of letting it escape as an unhandled rejection (PRD 14 G7), so the
+    // rejection check alone cannot see it: watch the log as well.
+    const errorLog = vi.spyOn(console, 'error');
+    let failedTouches: string[];
+    try {
+      const cat = (await w.admin.get('/api/menu/categories'))[0].id;
+      for (let i = 1; i <= 78; i += 1) {
+        await w.admin.post('/api/menu/items', { categoryId: cat, name: `Taom ${i}`, price: 30000, mode: 'COUNTED', costPrice: 12000, initialCount: 20 });
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      failedTouches = errorLog.mock.calls
+        .filter(([message]) => typeof message === 'string' && message.includes('[requireAuth] session touch failed'))
+        .map(([, error]) => String((error as any)?.code ?? error));
+    } finally {
+      errorLog.mockRestore();
     }
-    await new Promise((r) => setTimeout(r, 500));
     expect(rejections.slice(before), 'unhandled rejections during the burst').toEqual([]);
+    expect(failedTouches, 'session touches that failed during the burst').toEqual([]);
   });
 
   it('[new] while a bill prints slowly (8 s), a waiter can still add a dish to another table', async () => {

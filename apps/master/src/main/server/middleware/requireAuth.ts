@@ -32,7 +32,11 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
       token: session.token,
     };
 
-    void sessionRepo.touchLastUsed(session.id);
+    // Not awaited, so the request never waits on it — but it must never become
+    // an unhandled rejection either (PRD 14 G7).
+    sessionRepo.touchLastUsed(session.id).catch((error: unknown) => {
+      console.error('[requireAuth] session touch failed', error);
+    });
     next();
   } catch (error) {
     next(error);
