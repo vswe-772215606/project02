@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { menuService } from '../services/menu.service';
-import { somAmount, somAmountOrZero } from '../lib/money-input';
+import { somAmountOrZero } from '../lib/money-input';
 
 const categorySchema = z.object({
   name: z.string().min(1),
@@ -19,7 +19,7 @@ const itemCreateSchema = z.object({
   description: z.string().optional(),
   displayOrder: z.number().int().optional(),
   mode: z.enum(['SERVICE', 'COUNTED', 'UNCOUNTED']).default('SERVICE'),
-  costPrice: somAmount.optional().nullable(),
+  costPrice: z.union([z.number().int().positive(), z.string().min(1)]).optional().nullable(),
   initialCount: z.number().int().nonnegative().optional().nullable(),
 });
 
@@ -31,7 +31,7 @@ const itemUpdateSchema = z.object({
   displayOrder: z.number().int().optional(),
   kind: z.enum(['FOOD', 'SERVICE']).optional(),
   isActive: z.boolean().optional(),
-  costPrice: somAmount.optional().nullable(),
+  costPrice: z.union([z.number().int().positive(), z.string().min(1)]).optional().nullable(),
   counted: z.boolean().optional(),
 });
 

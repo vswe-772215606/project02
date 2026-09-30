@@ -45,8 +45,9 @@ describe('Stock and food cost', () => {
     expect(r.status, `a FOOD dish with no tan narx was answered ${r.status}`).toBeGreaterThanOrEqual(400);
   });
 
-  it("[PRD 14 G3] a dish's price and tan narx must be whole so'm: a negative or fractional one is refused", async () => {
-    // A fractional price makes a bill total that no whole-so'm payment can equal.
+  it("[PRD 14 G3] a dish's price must be whole so'm: a negative or fractional one is refused", async () => {
+    // A fractional price makes a bill total that no whole-so'm payment can equal. Tan narx is not held
+    // to this: it never feeds a bill total, and a Keldi stores it as paid / qty (see the test below).
     const cat = (await w.admin.get('/api/menu/categories'))[0].id;
     const before = await env.prisma.menuItem.count();
     const create = (over: Record<string, unknown>) =>
@@ -55,10 +56,8 @@ describe('Stock and food cost', () => {
     const refused = {
       createNegativePrice: await create({ price: -5000 }),
       createFractionalPrice: await create({ price: 12500.5 }),
-      createFractionalCost: await create({ costPrice: 12000.5 }),
       editNegativePrice: await edit({ price: -5000 }),
       editFractionalPrice: await edit({ price: 4999.5 }),
-      editFractionalCostText: await edit({ costPrice: '999.5' }),
     };
     const choy = await env.prisma.menuItem.findUniqueOrThrow({ where: { id: w.items.choy } });
     expect(
@@ -66,21 +65,19 @@ describe('Stock and food cost', () => {
         statuses: Object.fromEntries(Object.entries(refused).map(([what, r]) => [what, r.status])),
         code: refused.createNegativePrice.body?.error?.code,
         created: (await env.prisma.menuItem.count()) - before,
-        choy: { price: n(choy.price), cost: n(choy.costPrice) },
+        choyPrice: n(choy.price),
       },
       JSON.stringify(Object.values(refused).map((r) => r.body?.error)),
     ).toEqual({
       statuses: {
         createNegativePrice: 400,
         createFractionalPrice: 400,
-        createFractionalCost: 400,
         editNegativePrice: 400,
         editFractionalPrice: 400,
-        editFractionalCostText: 400,
       },
       code: 'VALIDATION',
       created: 0,
-      choy: { price: 5000, cost: 1000 },
+      choyPrice: 5000,
     });
   });
 
@@ -104,6 +101,31 @@ describe('Stock and food cost', () => {
       { created: created.status, edited: edited.status },
       JSON.stringify([created.body?.error, edited.body?.error]),
     ).toEqual({ created: 201, edited: 200 });
+  });
+
+  it('[PRD 14 G3] a dish whose tan narx a Keldi left fractional can still be saved in Menyu', async () => {
+    // Keldi stores paid / qty as it comes (10 000 for 3 portions is 3 333.33...), and the Menyu form sends
+    // the stored tan narx back on every save, so refusing a fractional tan narx would block every edit of the dish.
+    const cat = (await w.admin.get('/api/menu/categories'))[0].id;
+    const dish = await w.admin.post('/api/menu/items', {
+      categoryId: cat, name: 'Keldi sinovi', price: 12000, mode: 'COUNTED', costPrice: 4000, initialCount: 10,
+    });
+    await w.admin.post(`/api/stock/${dish.id}/restock`, { qty: 3, paidUzs: 10000, setCostFromPaid: true });
+    const stored = (await w.admin.get('/api/menu/items')).find((i: any) => i.id === dish.id);
+    expect(Number.isInteger(n(stored.costPrice)), `the Keldi should leave a fractional tan narx; it left ${stored.costPrice}`).toBe(false);
+    // What ItemPanel sends on Saqlash: MenuPage turns the tan narx into text before it goes out.
+    const saved = await w.admin.call('PATCH', `/api/menu/items/${dish.id}`, {
+      name: 'Keldi sinovi (yangi nom)',
+      categoryId: stored.categoryId,
+      price: n(stored.price),
+      counted: stored.counted,
+      costPrice: String(n(stored.costPrice)),
+    });
+    const after = await env.prisma.menuItem.findUniqueOrThrow({ where: { id: dish.id } });
+    expect(
+      { status: saved.status, name: after.name },
+      `saving with the stored tan narx ${stored.costPrice}: ${JSON.stringify(saved.body?.error ?? '')}`,
+    ).toEqual({ status: 200, name: 'Keldi sinovi (yangi nom)' });
   });
 
   it('[issue 4] selling a dish with no tan narx books its food cost, not a 100% margin', async () => {

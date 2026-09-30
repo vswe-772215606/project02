@@ -19,14 +19,6 @@ describe('somAmount', () => {
     expect(somAmount.safeParse(2 ** 53).success).toBe(false);
     expect(somAmount.safeParse('9'.repeat(16)).success).toBe(false);
   });
-
-  it('can be optional and nullable, as a form that leaves the field blank sends it', () => {
-    const optional = somAmount.optional().nullable();
-    expect(optional.parse(undefined)).toBeUndefined();
-    expect(optional.parse(null)).toBeNull();
-    expect(optional.parse('12000')).toBe(12000);
-    expect(optional.safeParse(0).success).toBe(false);
-  });
 });
 
 describe('somAmountOrZero', () => {
