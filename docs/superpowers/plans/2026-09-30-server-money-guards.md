@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status:** executed 2026-09-30 and 2026-10-01 on `fix/server-money-guards`. The boxes below were
+> never ticked, because progress was kept in a ledger outside git. Where a task's text and
+> "Deviations during execution" (at the end) disagree, the deviations win.
+
 **Goal:** Close the seven gaps PRD 14 names — double confirm, repayment race, unaccountable amounts,
 draft cleanup, floor-wide PIN lockout, print holding the write lock, write bursts — on the build the
 customer runs.
@@ -1982,3 +1986,182 @@ docker compose -f compose.dev.yaml -f compose.e2e.yaml -p chayxana-guards down
 Stop at "ready to merge". Report to Barkamol: the branch, the final counts, and the merge command
 from Step 3. Nothing reaches a till until the update feed is restored and v0.1.5 is cut
 (STATE items 4–5) — those are his to run.
+
+---
+
+## Deviations during execution
+
+Executed 2026-09-30 and 2026-10-01 with superpowers:subagent-driven-development: 14 commits,
+`e4082df..d04a2a8`, then the Task 9 docs commit. Each line below is a ruling made after a
+pre-flight audit of Tasks 2–8 against the code, or after a task's review. It overrides the task
+text above where they conflict, and none reverses a decision in PRD 14 §5–§6. The ledger that
+tracked progress is not in git (`.superpowers/sdd/2026-09-30-server-money-guards/` in the main
+checkout).
+
+**Pre-flight and Task 1**
+
+- **Pre-flight, G6:** PRD 14 G6 A put a PENDING `PrintJob` inside the transaction; the plan prints
+  after the commit through `printBill`, which writes its own row (none when no printer is chosen).
+  Plan kept; the PRD wording was corrected in Task 9.
+- **Pre-flight, G5:** the lock is per client address, so a shared till would lock everyone at it.
+  Barkamol decided G5 A with that caveat (PRD 14 §6.2); recorded only.
+- **Pre-flight, send:** `send` (DRAFT→SENT) reads and checks inside its own transaction, which
+  SQLite serializes; it needed no claim.
+- **Task 1 (`c04cbfe`):** the worktree was cut from `e4082df`, not `3f8d389`; every `docker exec`
+  takes `-e NO_COLOR=1`, because the image sets `CI=1` and vitest colours the summary lines the
+  greps read.
+- **Task 1, fix round 1 (`d4a7157`):** the double-confirm plant also copies the first confirm's
+  `ORDER_CONFIRMED` audit row and BILL `PrintJob` row, as a real double confirm left them; the test
+  asserts the diagnostic's wording ("Confirmed twice: 2; printed as a bill twice: 2") and pins the
+  four planted findings (double-charge 2 / 16 000, odd-legs 1 / −4 000, lost-nasiya-leg 1 / 40 000,
+  repayment-race 1 / 5 000).
+- **Task 1, fix round 1 (`d4a7157`):** the two-Nasiya plant uses `debt.update` by `orderId`
+  (unique), so a missing Debt fails loudly instead of updating nothing; the plant comments are true
+  at every commit, and the write-off comment the replacement swallowed is back.
+
+**Task 2 — G1 (`b827140`)**
+
+- `cancelOrder` claims from the status its checks ran against (`cancelIfIn(id, [order.status], …)`),
+  not from `[DRAFT, SENT]`: the permission decision and the audit's `fromStatus` describe the
+  transition actually made, and a cancel that loses a race to another transition answers 409. The
+  G1 test asserts only that the confirm and the cancel never both win; the loser answers 409 or 403.
+- After the claim, stock is restored from lines re-read inside the transaction, not from the read
+  before it: a line added since was never restored, and one cancelled since would be restored twice.
+
+**Task 3 — G7 (`83fc724`)**
+
+- The `PrismaClient` also takes `transactionOptions: { maxWait: 10_000 }`: with one connection a
+  `$transaction` waits for it, and Prisma's default 2 s turned that wait into P2028 for every
+  transaction except confirm's, which already asked for 10 s.
+- The 78-writes test also asserts that `[requireAuth] session touch failed` was never logged; with
+  the new `.catch`, the unhandled-rejection check alone can no longer fail.
+- A `getPrisma()` call inside a transaction shows as P2028 "Transaction already closed" at the
+  transaction's timeout, not P2024; the audit found none among the 19 `$transaction` callbacks.
+
+**Task 4 — G6 (`d0e4d9b`, `ddcb5fb`, `c5377eb`)**
+
+- The print runs outside `completeEmitContext`, from the closed order read inside the transaction.
+  The order is emits → print → owner alerts (`withEmitContext`, then explicit `flushDeferredEmits()`
+  and `flushAfterCommit()`, `ddcb5fb`): the alerts await a Telegram call with no timeout and would
+  otherwise hold the customer's slip. A new e2e test pins emit, emit, print, alert, alert.
+- `printBill` writes a `PrintJob` only when a printer is chosen; with none it throws before any row
+  exists. The docs say "the result says `billPrinted: false` and the admin reprints", not that a
+  PrintJob always records the failure.
+- The notice's "Qayta chop etish" is at least 48 px tall with 13 px text (per-toast
+  `classNames.actionButton` with `!` modifiers, no inline style), and a failed reprint shows the
+  same Uzbek notice again, never the server's English message.
+- The notice gets a "Yopish" button and sits top-centre (`c5377eb`): it stays until dismissed, and
+  at bottom-right it covered the next bill's TASDIQLASH. The same commit fixes a selection race on
+  a slow confirm (`setSelectedId` by function) and shows a loading toast while a reprint waits in
+  the print queue.
+- New e2e assertions: `[issue 26]` counts a second bill print as broken and `[PRD 14 G1]` counts a
+  cancelled order with a bill print as broken (the PRD's goal: charged, printed and closed once).
+  New test `[PRD 14 G6] a slow reprint never fails a confirm of another bill`: at `83fc724` the
+  confirm deadlocked until its 30 s timeout and answered 500.
+
+**Task 5 — G2 (`4d6e50b`, `d48fa36`)**
+
+- The write-off is race-safe too: it re-reads the debt inside its transaction, refuses unless OPEN
+  or PARTIAL, records the balance it finds there and writes the status conditionally
+  (`writeOffIfOpen`). New test `[PRD 14 G2] a write-off racing a repayment never miscounts the
+  debt` fails on the old code every time (10 of 10).
+- Repayments on a WRITTEN_OFF debt stay accepted (`d48fa36`), as before and as money rules D14 says
+  (a payment later made on a written-off debt is Kirim on that day): `applyRepayment` allows OPEN,
+  PARTIAL and WRITTEN_OFF with a balance at least the amount, and the status after follows today's
+  rule. The plan's OPEN/PARTIAL-only condition would have refused them.
+- The loser of two simultaneous write-offs answers `DEBT_ALREADY_WRITTEN_OFF`. The race test's
+  invariant became: balance left + repayments recorded = the original, a debt repaid in full before
+  the write-off is never WRITTEN_OFF, and the write-off's audit and alert amount is the balance at
+  that moment. Two more tests: `[D14]` a payment on a written-off debt, and two repayments that
+  together overpay.
+
+**Task 6 — G3 (`c45fe9b`, `3891499`)**
+
+- `somLegAmount` is named `somAmountOrZero` (it types payment legs, menu prices and discount
+  presets); `somAmount` stays > 0. A number must be a safe integer (zod 4 `.int()` already refuses
+  the rest) and a digit string has at most 15 digits.
+- A Nasiya leg of 0 is refused with an Uzbek validation message: it would open a debt of 0 that can
+  never be repaid.
+- Menu `price` (create and update) and discount preset `value` are whole so'm, since they feed a
+  bill total; a negative preset adds money to a bill through `Math.min(value, subtotal)`.
+- Tan narx (`costPrice`) is **unchanged** (`3891499`). The plan made it `somAmount`, but Keldi
+  "update cost" stores paid ÷ qty unrounded and the Menyu form sends it back on every save, so every
+  edit of such a dish answered 400. A regression test covers it. The `c45fe9b` message still says
+  tan narx is whole; it no longer is.
+
+**Task 7 — G4 (`e020b94`)**
+
+- The `[issue 7]` test expects no StockEntry row (a restore writes none): `stock: before.stock`
+  proves the restore and the `automatic: true` audit row the record. The `cancelStaleDraft` comment
+  says stock comes back through `stockService.restore`.
+- `cancelStaleDraft` restores from lines re-read inside the transaction after the claim, as cancel
+  does. `runDraftCleanup` catches per draft, so one failing draft is logged and the rest go on; a
+  new test fails one of three drafts with a SQLite trigger.
+
+**Task 8 — G5 (`3bd7b84`, `d04a2a8`)**
+
+- The main typecheck floor is 47, not 48: the old `loginPin` carried a `User | undefined` argument
+  error (`auth.service.ts:119`) that the rewrite removed.
+- PRD 14 G5 A said the device is "client IP plus `deviceLabel`"; the code keys on the client
+  address only (the label is client-supplied, so address-only is stricter). The PRD now says so.
+- A device runs one PIN attempt at a time (`d04a2a8`). The review found that parallel requests all
+  pass the lock check before the first miss is counted (a burst measured 7 evaluated guesses
+  instead of 5) and that a late correct PIN erased an active lock (3 of 3); an overlapping attempt
+  now answers 409 "Oldingi urinish hali tugamadi, biroz kuting".
+- Not fixed, for Barkamol: a successful PIN login clears the device's misses, so under the
+  30-per-minute limit on the route one device can have 24 guesses evaluated and 6 logins of its own
+  a minute and never lock.
+- Deploy note: the device key is the socket address, because the server binds `0.0.0.0` and sets no
+  `trust proxy`. If a reverse proxy or a `::` bind is ever added, set `trust proxy` deliberately, or
+  every client shares one key and a floor-wide lock returns.
+
+**Task 9**
+
+- The plan named four documents and a STATE.md anchor ("3. Build the slices") that no longer
+  exists, and its counts were stale. The final list also covers `docs/AUDIT_FINDINGS.md`,
+  `CLAUDE.md`, this section, and the diagnostic's PIN sentence in `e2e/prod-forensics.ts` (now past
+  tense: it describes the floor-wide lock the old build had). Final numbers, verified in the
+  container at `d04a2a8`: e2e 66 pass / 38 fail (104), `pnpm test` 136 tests in 13 files,
+  `pnpm typecheck` 47, `typecheck:renderer` and `typecheck:gallery` 0.
+- Barkamol's instruction on 2026-10-01 (finish, commit, push as a separate branch) overrode the
+  plan's "never push" for this branch: pushed as `fix/server-money-guards`; not merged, tagged or
+  deployed, and no pull request.
+
+## Deferred review findings
+
+Smaller points the reviews raised and the plan did not act on. None changes a decision or blocks
+the merge.
+
+- `printBill` and `runQueuedJob` still take an unused `tx`: a print inside a transaction would hold
+  the only connection, the deadlock G6 removed. Remove the parameter, or document "never inside a
+  transaction".
+- `printFailureNotice` (`renderer/lib/confirm-result.ts`) tells "no printer chosen" apart by
+  matching the server's English "not configured" text; a distinct error code would be sturdier.
+- The failure notice at top-centre covers the top queue rows and the count chip while it is up;
+  bottom-centre would cover mostly empty list area (a one-word change). The ordinary
+  `toast.success('Buyurtma tasdiqlandi')` still sits bottom-right for 4 s and may cover the next
+  bill's TASDIQLASH. Notice colours differ between dev and a production build (CSS order against
+  sonner's runtime style); the packaged app was not opened.
+- `orderRepo.setStatus` keeps an unconditional branch and has no callers: delete it, so every
+  transition claims by construction.
+- The loser of two confirms answers the English "Cannot transition from CLOSED to CLOSED" (409
+  `ILLEGAL_STATE`), and the ticket shows it as sent.
+- `apps/mobile/src/api/client.ts` treats every 401, a wrong PIN on `login-pin` included, as session
+  loss; the order app guards with `&& token`.
+- Menyu price and Chiqimlar amount have no whole-number pre-check: a typed fraction gets the generic
+  "So'rov ma'lumotlari noto'g'ri". `DebtsPage.tsx` does not refetch after a repayment error (stale
+  balance).
+- Tests not written: the losing concurrent write-off (`DEBT_ALREADY_WRITTEN_OFF`), two simultaneous
+  full repayments (409), the PIN in-flight guard (30 parallel wrong PINs from one address: at most 5
+  evaluated, ends locked), and `requireAuth`'s `.catch`. `[issue 28]` asserts only the 400, not the
+  `VALIDATION` code.
+- `listStaleDraftIds` has no `orderBy` (add `createdAt` ascending, so the oldest drafts go first);
+  "12 hours" is written twice (`scheduler.ts` and the cancel reason); `stopScheduler` does not
+  interrupt a cleanup in progress (each cancel is atomic, so nothing breaks).
+- Stale comments: `renderer/lib/payment-legs.ts` says a zero Nasiya leg is rejected with
+  `DebtMetadataRequired` (the server now answers `VALIDATION`); `lib/money-input.ts` says `somAmount`
+  is used by "every amount that moves money" (tan narx and Keldi's `paidUzs` are not); `shutdown.ts`
+  says a print failure rolls the whole tender back; the header of `alert.service.ts` says alerts are
+  deferred inside `completeEmitContext` (confirm now flushes them itself).
+- `apps/master/e2e/` is outside every tsconfig, so it is never typechecked; the `sqlite-url` tests
+  lack an empty string, a trailing `?` and a `%20` path.

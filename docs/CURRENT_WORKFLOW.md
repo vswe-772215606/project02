@@ -1,6 +1,9 @@
 # Chayxana POS — Current workflow (live state)
 
 **Snapshot:** 2026-08-18, branch `fix/customer-feedback` (off `feat/remove-walkout`), clean tree.
+**Updated 2026-10-01** for PRD 14 (`fix/server-money-guards`, pushed as its own branch, not merged):
+§2, §4–§6 and §8–§13, and one renumbered cross-reference in §7. Line numbers in those sections
+point at that branch.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -42,7 +45,7 @@ ADMIN (master admin UI)
 ★ **The most counter-intuitive fact in the codebase: stock and COGS move at line-add time, not at
 any status transition.** Adding a line decrements the item's `stockCount` atomically and books
 `costPrice × qty` into `cogsSnapshot`. `send`/`confirm` still touch no inventory
-(`order.service.ts:652-774`).
+(`order.service.ts`: `send` `:507`, `confirm` `:737`).
 
 ### Order state machine (enforced server-side, `order.service.ts`)
 
@@ -60,28 +63,42 @@ mutations (add / adjust / remove / note / transfer) are legal in **both** DRAFT 
 
 | Transition | Function | Repo write | Guard |
 |---|---|---|---|
-| ∅ → DRAFT | `createDraft` `:160` | `orderRepo.create` | DINE_IN needs `tableId`; TAKEAWAY forbids it |
-| DRAFT → SENT | `send` `:486` | `setSent` — **CAS** | waiter owns it; ≥1 non-canceled line |
-| SENT → CLOSED | `confirm` `:651` | `setClosed` — **no CAS** ⚠ | status===SENT; payments sum exactly; print OK |
-| DRAFT\|SENT → CANCELED | `cancelOrder` `:585` | `setCanceled` — **no CAS** ⚠ | waiter owns it, or ADMIN/OWNER |
+| ∅ → DRAFT | `createDraft` `:181` | `orderRepo.create` | DINE_IN needs `tableId`; TAKEAWAY forbids it |
+| DRAFT → SENT | `send` `:507` | `setSent` — **CAS** | waiter owns it; ≥1 non-canceled line |
+| SENT → CLOSED | `confirm` `:737` | `closeIfSent` — **CAS**, the transaction's first write | status===SENT; payments sum exactly (a failed print does not block it) |
+| DRAFT\|SENT → CANCELED | `cancelOrder` `:606` | `cancelIfIn` — **CAS**, from the status it checked | waiter owns it, or ADMIN/OWNER |
+| DRAFT → CANCELED (automatic) | `cancelStaleDraft` `:688` | `cancelIfIn` — **CAS**, from DRAFT | the scheduler: a draft unsent for 12 hours (§9) |
 
-⚠ See §11 defect #1 — the missing compare-and-swap on `setClosed`/`setCanceled` is the most
-serious bug left on this path.
+Every transition claims the order with one conditional `updateMany` — the status is in the
+`WHERE`, and the count must be 1 — so two writers racing for one order get one winner: the loser
+writes nothing and answers 409 (PRD 14 G1). Line edits do not claim the order; see §11 #1.
 
-### Confirm, step by step (`order.service.ts:652-774`)
+### Confirm, step by step (`order.service.ts:737-893`)
 
-Outside the transaction: re-read order → reject unless SENT → require debt metadata if any DEBT
-leg → `billingService.computeTotals` → require `Σpayments === total` **exactly**.
+Before the transaction: re-read the order → reject unless SENT (a fast path; the claim below
+decides) → refuse more than one DEBT leg, and a DEBT leg of 0 → require debt metadata if a DEBT
+leg exists → `billingService.computeTotals` → require `Σpayments === total` **exactly**. Every leg
+is a whole so'm ≥ 0 (`somAmountOrZero`, PRD 14 G3); a body that fails its schema answers 400
+`VALIDATION`.
 
-Inside one `$transaction` (timeout 30s): stamp approval → write the four snapshot columns →
-insert `Payment` rows → create `Debt` if a DEBT leg exists → **print the bill (blocking)** → flip
-to CLOSED → write `ORDER_CONFIRMED` audit.
+Inside one `$transaction` (timeout 30 s, `maxWait` 10 s): **claim the order** with a conditional
+SENT→CLOSED update — a second confirm or a racing cancel finds it no longer SENT, writes nothing
+and answers 409 → stamp approval → write the four snapshot columns → insert `Payment` rows →
+create `Debt` if a DEBT leg exists → write `ORDER_CONFIRMED` audit.
 
-After commit: flush deferred socket emits, then fire Telegram owner alerts.
+After the commit, in this order: flush the deferred socket emits (`order:closed`) → **print the
+bill** → fire the Telegram owner alerts. The alerts go last because each awaits a Telegram call
+with no timeout; an unreachable Telegram must hold neither the other screens nor the customer's
+slip. A transaction that throws emits, prints and alerts nothing.
 
-**Printer failure rolls the whole thing back** — order stays SENT, no payments, no debt, clean
-retry. This works as designed. (Side effect: the failed `PrintJob` row rolls back too, so
-confirm-time print failures leave no trace in the DB.)
+**A printer failure no longer undoes the sale** (PRD 14 G6). The bill stays CLOSED with its
+payments, and the response carries `billPrinted: false` and the error. With a printer chosen, a
+failed print leaves its own `PrintJob` row marked FAILED; with none chosen the print stops before
+any row exists ("Admin printer not configured"). The Tasdiqlash screen shows "Chek chiqmadi"
+(Uzbek text from `renderer/lib/confirm-result.ts`, never the server's English error). The notice
+stays until the admin closes it ("Yopish") or reprints ("Qayta chop etish",
+`POST /api/orders/:id/reprint-bill`, ADMIN/OWNER, CLOSED orders only); a reprint that fails shows
+the notice again.
 
 ### Bill math (`billing.service.ts:54-130`)
 
@@ -110,8 +127,9 @@ percentage and there is no order-independent conversion. `max_discount_percent` 
 figure, and `discountId` has no caller in the renderer. So `Chegirmalar` is currently a list nothing
 reads — the open question is whether presets should reach the ticket or the page should go.
 
-Payments: `CASH | CARD | DEBT`, mixed allowed, must sum exactly. **There is no AVANS payment
-method** — avans is a repayable `Expense` on the outflow side, unrelated to this path.
+Payments: `CASH | CARD | DEBT`, mixed allowed, must sum exactly. At most one `DEBT` leg per bill,
+never of 0, and every leg a whole so'm ≥ 0 (PRD 14 G3; `lib/money-input.ts`). **There is no AVANS
+payment method** — avans is a repayable `Expense` on the outflow side, unrelated to this path.
 
 ### Closing an unpaid order (`OrderTicket.tsx`)
 
@@ -119,7 +137,9 @@ Adding a `DEBT` leg opens the **debtor picker** in the panel's middle, in the sl
 It lists everyone already in the debt ledger — `GET /api/debts`, folded to one row per trimmed
 `debtorName`, outstanding summed, most recently seen first — so the usual case is one tap and no
 typing. `+ Yangi qarzdor` swaps to a plain 48px text field for someone new. Picking a known debtor
-carries their `debtorPhone` into the confirm body for free; a typed name sends none.
+carries their `debtorPhone` into the confirm body for free; a typed name sends none. The ticket
+sends one Nasiya leg and drops one still at 0 (`toPayments`, `renderer/lib/payment-legs.ts`); the
+server answers 400 to a second leg or a leg of 0.
 
 `needsDebtor` (`:124`) keeps TASDIQLASH (`:227`) disabled until a name is set, so a nasiya can
 never close anonymously. The service charge is **not** waived on this path — the whole `due`,
@@ -186,8 +206,12 @@ transaction rolls back (`counted = false` skips straight past this). Then
 
 `restore(line, portions, tx)` fires on quantity decrease, line cancel, and order cancel from
 **both** `DRAFT` and `SENT` — `maybeRestoreLineStock` still never reads order status
-(`order.service.ts:123-136`, deliberate, commit `000e540`). Every cancellation restores; there is
-no path left that consumes without restoring, now that `WALKOUT` is gone (§11, §13).
+(`order.service.ts:134-147`, deliberate, commit `000e540`) — and on the automatic cancel of a stale
+draft. Every cancellation restores; there is no path left that consumes without restoring, now that
+`WALKOUT` is gone (§11, §13) and the draft cleanup cancels instead of deleting (§9).
+`cancelOrder` and `cancelStaleDraft` claim the order first and restore from the lines they re-read
+inside the transaction after the claim, so a line added or cancelled since their first read is
+neither missed nor restored twice.
 Unconditional atomic increment, guarded to non-NULL counts only (a line restored after `counted`
 was toggled off-then-on just leaves the item awaiting its first count). `cogsSnapshot` is
 recomputed **proportionally** — `new = old × remainingQty / quantity` — instead of unwinding a
@@ -207,6 +231,10 @@ Both write an append-only `StockEntry` (`RESTOCK`/`COUNT`, before/after) + `Audi
 (`STOCK_RESTOCKED`/`STOCK_COUNT_SET`) — that pair is the whole detective control on count edits.
 Sales are **not** journaled in `StockEntry`; they're reconstructible from `OrderLine`s. A
 menu-create with an initial count journals one `StockEntry(COUNT)` with `countBefore` NULL.
+
+**Sanoq and open orders:** `count` overwrites the count and allows nothing for portions held by
+open orders, so a cancel after a Sanoq — by hand, or the automatic stale-draft cancel — adds those
+portions back and the count reads high until the next Sanoq. An open product question (STATE.md).
 
 **Corrections:** a wrong count → another Sanoq (overwrites). A wrong restock's *money* → the
 ordinary same-day `Expense` reverse (`expense.service.ts:405+`) — unwinds cash/expense only, does
@@ -262,7 +290,16 @@ P&L and cash flow are **separate** and were correct — don't "fix" one using th
 
 Expenses: `ACTIVE → REVERSED` plus a mirror `REVERSAL` row. Repayable expenses (avans, zalog) sit
 in `pendingRepayable` until returned or written off. Debts are created only from a CLOSED order
-with a DEBT payment leg; repayments are append-only and belong to the day received.
+with a DEBT payment leg (one per bill); repayments are append-only and belong to the day received.
+
+**Debt repayment and write-off** (PRD 14 G2, `debt.service.ts`, `debt.repo.ts`). A repayment is one
+conditional decrement of `remainingAmount` (`applyRepayment`, the transaction's first write), so two
+at the same moment both count and together can never overpay; the loser answers 409
+`DEBT_NOT_OPEN` or 400 `DEBT_OVERPAY`. Every debt but a PAID one stays repayable, **a written-off
+one included** (money rules D14). A write-off re-reads the debt inside its transaction, refuses
+unless it is OPEN or PARTIAL, records the balance it finds there and claims the status
+conditionally (`writeOffIfOpen`); the loser of two simultaneous write-offs answers
+`DEBT_ALREADY_WRITTEN_OFF`.
 
 Reports are OWNER-only (`/api/reports/*`). `/api/finance/daily` is the ADMIN-safe daily view — but
 see §11 defect #7.
@@ -286,8 +323,9 @@ see §11 defect #7.
 | `/api/expenses`, `/expense-categories`, `/debts`, `/stock`, `/discounts`, `/settings`, `/printers`, `/users` | yes | ADMIN + OWNER |
 
 Errors: throw `AppError` / `Errors.*` from `lib/errors.ts` (20 codes). The central handler maps it
-to `{ error: { code, message, details } }`. **It has no `ZodError` branch** — validation failures
-return 500 `INTERNAL` (§11 defect #8).
+to `{ error: { code, message, details } }`. A `ZodError` — a body that fails its schema — answers
+400 `VALIDATION` with the issues in `details` (PRD 14 G3); anything else that is not an `AppError`
+answers 500 `INTERNAL`.
 
 ---
 
@@ -313,7 +351,7 @@ clients re-fetch via REST and invalidate TanStack Query keys.
 
 `ingredient:stockChanged` is no longer emitted anywhere server-side (the room-nobody-joined defect
 it used to illustrate is fixed by `join('all')` above); `order`/`mobile` still register a handler
-for it, which is harmless dead code. See §11 defect #9 — `order:canceled` is what's still dead.
+for it, which is harmless dead code. See §11 defect #8 — `order:canceled` is what's still dead.
 
 ---
 
@@ -322,9 +360,24 @@ for it, which is harmless dead code. See §11 defect #9 — `order:canceled` is 
 - OWNER/ADMIN: username + password. WAITER: 4-digit PIN. Both bcryptjs.
 - Tokens: 32-byte `crypto.randomBytes(...).base64url`, stored in `Session`, sent as `Bearer`.
 - **Single device per user** — a new login deletes the user's existing sessions.
-- 5 failed logins → account locked 5 minutes (`Errors.Locked`, HTTP 423).
-- `POST /api/auth/login-pin` is IP-rate-limited; `POST /api/auth/login` is **not** (mitigated by
-  account lockout). The limiter returns HTTP **409**, not 429, and its in-memory map never evicts.
+- **Password login:** 5 failed logins → the account is locked 5 minutes (`Errors.Locked`, HTTP 423;
+  `User.failedLogins` / `lockedUntil`).
+- **PIN login locks the device, not the floor** (PRD 14 G5; `auth.service.ts` `loginPin`,
+  `lib/pin-lockout.ts`). The PIN is compared first, and only the matched waiter's own lock applies
+  to them. A PIN that matches nobody counts against the device — its client address, since the
+  server binds `0.0.0.0` and sets no `trust proxy` — and 5 misses lock that device for 5 minutes
+  (423 `LOCKED`, `details.until`). The counter is in memory: a restart of the master clears every
+  lock, and a successful login clears that device's misses. A device runs **one PIN attempt at a
+  time**; an overlapping one answers 409 "Oldingi urinish hali tugamadi, biroz kuting", so parallel
+  guesses cannot all pass the lock check before the first miss is counted.
+- `POST /api/auth/login-pin` is also IP-rate-limited (`ipRateLimit` in `auth.routes.ts`: 30
+  requests per address per minute); `POST /api/auth/login` is **not** (mitigated by account
+  lockout). The limiter returns HTTP **409**, not 429, and its in-memory map never evicts.
+- ⚠ Reset-on-success is a hole (§11 #6): anyone holding one valid PIN can guess 4 times, log in
+  with their own PIN, and repeat without the device ever locking — with the 30-per-minute limit,
+  24 guesses evaluated and 6 logins of its own per minute. If a reverse proxy or a `::` bind is
+  ever added, set `trust proxy` deliberately, or every client shares one key and a floor-wide lock
+  returns. A shared terminal locks for everyone at it (PRD 14 §6.2).
 
 ---
 
@@ -337,6 +390,19 @@ correct for a machine waiters depend on. Heavy startup logging lands in `userDat
 
 Packaged Windows applies migrations **in-process via sql.js** with its own `_app_migrations` ledger
 (checksum self-heals on drift); dev uses the Prisma CLI against `dev.db`.
+
+**One SQLite connection** (PRD 14 G7). `lib/prisma.ts` opens the `PrismaClient` through
+`lib/sqlite-url.ts`, which sets `connection_limit=1` on `DATABASE_URL`, and sets
+`transactionOptions.maxWait` to 10 s: a `$transaction` now waits for that one connection, and
+Prisma's default 2 s would turn the wait into a 500 (P2028). Measured 2026-09-30: with several
+connections, the session touch that `requireAuth` fires without awaiting deadlocked against a
+request's own transaction until Prisma's 5 s timeout (P1008), and 78 writes back to back failed.
+The touch now has a `.catch`, so it can never become an unhandled rejection. **Never call
+`getPrisma()` inside a `$transaction` callback — use `tx`:** with one connection the query waits for
+the connection its own transaction holds, and fails as P2028 "Transaction already closed" at the
+transaction's timeout (30 s for confirm). ⚠ A Windows profile path with a space fails at
+`$connect`: `toSqliteUrl` (`sqlite-bootstrap.ts:16`) percent-encodes the path and Prisma does not
+decode it. Found while testing G7; it is the same on the build the customer runs.
 
 A bind failure on the port is now fatal-with-a-dialog rather than silent: `httpServer` gets an
 `error` handler that rejects the startup promise, which `whenReady`'s catch turns into
@@ -365,6 +431,9 @@ delete the production database is dead code rather than a live hazard.
 **Printing:** `printBill → PrintJob row → p-queue mutex (concurrency 1) → execFile receipt.exe`
 (Win32 RAW ESC/POS, `cpp/receipt.cpp`). Only `BILL` and `BILL_REPRINT` types remain. On non-Windows
 dev hosts `executeBinary` is a stub that logs and returns success — printing appears to work.
+Confirm prints after its transaction commits, never inside one (PRD 14 G6): a slow or jammed
+printer (15 s `execFile` timeout) delays only the confirm and reprint requests waiting for their
+turn at it, and no other write.
 
 **Telegram bot:** `/bugun /kecha /sana /oldin /hafta /oy /oylik /umumiy /excel /pdf /qarzlar
 /xarajatlar /omborxona /ofitsiantlar /yordam`, plus five push alerts — large discount,
@@ -372,8 +441,15 @@ debt sale, debt write-off, large expense, item stock-out (`alertService.itemStoc
 `stock.service.ts` when a counted item's `stockCount` crosses to 0 — see §4). The walkout alert
 is gone with the rest of the status (§11, §13).
 
-**Scheduler:** stale-draft cleanup every 6 hours; the finance report scheduler polls **every 60
-seconds** for the configured send time.
+**Scheduler:** at start-up and every 6 hours, drafts created more than 12 hours ago are
+**cancelled, not deleted** (`runDraftCleanup` → `orderService.cancelStaleDraft`, PRD 14 G4): the
+same conditional claim as a cancel, every live line restored, the reason "Avtomatik bekor qilindi:
+12 soat yuborilmadi", and an `ORDER_CANCELED` audit row with `automatic: true` whose actor is the
+draft's own waiter (`AuditLog.userId` is required). One draft that fails is logged and stays a
+draft for the next run; the rest go on. Cancelled drafts appear wherever CANCELED orders do:
+Buyurtmalar's "Bekor qilingan" tab, the day report of the day they are cancelled, the waiter's
+`ordersCanceled`, and the audit page. The finance report scheduler polls **every 60 seconds** for
+the configured send time.
 
 **Headless dev server for verification (Docker):** non-Windows dev hosts don't run Electron, so
 `dev:master` can't provide the server that the HTTP-driven smoke scripts need (see `CLAUDE.md`
@@ -399,98 +475,95 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
 |---|---|
 | Stock didn't move on order | `services/stock.service.ts` (consume/restore), `order.service.ts:209-288` |
 | Bill total looks wrong | `services/billing.service.ts:54-130` |
-| Confirm rejected | `order.service.ts:652-688` (guards run before the transaction) |
+| Confirm rejected | `order.service.ts:755-786` (checks run before the transaction); a 409 means the claim at `:794` found the bill no longer SENT |
 | Keldi/Sanoq didn't update count or cost | `services/stock.service.ts` `restock`/`setCount` (`:140-289`), `stock.routes.ts` |
 | Cash drawer disagrees | `reports.service.ts` `dailyLedger.cashflow.cashOut` — and read §5 |
-| A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #9 |
+| A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #8 |
 | Print didn't fire | `services/print.service.ts`; check `admin_printer_name` setting |
+| A bill closed but no slip | The confirm answered `billPrinted: false`; `PrintJob` FAILED (no row if no printer is chosen); reprint from the ticket or `POST /api/orders/:id/reprint-bill` |
+| 500 with P2028 or P1008, or a request that hangs | One SQLite connection (§9): a `getPrisma()` call inside a `$transaction` |
+| A waiter gets 423 with the right PIN | Their phone's address is locked — `lib/pin-lockout.ts`, in memory; restart the master to clear it (§8) |
 | Daily Telegram missing | `services/finance-report.service.ts` + `lib/scheduler.ts` |
 
 ---
 
 ## 11. Known defects (re-verified 2026-08-13 on `feat/count-based-inventory`, ranked; renumbered
 2026-08-14 after walkout removal, again the same day when the final branch review added a defect at
-the top, and again 2026-08-15 when that defect was fixed and deleted — see §13)
+the top, again 2026-08-15 when that defect was fixed and deleted, and again 2026-10-01 when PRD 14
+fixed four — see §13)
 
 **Money-affecting**
 
-1. **Duplicate confirm is reachable.** `setClosed`/`setCanceled` use plain `update` with no status
-   precondition, while `setSent` uses CAS `updateMany` (`order.repo.ts:204,214`). Two
-   concurrent confirms both pass the `status===SENT` check and both commit → duplicate payments,
-   second bill printed. *Currently latent* because `OrderTicket` disables its button while the
-   mutation is in flight (`OrderTicket.tsx:227`, `disabled={... || submitting}`) — two windows or
-   a post-timeout retry defeats that. The `if (!updated) throw` guards at `order.service.ts:729`
-   are unreachable dead code. **Fix:** make both repo methods CAS like their siblings.
-2. **Confirm computes totals outside the transaction it commits** (`:668-682` vs `:690`). A
-   concurrent line edit on a SENT order lands between them; payments get recorded against the
-   pre-edit total while the receipt prints the post-edit lines. **Fix:** move the read +
-   `computeTotals` inside the transaction.
-3. **Payment amounts are not validated non-negative** (`orders.controller.ts:52`) — the adjacent
-   `discountAmount` on `:48` does have `.nonnegative()`, so this is an oversight. Server-side
-   only: `OrderTicket.applyKey` (`OrderTicket.tsx:20-27`) only ever multiplies an already
-   non-negative accumulator by 10 and adds a digit, floor-divides it on backspace, or multiplies
-   it by 1000 — the current UI cannot type a negative amount. A negative is reachable only from
-   curl/devtools; the server still accepts one.
-4. **Ad-hoc discount bypasses the settings cap.** Only the preset-`discountId` path enforces
+1. **Confirm computes totals outside the transaction it commits, and line edits do not claim the
+   order.** Confirm reads the order and runs `computeTotals` (`order.service.ts:755-786`) before
+   its transaction claims the bill (`:794`). A line edit that lands between them leaves a CLOSED
+   bill whose snapshot total and payments miss the dish, while the receipt — printed from a read
+   taken inside the transaction — lists it. `addLine`, `addCombo`, `updateLineQuantity` and
+   `cancelLine` (`:229`, `:310`, `:367`, `:458`) also check the status before their own
+   transaction, so an edit can land after the claim, on a bill that has just closed: its stock
+   taken, its price in no total (PRD 14 §2; not tested). **Fix (slice 2):** claim line edits the
+   way transitions are claimed, and have confirm compute totals and check payments from a re-read
+   inside its transaction, after the claim (`computeTotals`' `discountRepo.findById` then needs
+   `tx`).
+2. **Ad-hoc discount bypasses the settings cap.** Only the preset-`discountId` path enforces
    `max_discount_amount`. A 100% discount is a valid request from any ADMIN. Since the confirm
    ticket only ever sends `discountAmount`, the cap is in practice enforced nowhere on the money
    path — it guards preset *creation*, not spending.
+3. **A debt paid after its write-off shows differently on two screens.** A repayment on a
+   written-off debt is accepted (§5, D14) and turns it PARTIAL or PAID with `writtenOffAt` still
+   set. Qarzlar counts what is left of it (`debtRepo.sumOutstanding` sums OPEN and PARTIAL); the
+   ledger (`buildDebtLedger`) treats any debt written off before the day's end as WRITTEN_OFF with
+   nothing remaining, so Hisobot's Qarz qoldig'i says 0. `writtenOffAt` is also stamped before the
+   write-off's transaction (`debt.service.ts:243`). **Fix (slice 2, D14):** define how a recovered
+   written-off debt shows, and stamp `writtenOffAt` inside the transaction.
 
 **Correctness / data integrity**
 
-5. **`isAvailable` (the manual admin toggle) is never enforced server-side.** `order.service.ts`'s
+4. **`isAvailable` (the manual admin toggle) is never enforced server-side.** `order.service.ts`'s
    `addLine`/`addCombo` check only `isActive`; `Errors.ItemUnavailable` has zero throw sites — a
    waiter can add a line for an item an admin marked unavailable. This is distinct from stock
    exhaustion, which **is** enforced (`stockService.consume`'s CAS decrement throws `OutOfStock`
    at `stockCount` 0 or NULL — §4); `effectivelyAvailable` folds both into one client-facing flag,
    but only the stock half has a server-side guard behind it.
-6. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
+5. **"One active order per table" is unenforced.** Migration `20260607041034` rebuilt the `Order`
    table and recreated only the plain indexes — the partial unique index from migration 2 is gone.
    `createDraft` relies on a `P2002` that can no longer fire.
+6. **The PIN lock resets on a successful login** (§8). A device that holds one valid PIN can
+   guess 4 times, log in with it, and repeat without ever locking. **Fix, if Barkamol wants it:**
+   keep misses across a success and let them expire some minutes after the last miss.
 
 **Contract / UX**
 
 7. **ADMIN can read owner-only profit.** `/api/finance/daily` is ADMIN+OWNER and returns
    `pnl.profit` (`finance.service.ts:292-296`); the comment above it says the renderer hides it.
    Client-side only — curl or devtools reads it off the wire. Violates `decisions.md`.
-8. **Zod validation failures return 500 `INTERNAL`, not 400** — `errorHandler.ts` has no
-   `ZodError` branch, so malformed bodies surface with no field detail. Covers the new
-   `/api/stock` `restock`/`count` schemas too.
-9. **`order:canceled` has no listener in any client.** The `join('all')` fix (§7) means
-    `menu:changed`/`menu:itemAvailability` now reach every socket, and `ingredient:stockChanged`
-    is simply gone (no longer emitted server-side — `order`/`mobile` still register a handler for
-    it, harmless dead code, not a defect). `order:canceled` is what's left dead: no app
-    subscribes, so canceling an order pushes no live refresh to other open screens.
-10. **Customer receipts don't add up** on any order with a service charge — the item list prints
-    SERVICE lines but the printed subtotal is FOOD-only, and there is no service-charge line
-    (`printer/receipt-builder.ts:44,56-77`).
-11. **Verified fixed 2026-08-14.** ~~A fully-comped order can never be closed~~ — the old citation
+8. **`order:canceled` has no listener in any client.** The `join('all')` fix (§7) means
+   `menu:changed`/`menu:itemAvailability` now reach every socket, and `ingredient:stockChanged`
+   is simply gone (no longer emitted server-side — `order`/`mobile` still register a handler for
+   it, harmless dead code, not a defect). `order:canceled` is what's left dead: no app
+   subscribes, so canceling an order pushes no live refresh to other open screens.
+9. **Customer receipts don't add up** on any order with a service charge — the item list prints
+   SERVICE lines but the printed subtotal is FOOD-only, and there is no service-charge line
+   (`printer/receipt-builder.ts:44,56-77`).
+10. **Verified fixed 2026-08-14.** ~~A fully-comped order can never be closed~~ — the old citation
     (`ConfirmModal.tsx:131`, `canSubmit` requiring `previewTotal > 0`) no longer exists; that
     component was deleted by the C1 renderer rebuild. The live gate is `OrderTicket.tsx:122`,
     `balanced = paid === due`, which is satisfied at `paid = due = 0` — a fully-discounted order
     with no service line closes today. An order *with* a service line still owes the service
     charge after a 100% food discount, which is correct (it is the waiter's pay, §2); nasiya
     settles that remainder, and as of 2026-08-15 the debtor picker makes nasiya reachable.
-12. **A non-integer payment amount produces an opaque failure server-side.** The confirm schema's
-    `amount: z.union([z.number().int(), z.string().min(1)])` (`orders.controller.ts:52`) rejects a
-    non-integer JS number with no `ZodError` branch to catch it (defect #8) → 500 `INTERNAL`, generic
-    "Buyurtmani tasdiqlab bo'lmadi". Not reachable from the current UI: `applyKey` treats the
-    `'decimal'` key as a no-op (`OrderTicket.tsx:22`), so no on-screen payment amount can ever be
-    non-integer, and `balanced = paid === due` (`:56`) is exact — there is no client-side tolerance
-    that could hide a fractional amount behind a false green check. The server gap is real only
-    for a non-UI caller (curl, a future client).
 
-13. **Menyu collapses the dish name to nothing.** The name column is the only flexible one; price,
+11. **Menyu collapses the dish name to nothing.** The name column is the only flexible one; price,
     stock and status hold fixed widths, so at the real viewport the list reads "Smoke p… 30 000" —
     price survives, identity does not. Its header also breaks: the search field clips mid-
     placeholder, a button wraps to a second row, and the page title falls out of alignment.
     Reported from site; Task 5 of the active plan.
-14. **Sozlamalar scrolls sideways.** The settings pane overflows its width by 29px against the one
+12. **Sozlamalar scrolls sideways.** The settings pane overflows its width by 29px against the one
     hard layout rule this product has, and the cost lands on the Yoqilgan/O'chirilgan toggles,
     whose labels are cut. The two-column grid needs to collapse. Also on that screen: the
     maximum-discount value renders unformatted as a bare `100000`, and the server address the
     operator asked to see is still absent (Task 8).
-15. **No `+ Naqd` on the confirm ticket.** The tender row offers `+ Karta` and `+ Nasiya`; once the
+13. **No `+ Naqd` on the confirm ticket.** The tender row offers `+ Karta` and `+ Nasiya`; once the
     cash leg is removed it cannot be restored. Recorded as deferred item I4 in the Task 2 review.
 
 **Not defects, but the reason the screens read as thin** — recorded here because they keep getting
@@ -516,12 +589,12 @@ merely dead — §4 lists what is still declared in the schema with no code path
 
 | Doc | Verdict |
 |---|---|
-| **This file** | Current as of 2026-08-14, `feat/remove-walkout` (see header). |
+| **This file** | Current as of 2026-08-14, `feat/remove-walkout` (see header); the sections the header lists were updated 2026-10-01 for PRD 14. |
 | `agent-plans/00-shared/decisions.md` | Labelled "locked" but **partly stale** — see below. Still authoritative on intent and on v1 scope exclusions. |
 | `agent-plans/00-shared/conventions.md` | Current. Follow it. |
 | `FINANCE_IMPLEMENTATION_SPEC.md`, `MOLIYA_KASSA_HISOBLASH_XATOSI.md` | Current and load-bearing for finance work. |
 | `PROJECT_TECHNICAL_OVERVIEW.md`, `TECHNICAL_SPECIFICATION.md` | Partly historical — verify before relying. |
-| `docs/prd/*` | Proposals, not implemented state. |
+| `docs/prd/*` | Proposals, not implemented state — except PRD 14 (server money guards), implemented on `fix/server-money-guards`. |
 | `docs/archive/*` | Historical only. |
 
 **Specific claims in `decisions.md` that are now wrong:**
@@ -531,9 +604,15 @@ merely dead — §4 lists what is still declared in the schema with no code path
 - ❌ "Service charge is a fixed UZS amount configurable in Settings" → it is `MenuItem.kind=SERVICE`
   lines; there is no such setting.
 - ❌ "Cancelling from SENT does not restore stock" → it **does** (commit `000e540`, deliberate).
+- ❌ "Bill prints (blocking); if the print fails, the whole transaction rolls back and the order
+  stays at `SENT`" (Order lifecycle; Receipts and printer) and the Approval flow's "in this exact
+  order" list (steps 1–4 inside the transaction, 8 print, 9 flip to `CLOSED`) → the checks run
+  before the transaction, its first write is the SENT→CLOSED claim, and the bill prints after the
+  commit; a failed print leaves the bill `CLOSED` with `billPrinted: false`, reprintable (§2,
+  PRD 14 G1 and G6). `decisions.md` itself changes only on Barkamol's instruction.
 - ❌ Expense categories "Go'sht / Sabzavot / Avans / …" → in practice just `Mahsulot xaridi`
   (auto for purchases) and `Operatsion` (default).
-- ⚠ "One active order per table, enforced by partial unique index" → index was dropped, §11 #6.
+- ⚠ "One active order per table, enforced by partial unique index" → index was dropped, §11 #5.
 - ⚠ "ADMIN cannot see profit totals" → true in the UI only, §11 #7.
 - ❌ "mark walkout" listed as an ADMIN capability (Roles table) → the action, the button and the
   status are all gone; an unpaid order closes as nasiya via the debtor picker (§2 "Closing an
@@ -544,7 +623,7 @@ merely dead — §4 lists what is still declared in the schema with no code path
 - ❌ "Never from `CLOSED`, `WALKOUT`, or `CANCELED`" (cancellation rules) → `WALKOUT` doesn't
   exist; the terminal states are `CLOSED` and `CANCELED`.
 - ❌ Partial unique index "where status NOT IN (`CLOSED`, `WALKOUT`, `CANCELED`)" (Tables) →
-  `WALKOUT` doesn't exist, and the index itself is gone regardless — see §11 #6.
+  `WALKOUT` doesn't exist, and the index itself is gone regardless — see §11 #5.
 - ❌ "No restore ... on walkout" (Stock tracking, consumption flow) → the whole surrounding
   per-dish ingredient model is superseded by count-based inventory (§4); the walkout clause is
   additionally dead on its own terms.
@@ -571,10 +650,14 @@ warning about a deleted file reads as current until someone checks the path exis
 - Update it in the same commit that changes the behaviour it describes.
 - When a defect in §11 is fixed, delete the entry — don't mark it "done".
 - If §12 shrinks because someone corrects `decisions.md`, that's the goal.
-- **Vitest exists as of 2026-08-18** (`pnpm test` in `apps/master`, 23 tests) but covers pure
-  modules only — `payment-legs`, `server-port`, `format`. Everything else is still manual flows
-  plus the `scripts/smoke-*.ts` family; several `simulate-*.ts` helpers carry stale expectations,
-  so read before trusting a green run.
+- **Vitest exists as of 2026-08-18** (`pnpm test` in `apps/master`: 136 tests in 13 files on
+  `fix/server-money-guards`) but covers pure modules only — `payment-legs`, `money-input`,
+  `pin-lockout`, `errorHandler`, and the like. The finance e2e suite (`apps/master/e2e/`, its own
+  `vitest.e2e.config.ts`, versioned on that branch) drives the real server over HTTP in the Docker
+  harness: 104 tests, 38 of which fail on purpose, each pinning a defect a later slice owns — judge
+  a change by which tests flip. Everything else is manual flows plus the `scripts/smoke-*.ts`
+  family; several `simulate-*.ts` helpers carry stale expectations, so read before trusting a
+  green run.
 - **2026-08-18:** ten entries left §11 by being fixed, and are deleted per the rule above rather
   than listed. For the record, since a cold reader may wonder what changed: money grouped with a
   comma everywhere (`Intl.NumberFormat('uz-UZ')` does that, against the spec and against
@@ -645,3 +728,18 @@ warning about a deleted file reads as current until someone checks the path exis
   body carried `debt: { debtorName, debtorPhone }` — then left the queue. The `+ Yangi qarzdor`
   fallback autofocuses a 48px field and gates `Tayyor` on a non-empty name. Measured in the same
   pass: nothing in the panel renders below the 768px frame edge.
+- **2026-10-01 (fourth renumbering, by deletion and addition; PRD 14, `fix/server-money-guards`):**
+  four entries left §11 by being fixed and are deleted per the rule above — the duplicate confirm
+  (`setClosed`/`setCanceled` had no compare-and-swap), payment amounts with no non-negative check,
+  zod failures answering 500, and the non-integer payment amount's opaque failure. Two were added
+  (a debt paid after its write-off shows on two screens; the PIN lock resets on a successful
+  login), and the old #2 took in the line-edit race. Old 2, 4, 5, 6, 9, 10, 11, 13, 14, 15 are now
+  1, 2, 4, 5, 8, 9, 10, 11, 12, 13; #7 kept its number. Every `§11` cross-reference in the file was
+  re-checked against content (§2, §3, §5, §7, §8, §10, §12 ×3); the one in §6 went with the
+  deleted entry. Behaviour documented in this pass: confirm claims SENT→CLOSED first and prints
+  after the commit (§2); cancel and the stale-draft cleanup claim first and restore from lines
+  re-read inside their transaction (§2, §4, §9); repayment is one conditional decrement and
+  written-off debts stay repayable (§5); PIN lockout is per device (§8); one SQLite connection
+  (§9); a failed schema answers 400 (§6). Verified in the Docker harness at `d04a2a8`:
+  `pnpm test` 136 tests in 13 files, finance e2e 66 pass / 38 fail (104), `pnpm typecheck` **47**
+  (the `loginPin` rewrite removed one error), `typecheck:renderer` and `typecheck:gallery` 0.

@@ -332,17 +332,29 @@ they cite. See `docs/superpowers/specs/2026-08-13-count-based-inventory-design.m
 |---|---|---|---|
 | 1 | `F-5` | `audit.repo.ts` — `include: { user: true }` → `select` of id/fullName/role | ✅ **DONE** (committed `13e44dd`) |
 | 2 | `F-4` | `userService.update` — reject role changes by non-OWNER; audit the change | ⬜ next |
-| 3 | `F-7` | `orders.controller.ts:52` — add `.nonnegative()` to payment amount | ⬜ |
-| 4 | `F-6` | `order.service.ts:673` — sum **all** DEBT legs; reject >1 | ⬜ |
+| 3 | `F-7` | `orders.controller.ts:52` — add `.nonnegative()` to payment amount | ✅ **DONE** 2026-10-01 — PRD 14 G3, `c45fe9b` on `fix/server-money-guards`: payment legs are `somAmountOrZero` (`lib/money-input.ts`), a whole so'm ≥ 0, else 400 |
+| 4 | `F-6` | `order.service.ts:673` — sum **all** DEBT legs; reject >1 | ✅ **DONE** 2026-10-01 — PRD 14 G3, `c45fe9b`: confirm rejects a second DEBT leg, and a DEBT leg of 0, with 400 (it refuses rather than sums) |
 | 5 | `C-8` | `socket.ts:51-52` — `socket.join('all')` for every authed socket | ✅ **DONE** — shipped on `feat/count-based-inventory` (`socket.ts` — every authenticated socket joins `all`) |
 | 6 | `C-3` | `index.ts:124` — add `httpServer.once('error', reject)` | ✅ **DONE** 2026-08-15 — rejects the startup promise, which `whenReady`'s catch turns into `dialog.showErrorBox`; `EADDRINUSE` gets a named Uzbek message. Prompted by side-by-side installs, which make port clashes routine |
+| 8 | `C-5` | `lib/scheduler.ts` — cancel + restore + audit stale drafts instead of deleting | ✅ **DONE** 2026-10-01 — PRD 14 G4, `e020b94`: `orderService.cancelStaleDraft`, audit `ORDER_CANCELED` with `automatic: true` |
+| — | `M-13` | `order.repo.ts` — `setClosed`/`setCanceled` compare-and-swap | ✅ **DONE** 2026-10-01 — PRD 14 G1, `b827140`: `closeIfSent` and `cancelIfIn` claim the order first (a conditional `updateMany`, count must be 1), so a double confirm, or a cancel racing a confirm, writes once. The modal half of the finding went with `ConfirmModal` in the C1 renderer rebuild |
+| — | `F-10`, `C-9` | Print outside the confirm transaction | ✅ **DONE** 2026-10-01 — PRD 14 G6, `d0e4d9b`: the bill prints after the commit; a failed print leaves the sale CLOSED and reprintable (`billPrinted: false`, "Qayta chop etish"). Owner alerts moved after the print in `ddcb5fb`; the notice closes and sits top-centre in `c5377eb` |
+| — | `C-10` | Keep a trace of a failed confirm-time print | **PARTLY DONE** 2026-10-01 — `d0e4d9b`: the print writes its own `PrintJob` row after the commit, so a failure survives as FAILED (none when no printer is chosen: the print stops before any row exists). Nothing reads failed jobs yet — `listFailedSinceDate` still has no caller |
+| — | `C-14` | Lock the device that mistyped a PIN, not the floor | ✅ **DONE** 2026-10-01 — PRD 14 G5, `3bd7b84`; one attempt per device at a time in `d04a2a8`. Known gap: a successful login clears the device's misses (`CURRENT_WORKFLOW.md` §8) |
+
+`#` follows §9; **—** marks a finding that is not a numbered step there. Rows 3, 4, 8 and the **—**
+rows were closed by PRD 14 (`docs/prd/14-server-money-guards.md`, slice 1 of the money rules):
+commits `e4082df..d04a2a8` on `fix/server-money-guards`, pushed as its own branch, not merged, not
+released.
 
 **Working protocol the user asked for:** explain each finding in plain language (what's wrong, why it
 costs the business money, why the fix is safe), invite questions, *then* implement — one finding at a
 time, not in a batch. Show the diff and typecheck after each.
 
-**Verification available:** `pnpm --filter @chayxana/master typecheck`. There is no test runner in
-this repo — see §7.
+**Verification available:** `pnpm --filter @chayxana/master typecheck` (47 errors on
+`fix/server-money-guards`), `pnpm test` in `apps/master` (pure modules), and the finance e2e suite
+(`apps/master/e2e/`; see `docs/CURRENT_WORKFLOW.md` §13). §7's "no test runner" describes the audit
+date, 2026-08-03.
 
 **Noticed during fix 1, not yet chased:** this pnpm version warns that `pnpm.overrides` in the root
 `package.json` is no longer read. That field pins React to 19.1.0 workspace-wide. It still holds

@@ -235,7 +235,7 @@ export async function runForensics(dbPath: string, opts: { days?: number } = {})
     add({
       id: 'attribution', area: 'Staff', issue: 'PIN', title: 'Bills taken under a non-waiter account; waiters with failed PINs',
       count: notWaiter.reduce((s, r) => s + num(r.n), 0), amount: notWaiter.reduce((s, r) => s + num(r.total), 0),
-      meaning: 'Five wrong PINs anywhere lock every waiter out; bills then go under someone else\'s name, and so does their Xizmat haqi.',
+      meaning: 'Before PRD 14, five wrong PINs anywhere locked every waiter out; bills then went under someone else\'s name, and so did their Xizmat haqi.',
       detail: [...notWaiter.map((r) => `${r.role} ${r.fullName}: ${r.n} bill(s), ${fmt(r.total)}`), ...locked.map((r) => `waiter ${r.fullName}: ${r.failedLogins} failed PIN(s) on record`)],
     });
 
