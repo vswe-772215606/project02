@@ -20,11 +20,12 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    `../project02-finance-e2e` (`apps/master/e2e/`, `vitest.e2e.config.ts`,
    `vite.e2e.config.ts`, `compose.e2e.yaml`). Move it to a branch off `feat/auto-update`,
    outside `pnpm test` (48 tests fail by design until fixed). Verify in the container:
-   `pnpm exec vitest run --config vitest.e2e.config.ts` → 39 pass / 48 fail.
-3. Fix the code-level causes test-first, with Barkamol's go-ahead (report causes 5–7:
-   double confirm, repayment race, draft cleanup stock, print holding the SQLite lock,
-   floor-wide PIN lockout, /xarajatlar, /hafta, dish-table total, bill register, waiter
-   "Jami"). Each fix flips its e2e test green. Verify: suite + `pnpm test` +
+   `pnpm exec vitest run --config vitest.e2e.config.ts` → 39 pass / 48 fail. Rewrite the
+   expectations listed in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §5 first.
+3. Build the slices in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7, each
+   with its own design and plan, test-first; slice 1 is the server guards (§4: double
+   confirm, repayment race, draft cleanup stock, print holding the SQLite lock, floor-wide
+   PIN lockout). Each fix flips its e2e test green. Verify: suite + `pnpm test` +
    `pnpm typecheck` (floor 48). Shipping needs items 4–5.
 4. Restore the update feed on avtobron — production, human-run, per
    `docs/UPDATE_FEED_RUNBOOK.md` §2.5 (serves carmap.uz's cert and SPA). Verify:
@@ -37,20 +38,19 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    with Windows, PIN lockout, printer fallback — the last two overlap item 3.
 
 **LAST DECISION**
-2026-09-30 — nothing settled by Barkamol. Proposed order for the money work: measure on
-the customer's database (item 1), settle the money rules (OPEN QUESTION), then fix the
-code-level causes, which need no decision. Money Map:
-https://claude.ai/artifact/5fWhB6Fb3tAs6aM1ZwVkYS · test report:
-https://claude.ai/artifact/Bnz1wr84tywTLPDaRnuMSR. The audit's §11 order is still a proposal.
+2026-09-30 — Barkamol settled the money rules (D9–D21; D3, D4 and waiter payouts
+confirmed): Kassa is cash only; the day ends at 05:00 and closes with a cash count; a
+forgotten expense is corrected on the day the cash left, with a message to the owner;
+write-offs book on the write-off day; food cost is tan narx only; ADMIN may see profit.
+Governing constraint: admins don't read notes — cash must match the drawer on its own.
+All of it: `docs/superpowers/specs/2026-09-30-money-rules-design.md`. The audit's §11
+order is still a proposal.
 
 **OPEN QUESTION**
 Barkamol, with the chayxana owner:
-- Money rules behind most wrong numbers (recommendations in the test report): Kassa =
-  cash only? How purchases reach profit when a dish has a tan narx, and is tan narx
-  required? Build the waiter payout record? Finish D3 or make the discount cap bind?
-  Write-off button, loss on its own day? One meaning of "Sotuv"? May a reported day change?
-- Were the seeded owner/admin passwords changed on the till? Turn the nightly Telegram
-  report on? (Off on every packaged install — confirmed by test.)
+- Two assumptions in the money-rules doc §6: Hisobot opens to ADMIN too; a closed day
+  may be corrected however far back (every correction messages the owner).
+- Were the seeded owner/admin passwords changed on the till?
 - Is a separate registered fiscal register used at the counter?
 - Continue `feat/web-platform`? (No payments offline; slice 1 already landed.)
 - Which visual rulebook wins: `docs/UI_UX_RULES.md` or `docs/design/BLOCKS_C1.md`?
@@ -59,7 +59,8 @@ Barkamol, with the chayxana owner:
 - `../project02-finance-e2e` holds the only copy of the finance suite and diagnostic,
   untracked: don't remove or clean it before item 2. Never commit its `e2e/.data/`.
 - The ledger core (`reports.service.ts` dailyLedger, billing math, `cashOut` not
-  `expenseNet`): every control passes; defects are in inputs, copies and guards.
+  `expenseNet`): every control passes; defects are in inputs, copies and guards. D9
+  (cash-only Kassa) and D11 (05:00 day) change what it groups, not its formulas.
 - `apps/master` deliberately does not build on `feat/web-platform`; the demo runs
   from `../project02-demo` on that branch, never from here.
 - `docs/UI_UX_RULES.md` is the declared source of truth for visual decisions, but it
@@ -70,7 +71,7 @@ Barkamol, with the chayxana owner:
 
 <!-- auto:git -->
 - branch: feat/auto-update
-- last commit: de1e67e 2026-09-30 docs: state after the 2026-09-30 audit, for a cold start
-- uncommitted files: 3
-- refreshed: 2026-09-30 19:12
+- last commit: f598ebe 2026-09-30 docs: state after the finance tests, for a cold start
+- uncommitted files: 4
+- refreshed: 2026-09-30 21:37
 <!-- /auto:git -->
