@@ -121,4 +121,23 @@ describe('Day 2', () => {
     const state = r.status < 300 ? `${r.body.repayStatus}, remaining ${r.body.remainingAmount}` : '';
     expect(r.status, `a 99 999.5 return was answered ${r.status} ${state}`).toBeGreaterThanOrEqual(400);
   });
+
+  it("[PRD 14 G3] an expense must be whole so'm and above zero", async () => {
+    const before = await env.prisma.expense.count();
+    const book = (amount: unknown) =>
+      w.admin.call('POST', '/api/expenses', { amount, reason: 'Summa sinovi', occurredAt: at(`${D2}T12:00`).toISOString() });
+    const answers = {
+      fractional: await book(12500.5),
+      zero: await book(0),
+      negative: await book(-5000),
+      text: await book('12 500'),
+    };
+    expect(
+      {
+        statuses: Object.fromEntries(Object.entries(answers).map(([what, r]) => [what, r.status])),
+        written: (await env.prisma.expense.count()) - before,
+      },
+      JSON.stringify(Object.values(answers).map((r) => r.body?.error?.code)),
+    ).toEqual({ statuses: { fractional: 400, zero: 400, negative: 400, text: 400 }, written: 0 });
+  });
 });

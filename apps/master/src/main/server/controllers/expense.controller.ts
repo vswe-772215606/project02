@@ -1,11 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { expenseService } from '../services/expense.service';
+import { somAmount } from '../lib/money-input';
 import { localDayRangeFor, parseLocalDay } from '../lib/time';
 
 const createExpenseSchema = z.object({
   categoryId: z.string().min(1).optional(),
-  amount: z.union([z.number().positive(), z.string().min(1)]),
+  amount: somAmount,
   reason: z.string().trim().min(3),
   note: z.string().optional(),
   occurredAt: z.string().datetime(),
@@ -17,7 +18,7 @@ const reverseExpenseSchema = z.object({
 });
 
 const recordReturnSchema = z.object({
-  amount: z.union([z.number().positive(), z.string().min(1)]),
+  amount: somAmount,
   receivedAt: z.string().datetime().optional(),
   note: z.string().optional(),
 });

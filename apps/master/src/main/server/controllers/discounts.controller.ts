@@ -1,10 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { discountService } from '../services/discount.service';
+import { somAmountOrZero } from '../lib/money-input';
 
 const createSchema = z.object({
   name: z.string().min(1),
-  value: z.union([z.number().int(), z.string().min(1)]),
+  value: somAmountOrZero,
 });
 
 const updateSchema = createSchema.partial().extend({

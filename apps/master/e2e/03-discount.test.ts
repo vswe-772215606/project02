@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Chegirma (F7, F8, C7) and the large-discount alert (F45, C45).
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { boot, buildWorld, capturePrints, openOrder, sendOrder, type Env, type World } from './harness';
+import { boot, buildWorld, capturePrints, n, openOrder, sendOrder, type Env, type World } from './harness';
 
 const printer = capturePrints();
 let env: Env;
@@ -26,6 +26,28 @@ describe('Chegirma', () => {
   it('control: a preset above "Maksimal" (100 000) cannot be created', async () => {
     const r = await w.admin.call('POST', '/api/discounts', { name: 'Katta', value: 150000 });
     expect(r.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("[PRD 14 G3] a preset must be whole so'm: a negative or fractional one is refused", async () => {
+    // A negative preset would add money to the bill: the confirm takes min(value, subtotal) off it.
+    const before = await env.prisma.discount.count();
+    const negative = await w.admin.call('POST', '/api/discounts', { name: 'Minus', value: -5000 });
+    const fractional = await w.admin.call('POST', '/api/discounts', { name: 'Yarim', value: 2500.5 });
+    const kept = await w.admin.post('/api/discounts', { name: 'Besh ming', value: 5000 }); // control: a whole preset still saves
+    const edited = await w.admin.call('PATCH', `/api/discounts/${kept.id}`, { value: -1000 });
+    const created = (await env.prisma.discount.count()) - before;
+    const row = await env.prisma.discount.findUniqueOrThrow({ where: { id: kept.id } });
+    expect(
+      {
+        negative: negative.status,
+        code: negative.body?.error?.code,
+        fractional: fractional.status,
+        edited: edited.status,
+        created,
+        stored: n(row.value),
+      },
+      JSON.stringify([negative.body?.error, fractional.body?.error, edited.body?.error]),
+    ).toEqual({ negative: 400, code: 'VALIDATION', fractional: 400, edited: 400, created: 1, stored: 5000 });
   });
 
   it('[issue 15] a typed discount above "Maksimal" (100 000) is refused, as the setting promises', async () => {

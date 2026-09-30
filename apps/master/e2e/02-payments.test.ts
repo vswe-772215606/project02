@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Payment legs at Tasdiqlash (F5, F6, C10, C11).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { boot, buildWorld, capturePrints, n, openOrder, sendOrder, type Env, type World } from './harness';
+import { boot, buildWorld, capturePrints, openOrder, sendOrder, type Env, type World } from './harness';
 
 const printer = capturePrints();
 let env: Env;
@@ -43,17 +43,36 @@ describe('Payment legs', () => {
     ).toBe(400);
   });
 
-  it('[issue 28] two Nasiya legs open debts for their full sum', async () => {
+  it('[issue 28] a second Nasiya leg is refused and nothing is written', async () => {
     const id = await sentOrder([[w.items.osh, 2]]); // 90 000
-    await w.admin.post(`/api/orders/${id}/confirm`, {
+    const r = await w.admin.call('POST', `/api/orders/${id}/confirm`, {
       payments: [{ method: 'DEBT', amount: 50000 }, { method: 'DEBT', amount: 40000 }],
       debt: { debtorName: 'Ikki qism' },
     });
-    const debts = await env.prisma.debt.findMany({ where: { orderId: id } });
-    const opened = debts.reduce((s, d) => s + n(d.originalAmount), 0);
-    const legs = await env.prisma.payment.findMany({ where: { orderId: id, method: 'DEBT' } });
-    const legSum = legs.reduce((s, p) => s + n(p.amount), 0);
-    expect(opened, `Nasiya legs recorded: ${legSum}; debt ledger opened: ${opened}`).toBe(legSum);
+    const payments = await env.prisma.payment.count({ where: { orderId: id } });
+    const debts = await env.prisma.debt.count({ where: { orderId: id } });
+    const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
+    expect(
+      { status: r.status, payments, debts, order: order.status },
+      JSON.stringify(r.body?.error ?? ''),
+    ).toEqual({ status: 400, payments: 0, debts: 0, order: 'SENT' });
+  });
+
+  it('[PRD 14 G3] a Nasiya leg of 0 is refused and nothing is written', async () => {
+    const id = await sentOrder([[w.items.osh, 2]]); // 90 000
+    // The ticket drops a zero Nasiya leg before it sends. One that arrives anyway
+    // would open a debt of 0 that can never be repaid.
+    const r = await w.admin.call('POST', `/api/orders/${id}/confirm`, {
+      payments: [{ method: 'DEBT', amount: 0 }, { method: 'CASH', amount: 90000 }],
+      debt: { debtorName: 'Nol qism' },
+    });
+    const payments = await env.prisma.payment.count({ where: { orderId: id } });
+    const debts = await env.prisma.debt.count({ where: { orderId: id } });
+    const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
+    expect(
+      { status: r.status, code: r.body?.error?.code, payments, debts, order: order.status },
+      JSON.stringify(r.body?.error ?? ''),
+    ).toEqual({ status: 400, code: 'VALIDATION', payments: 0, debts: 0, order: 'SENT' });
   });
 
   it('[issue 26] confirming the same bill twice at the same moment charges it once', async () => {

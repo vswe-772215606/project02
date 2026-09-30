@@ -46,6 +46,29 @@ describe('Nasiya', () => {
       .toEqual({ d2MoneyIn: 40000, d1Unchanged: true });
   });
 
+  it("[PRD 14 G3] a repayment must be whole so'm and above zero", async () => {
+    const karim = await debtByName('Karim aka');
+    const snapshot = async () => {
+      const debt = await env.prisma.debt.findUniqueOrThrow({ where: { id: karim.id }, include: { repayments: true } });
+      return { balance: n(debt.remainingAmount), repayments: debt.repayments.length };
+    };
+    const before = await snapshot();
+    const pay = (amount: unknown) => w.admin.call('POST', `/api/debts/${karim.id}/repayments`, { amount, method: 'CASH' });
+    const answers = {
+      fractional: await pay(1000.5),
+      zero: await pay(0),
+      negative: await pay(-1000),
+      text: await pay('1 000'),
+    };
+    expect(
+      {
+        statuses: Object.fromEntries(Object.entries(answers).map(([what, r]) => [what, r.status])),
+        after: await snapshot(),
+      },
+      JSON.stringify(Object.values(answers).map((r) => r.body?.error?.code)),
+    ).toEqual({ statuses: { fractional: 400, zero: 400, negative: 400, text: 400 }, after: before });
+  });
+
   it('[issue 29] two repayments taken at the same moment both reduce the balance', async () => {
     const lines: string[] = [];
     let lost = 0;

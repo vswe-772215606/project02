@@ -2,6 +2,7 @@ import { DebtStatus, PaymentMethod } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { debtService } from '../services/debt.service';
+import { somAmount } from '../lib/money-input';
 import { parseLocalDay } from '../lib/time';
 
 const debtListQuery = z.object({
@@ -10,7 +11,7 @@ const debtListQuery = z.object({
 });
 
 const repaymentSchema = z.object({
-  amount: z.union([z.number().positive(), z.string().min(1)]),
+  amount: somAmount,
   method: z.enum([PaymentMethod.CASH, PaymentMethod.CARD]),
   paidAt: z.string().datetime().optional(),
   note: z.string().optional(),

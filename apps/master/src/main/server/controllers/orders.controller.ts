@@ -2,6 +2,7 @@ import { OrderStatus, PaymentMethod, UserRole } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { orderService } from '../services/order.service';
+import { somAmountOrZero } from '../lib/money-input';
 import { parseLocalDay } from '../lib/time';
 
 const createSchema = z.object({
@@ -49,7 +50,7 @@ const confirmSchema = z.object({
   waiveServiceCharge: z.boolean().optional(),
   payments: z.array(z.object({
     method: z.nativeEnum(PaymentMethod),
-    amount: z.union([z.number().int(), z.string().min(1)]),
+    amount: somAmountOrZero,
     reference: z.string().optional(),
   })).min(1),
   debt: z.object({

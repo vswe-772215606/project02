@@ -45,6 +45,67 @@ describe('Stock and food cost', () => {
     expect(r.status, `a FOOD dish with no tan narx was answered ${r.status}`).toBeGreaterThanOrEqual(400);
   });
 
+  it("[PRD 14 G3] a dish's price and tan narx must be whole so'm: a negative or fractional one is refused", async () => {
+    // A fractional price makes a bill total that no whole-so'm payment can equal.
+    const cat = (await w.admin.get('/api/menu/categories'))[0].id;
+    const before = await env.prisma.menuItem.count();
+    const create = (over: Record<string, unknown>) =>
+      w.admin.call('POST', '/api/menu/items', { categoryId: cat, name: 'Narx sinovi', price: 30000, mode: 'UNCOUNTED', costPrice: 12000, ...over });
+    const edit = (over: Record<string, unknown>) => w.admin.call('PATCH', `/api/menu/items/${w.items.choy}`, over);
+    const refused = {
+      createNegativePrice: await create({ price: -5000 }),
+      createFractionalPrice: await create({ price: 12500.5 }),
+      createFractionalCost: await create({ costPrice: 12000.5 }),
+      editNegativePrice: await edit({ price: -5000 }),
+      editFractionalPrice: await edit({ price: 4999.5 }),
+      editFractionalCostText: await edit({ costPrice: '999.5' }),
+    };
+    const choy = await env.prisma.menuItem.findUniqueOrThrow({ where: { id: w.items.choy } });
+    expect(
+      {
+        statuses: Object.fromEntries(Object.entries(refused).map(([what, r]) => [what, r.status])),
+        code: refused.createNegativePrice.body?.error?.code,
+        created: (await env.prisma.menuItem.count()) - before,
+        choy: { price: n(choy.price), cost: n(choy.costPrice) },
+      },
+      JSON.stringify(Object.values(refused).map((r) => r.body?.error)),
+    ).toEqual({
+      statuses: {
+        createNegativePrice: 400,
+        createFractionalPrice: 400,
+        createFractionalCost: 400,
+        editNegativePrice: 400,
+        editFractionalPrice: 400,
+        editFractionalCostText: 400,
+      },
+      code: 'VALIDATION',
+      created: 0,
+      choy: { price: 5000, cost: 1000 },
+    });
+  });
+
+  it('control: what the Menyu forms send today is still accepted', async () => {
+    const cat = (await w.admin.get('/api/menu/categories'))[0].id;
+    // NewItemPanel with the price box left blank sends 0, and null for a tan narx box left blank.
+    // A Xizmat haqi line, so the control stays true when a food dish must have a tan narx (D4).
+    const created = await w.admin.call('POST', '/api/menu/items', {
+      categoryId: cat, name: 'Forma sinovi', price: 0, mode: 'SERVICE', costPrice: null,
+    });
+    // ItemPanel sends the price as a number; MenuPage turns the tan narx into text before it goes out.
+    const choy = await env.prisma.menuItem.findUniqueOrThrow({ where: { id: w.items.choy } });
+    const edited = await w.admin.call('PATCH', `/api/menu/items/${w.items.choy}`, {
+      name: choy.name,
+      categoryId: choy.categoryId,
+      price: n(choy.price),
+      counted: choy.counted,
+      costPrice: String(n(choy.costPrice)),
+    });
+    expect(
+      { created: created.status, edited: edited.status },
+      JSON.stringify([created.body?.error, edited.body?.error]),
+    ).toEqual({ created: 201, edited: 200 });
+  });
+
   it('[issue 4] selling a dish with no tan narx books its food cost, not a 100% margin', async () => {
     await sale(w, w.w1, [[w.items.salat, 2]], { payments: [{ method: 'CASH', amount: 40000 }] });
     const ledger = await env.svc.reports.dailyLedger(env.svc.time.localDayKey());

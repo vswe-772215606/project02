@@ -708,7 +708,18 @@ export const orderService = {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
       }
 
-      const debtPayment = input.payments.find((payment) => payment.method === PaymentMethod.DEBT);
+      // One debtor per bill: a second Nasiya leg would be stored as a payment
+      // but never become a debt (PRD 14 G3).
+      const debtLegs = input.payments.filter((payment) => payment.method === PaymentMethod.DEBT);
+      if (debtLegs.length > 1) {
+        throw Errors.Validation("Bitta hisobda faqat bitta nasiya qatori bo'lishi mumkin");
+      }
+      const debtPayment = debtLegs[0];
+      // A Nasiya leg of 0 would open a debt of 0 that can never be repaid. The
+      // ticket already drops such a leg before it sends (renderer/lib/payment-legs.ts).
+      if (debtPayment && decimalToInt(debtPayment.amount) <= 0) {
+        throw Errors.Validation("Nasiya summasi 0 dan katta bo'lishi kerak");
+      }
       if (debtPayment && !input.debt?.debtorName?.trim()) {
         throw Errors.DebtMetadataRequired();
       }
