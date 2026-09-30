@@ -679,8 +679,8 @@ export const orderService = {
    * Combined "Tasdiqlash + To'lov" — the only path from SENT to CLOSED.
    *
    * One transaction: claim SENT → CLOSED → snapshot totals → insert payments
-   * (and the debt, if any) → audit ORDER_CONFIRMED. After the commit:
-   * order:closed and the owner alerts go out, then the bill prints.
+   * (and the debt, if any) → audit ORDER_CONFIRMED. After the commit, in this
+   * order: order:closed goes out, the bill prints, the owner alerts fire.
    *
    * A failed print leaves the sale CLOSED and paid; the result says
    * `billPrinted: false` and the admin reprints (PRD 14 G6).
@@ -700,7 +700,9 @@ export const orderService = {
       note?: string;
     };
   }) {
-    const closedOrder = await completeEmitContext(async () => {
+    // Not completeEmitContext: that flushes the emits and the alerts together,
+    // and confirm has to put the print between them (see below).
+    return withEmitContext(async () => {
       const order = await getOrderOrThrow(input.orderId);
       if (order.status !== OrderStatus.SENT) {
         throw Errors.IllegalStateTransition(order.status, OrderStatus.CLOSED);
@@ -723,7 +725,7 @@ export const orderService = {
         throw Errors.PaymentMismatch(`Paid ${totalPaid}, but order total is ${totalDue}`);
       }
 
-      return getPrisma().$transaction(async (tx) => {
+      const closedOrder = await getPrisma().$transaction(async (tx) => {
         const closedAt = new Date();
 
         // Claim the bill before writing anything else. A second confirm — another
@@ -780,9 +782,9 @@ export const orderService = {
         deferEmit('admin', 'order:closed', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:closed', { orderId: order.id });
 
-        // Owner alerts — fire only after this transaction commits. A large
-        // discount and/or a nasiya sale are the two confirm-time events worth
-        // pushing immediately.
+        // Owner alerts — queued here, fired last: after the commit, the emits
+        // and the print. A large discount and/or a nasiya sale are the two
+        // confirm-time events worth pushing immediately.
         const orderNumber = order.id.slice(-6).toUpperCase();
         deferAfterCommit(() =>
           alertService.largeDiscount({
@@ -802,22 +804,32 @@ export const orderService = {
 
         return getOrderOrThrow(order.id, tx);
       }, { timeout: 30_000, maxWait: 10_000 });
+
+      // The sale is committed; what follows is ordered on purpose. A transaction
+      // that throws never gets here, so nothing is emitted, printed or alerted
+      // for a sale that did not commit.
+      //
+      // 1. Other screens hear about it at once, before any slow step.
+      await flushDeferredEmits();
+
+      // 2. The bill prints (PRD 14 G6): it never holds SQLite's write lock, and
+      //    a failed print never undoes a paid bill. With a printer chosen,
+      //    printBill records the attempt as a PrintJob; either way the result
+      //    says billPrinted: false and the admin reprints.
+      let printError: string | null = null;
+      try {
+        await printService.printBill(closedOrder);
+      } catch (error) {
+        printError = error instanceof Error ? error.message : 'Chek chop etilmadi';
+      }
+
+      // 3. The owner alerts go last: each awaits a Telegram call with no
+      //    timeout, so an unreachable Telegram must hold neither the screens
+      //    nor the customer's slip.
+      await flushAfterCommit();
+
+      return { ...mapToDto(closedOrder), billPrinted: printError === null, printError };
     });
-
-    // completeEmitContext has flushed order:closed and the owner alerts, so a
-    // slow or jammed printer delays neither. The bill prints after the sale
-    // commits (PRD 14 G6): it never holds SQLite's write lock, and a failed
-    // print never undoes a paid bill. With a printer chosen, printBill records
-    // the attempt as a PrintJob; either way the result says billPrinted: false
-    // and the admin reprints.
-    let printError: string | null = null;
-    try {
-      await printService.printBill(closedOrder);
-    } catch (error) {
-      printError = error instanceof Error ? error.message : 'Chek chop etilmadi';
-    }
-
-    return { ...mapToDto(closedOrder), billPrinted: printError === null, printError };
   },
 
   async reprintBill(input: { orderId: string; requestingUserId: string; reason?: string }) {

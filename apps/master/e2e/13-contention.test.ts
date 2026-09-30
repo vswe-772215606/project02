@@ -141,4 +141,41 @@ describe('Write contention', () => {
       `the confirm answered ${confirm.status} ${JSON.stringify(confirm.body?.error ?? '')}; the waiter's add answered ${add.status} after ${waited} ms; the reprint answered ${reprint.status}`,
     ).toEqual({ confirm: 200, billPrinted: true, order: 'CLOSED', payments: 1, addStatus: 201, addWaitedUnder2s: true });
   }, 60_000);
+
+  it('[PRD 14 G6] the owner alerts fire after the bill prints, and a hung alert never holds the slip', async () => {
+    const id = await openOrder(w.w1, w.nextTable(), [[w.items.osh, 1]]);
+    await sendOrder(w.w1, id);
+
+    // Every owner alert awaits a Telegram call that has no timeout. Here that
+    // call never answers: the alert hangs until the test lets it go.
+    const { alertService } = await import('../src/main/server/services/alert.service');
+    let reached!: () => void;
+    const alertReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let letGo!: () => void;
+    const hung = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const spy = vi.spyOn(alertService, 'debtSale').mockImplementation(async () => {
+      reached();
+      await hung;
+    });
+
+    const confirming = w.admin.call('POST', `/api/orders/${id}/confirm`, {
+      payments: [{ method: 'DEBT', amount: 45000 }],
+      debt: { debtorName: 'Karim aka' },
+    });
+    await Promise.race([alertReached, confirming]); // the alert is hanging now, or the confirm answered without one
+    const printedWhileAlertHung = printer.prints.some((p) => p.orderId === id);
+    letGo();
+    const confirm = await confirming;
+    const alerted = spy.mock.calls.map(([call]) => call.debtorName);
+    spy.mockRestore();
+
+    expect(
+      { printedWhileAlertHung, status: confirm.status, billPrinted: confirm.body?.billPrinted, alerted },
+      `the slip ${printedWhileAlertHung ? 'had printed' : 'was still waiting'} while the owner alert hung; the confirm answered ${confirm.status} ${JSON.stringify(confirm.body?.error ?? '')}`,
+    ).toEqual({ printedWhileAlertHung: true, status: 200, billPrinted: true, alerted: ['Karim aka'] });
+  });
 });

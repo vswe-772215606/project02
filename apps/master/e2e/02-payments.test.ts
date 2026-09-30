@@ -78,21 +78,31 @@ describe('Payment legs', () => {
   it('[PRD 14 G1] a cancel racing a confirm never cancels a paid bill', async () => {
     const report: string[] = [];
     let broken = 0;
+    const won = { confirm: 0, cancel: 0 };
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const id = await sentOrder([[w.items.somsa, 1]]); // 8 000
-      const [confirm, cancel] = await Promise.all([
-        w.admin.call('POST', `/api/orders/${id}/confirm`, { payments: [{ method: 'CASH', amount: 8000 }] }),
-        w.admin.call('POST', `/api/orders/${id}/cancel`, { reason: 'Mehmon ketdi' }),
-      ]);
+      // The request sent first tends to win, so alternate which one that is:
+      // confirm first on odd attempts, cancel first on even ones. Either may win.
+      const cancelFirst = attempt % 2 === 1;
+      const sendConfirm = () => w.admin.call('POST', `/api/orders/${id}/confirm`, { payments: [{ method: 'CASH', amount: 8000 }] });
+      const sendCancel = () => w.admin.call('POST', `/api/orders/${id}/cancel`, { reason: 'Mehmon ketdi' });
+      const first = cancelFirst ? sendCancel() : sendConfirm();
+      const second = cancelFirst ? sendConfirm() : sendCancel();
+      const [a, b] = await Promise.all([first, second]);
+      const confirm = cancelFirst ? b : a;
+      const cancel = cancelFirst ? a : b;
       const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
       const payments = await env.prisma.payment.count({ where: { orderId: id } });
       const prints = printer.prints.filter((p) => p.orderId === id).length;
-      report.push(`attempt ${attempt + 1}: confirm ${confirm.status}, cancel ${cancel.status}, order ${order.status}, payment rows ${payments}, bills printed ${prints}`);
+      if (confirm.status < 300) won.confirm += 1;
+      if (cancel.status < 300) won.cancel += 1;
+      report.push(`attempt ${attempt + 1} (${cancelFirst ? 'cancel' : 'confirm'} sent first): confirm ${confirm.status}, cancel ${cancel.status}, order ${order.status}, payment rows ${payments}, bills printed ${prints}`);
       const bothWon = confirm.status < 300 && cancel.status < 300;
       const paidButCanceled = order.status === 'CANCELED' && payments > 0;
       const canceledButPrinted = order.status === 'CANCELED' && prints > 0;
       if (bothWon || paidButCanceled || canceledButPrinted) broken += 1;
     }
+    report.push(`won: confirm ${won.confirm}, cancel ${won.cancel}`);
     expect(broken, report.join('\n')).toBe(0);
   });
 });
