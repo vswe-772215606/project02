@@ -167,9 +167,10 @@ Fixed as below unless Barkamol says otherwise.
 - The server refuses negative and fractional payment legs and more than one Nasiya leg (27, 28).
   Avans returns are whole so'm.
 - Stale-draft cleanup cancels instead of deleting, returns the stock and records it (7).
-- PIN lockout applies to the waiter who mistyped, not the whole floor.
-- Printing happens after the transaction commits, or with a timeout, so a slow print cannot hold
-  the SQLite write lock.
+- One waiter's wrong PINs never lock the rest of the floor out. A PIN-only login cannot tell who
+  mistyped, so five misses lock the device instead (PRD 14 G5, decided 2026-09-30).
+- The bill prints after the transaction commits, so a slow print cannot hold the SQLite write
+  lock; a failed print leaves the sale closed and reprintable (PRD 14 G6, decided 2026-09-30).
 - A discount typed after a Karta or Nasiya leg shrinks that leg instead of blocking Tasdiqlash (16).
 - Undoing a Keldi payment takes back its stock and the tan narx it set (19).
 - Keldi payments raise the large-expense alert (23).

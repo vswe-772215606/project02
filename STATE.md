@@ -23,10 +23,11 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    `pnpm exec vitest run --config vitest.e2e.config.ts` → 39 pass / 48 fail. Rewrite the
    expectations listed in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §5 first.
 3. Build the slices in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7, each
-   with its own design and plan, test-first; slice 1 is the server guards (§4: double
-   confirm, repayment race, draft cleanup stock, print holding the SQLite lock, floor-wide
-   PIN lockout). Each fix flips its e2e test green. Verify: suite + `pnpm test` +
-   `pnpm typecheck` (floor 48). Shipping needs items 4–5.
+   with its own design and plan, test-first. Slice 1, the server guards, is decided in
+   `docs/prd/14-server-money-guards.md` (print after commit, per-device PIN lock); next is
+   its implementation plan, on `fix/server-money-guards` off `feat/auto-update`. Each fix
+   flips its e2e test green. Verify: suite + `pnpm test` + `pnpm typecheck` (floor 48).
+   Shipping needs items 4–5.
 4. Restore the update feed on avtobron — production, human-run, per
    `docs/UPDATE_FEED_RUNBOOK.md` §2.5 (serves carmap.uz's cert and SPA). Verify:
    `curl -sS https://updates.mutallib.uz/chayxana/master/production/latest.yml` prints YAML
@@ -71,7 +72,7 @@ Barkamol, with the chayxana owner:
 
 <!-- auto:git -->
 - branch: feat/auto-update
-- last commit: f598ebe 2026-09-30 docs: state after the finance tests, for a cold start
-- uncommitted files: 4
-- refreshed: 2026-09-30 21:37
+- last commit: 39fa660 2026-09-30 docs: settle the money rules raised by the finance audit
+- uncommitted files: 6
+- refreshed: 2026-09-30 21:53
 <!-- /auto:git -->
