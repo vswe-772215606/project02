@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Nasiya across two days (F12–F14, C12–C15).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { at, boot, buildWorld, capturePrints, n, sale, setClock, type Env, type World } from './harness';
 
 const printer = capturePrints();
@@ -93,5 +93,46 @@ describe('Nasiya', () => {
       .filter((d: any) => d.status === 'OPEN' || d.status === 'PARTIAL')
       .reduce((s: number, d: any) => s + n(d.remainingAmount), 0);
     expect(live, `Qarzlar balances add up to ${live}; Hisobot / Telegram Qarz qoldig'i ${l.debt.outstandingAsOfEod}`).toBe(n(l.debt.outstandingAsOfEod));
+  });
+
+  it('[PRD 14 G2] a write-off racing a repayment never miscounts the debt', async () => {
+    // The owner alert carries the written-off balance too, so it is read back as well.
+    const { alertService } = await import('../src/main/server/services/alert.service');
+    const alerted = vi.spyOn(alertService, 'debtWriteOff').mockImplementation(async () => {});
+    const lines: string[] = [];
+    let miscounted = 0;
+    for (let i = 1; i <= 5; i += 1) {
+      const name = `Poyga ${i}`;
+      await sale(w, w.w1, [[w.items.osh, 1]], { payments: [{ method: 'DEBT', amount: 45000 }], debt: { debtorName: name } });
+      const debt = await debtByName(name);
+      const repaying = i % 2 === 1 ? 5000 : 45000;
+      const requests = {
+        repayment: () => w.admin.call('POST', `/api/debts/${debt.id}/repayments`, { amount: repaying, method: 'CASH' }),
+        'write-off': () => w.admin.call('POST', `/api/debts/${debt.id}/write-off`, { reason: 'Shahardan ketgan' }),
+      };
+      // The request sent first reaches the server first and commits first, so both
+      // orders are tried: the repayment leads in attempts 1 and 2, the write-off in 3 to 5.
+      const order: Array<keyof typeof requests> = i > 2 ? ['write-off', 'repayment'] : ['repayment', 'write-off'];
+      const answers = await Promise.all(order.map(async (what) => ({ what, status: (await requests[what]()).status })));
+
+      const after = await env.prisma.debt.findUniqueOrThrow({ where: { id: debt.id }, include: { repayments: true } });
+      const repaid = after.repayments.reduce((s, r) => s + n(r.amount), 0);
+      const recorded = (await env.prisma.auditLog.findMany({ where: { action: 'DEBT_WRITTEN_OFF', entityId: debt.id } }))
+        .map((a) => n((a.metadata as any).remainingAtWriteOff));
+      const alerts = alerted.mock.calls.filter(([c]) => c.debtorName === name).map(([c]) => n(c.amount));
+      const writtenOff = after.status === 'WRITTEN_OFF';
+      const balance = writtenOff ? recorded.reduce((s, x) => s + x, 0) : n(after.remainingAmount);
+
+      const problems: string[] = [];
+      if (balance + repaid !== 45000) problems.push(`${writtenOff ? 'written off' : 'balance'} ${balance} + repayments ${repaid} is not 45000`);
+      if (writtenOff && repaid === 45000) problems.push('a fully repaid debt was written off');
+      if (recorded.length !== (writtenOff ? 1 : 0)) problems.push(`${recorded.length} write-off(s) on record, yet the debt is ${after.status}`);
+      if (alerts.join() !== recorded.join()) problems.push(`the owner alert said ${alerts.join() || 'nothing'}, the record says ${recorded.join() || 'nothing'}`);
+      if (answers.every((a) => a.status >= 300)) problems.push('both requests were refused');
+      if (problems.length > 0) miscounted += 1;
+      lines.push(`debt ${i}: repaying ${repaying}, sent ${answers.map((a) => `${a.what} ${a.status}`).join(', then ')}; now ${after.status}, repayment rows ${repaid}${problems.length > 0 ? ` — ${problems.join('; ')}` : ''}`);
+    }
+    alerted.mockRestore();
+    expect(miscounted, lines.join('\n')).toBe(0);
   });
 });

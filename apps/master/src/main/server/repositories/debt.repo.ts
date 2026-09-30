@@ -228,20 +228,44 @@ export const debtRepo = {
     });
   },
 
-  async markWrittenOff(
+  /**
+   * Takes `amount` off an open balance in one statement. False when the debt is
+   * not open or its balance is smaller than `amount` — a concurrent repayment
+   * may have landed since it was read (PRD 14 G2).
+   */
+  async applyRepayment(id: string, amount: Prisma.Decimal, tx: Tx): Promise<boolean> {
+    const result = await tx.debt.updateMany({
+      where: {
+        id,
+        status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL] },
+        remainingAmount: { gte: amount },
+      },
+      data: { remainingAmount: { decrement: amount } },
+    });
+    return result.count === 1;
+  },
+
+  /**
+   * → WRITTEN_OFF, only from an open debt, as one conditional statement — so a
+   * debt a repayment has just closed is never written off on top of it, and a
+   * written-off one is never written off twice (PRD 14 G2). False when the debt
+   * is no longer OPEN or PARTIAL.
+   */
+  async writeOffIfOpen(
     id: string,
     input: { writtenOffById: string; writtenOffReason: string; writtenOffAt: Date },
-    tx?: Tx,
-  ) {
-    return (tx ?? getPrisma()).debt.update({
-      where: { id },
+    tx: Tx,
+  ): Promise<boolean> {
+    const result = await tx.debt.updateMany({
+      where: { id, status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL] } },
       data: {
         status: DebtStatus.WRITTEN_OFF,
         writtenOffAt: input.writtenOffAt,
         writtenOffReason: input.writtenOffReason,
-        writtenOffBy: { connect: { id: input.writtenOffById } },
+        writtenOffById: input.writtenOffById,
         closedAt: input.writtenOffAt,
       },
     });
+    return result.count === 1;
   },
 };

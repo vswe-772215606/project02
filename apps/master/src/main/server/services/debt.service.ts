@@ -153,6 +153,17 @@ export const debtService = {
     }
 
     await getPrisma().$transaction(async (tx) => {
+      // Take the amount off the balance in one conditional statement, so two
+      // repayments at the same moment both count and together can never
+      // overpay (PRD 14 G2). The checks above only choose the error message.
+      if (!(await debtRepo.applyRepayment(debt.id, amount, tx))) {
+        const current = await debtRepo.findById(debt.id, tx);
+        if (!current || current.status === DebtStatus.PAID || current.status === DebtStatus.WRITTEN_OFF) {
+          throw Errors.DebtNotOpen();
+        }
+        throw Errors.DebtOverpay();
+      }
+
       const repayment = await debtRepo.createRepayment({
         debt: { connect: { id: debt.id } },
         amount,
@@ -162,13 +173,16 @@ export const debtService = {
         receivedBy: { connect: { id: input.actorUserId } },
       }, tx);
 
-      const remainingAmount = debt.remainingAmount.minus(amount);
+      const after = await debtRepo.findById(debt.id, tx);
+      if (!after) {
+        throw Errors.NotFound('Debt');
+      }
+      const remainingAmount = after.remainingAmount;
       const status = remainingAmount.isZero()
         ? DebtStatus.PAID
         : DebtStatus.PARTIAL;
 
       await debtRepo.update(debt.id, {
-        remainingAmount,
         status,
         closedAt: remainingAmount.isZero() ? input.paidAt : null,
       }, tx);
@@ -225,12 +239,24 @@ export const debtService = {
 
     const writtenOffAt = new Date();
 
-    await getPrisma().$transaction(async (tx) => {
-      await debtRepo.markWrittenOff(debt.id, {
+    const remainingAtWriteOff = await getPrisma().$transaction(async (tx) => {
+      // The checks above only choose the error message. A repayment may have
+      // landed since they ran, so what is written off is what the debt holds now,
+      // read here: the transaction opens with BEGIN IMMEDIATE, so nothing else
+      // writes between this read and the commit (PRD 14 G2).
+      const current = await debtRepo.findById(debt.id, tx);
+      if (!current || (current.status !== DebtStatus.OPEN && current.status !== DebtStatus.PARTIAL)) {
+        throw Errors.DebtNotOpen();
+      }
+
+      const claimed = await debtRepo.writeOffIfOpen(debt.id, {
         writtenOffById: input.actorUserId,
         writtenOffReason: input.reason.trim(),
         writtenOffAt,
       }, tx);
+      if (!claimed) {
+        throw Errors.DebtNotOpen();
+      }
 
       await auditService.log({
         userId: input.actorUserId,
@@ -240,18 +266,20 @@ export const debtService = {
         metadata: {
           debtId: debt.id,
           reason: input.reason.trim(),
-          originalAmount: debt.originalAmount.toFixed(0),
-          remainingAtWriteOff: debt.remainingAmount.toFixed(0),
+          originalAmount: current.originalAmount.toFixed(0),
+          remainingAtWriteOff: current.remainingAmount.toFixed(0),
           writtenOffAt: writtenOffAt.toISOString(),
         },
       }, tx);
+
+      return current.remainingAmount;
     });
 
     // Owner alert (post-commit, fire-and-forget) — a written-off debt is a
     // real loss worth surfacing immediately.
     void alertService.debtWriteOff({
       debtorName: debt.debtorName,
-      amount: debt.remainingAmount.toFixed(0),
+      amount: remainingAtWriteOff.toFixed(0),
       reason: input.reason.trim(),
     });
 
