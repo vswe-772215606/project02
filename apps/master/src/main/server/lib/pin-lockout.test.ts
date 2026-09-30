@@ -38,4 +38,26 @@ describe('PinLockout', () => {
     for (let i = 0; i < 5; i += 1) lockout.recordMiss('10.0.0.5', T0);
     expect(lockout.recordMiss('10.0.0.5', T0 + FIVE_MINUTES)).toBeNull();
   });
+
+  it('ships with a limit of five misses and a lock of exactly five minutes', () => {
+    const lockout = new PinLockout();
+    for (let i = 0; i < 4; i += 1) expect(lockout.recordMiss('10.0.0.5', T0)).toBeNull();
+    expect(lockout.recordMiss('10.0.0.5', T0)).toBe(T0 + 5 * 60 * 1000);
+  });
+
+  it('runs one attempt per device at a time', () => {
+    const lockout = new PinLockout(5, FIVE_MINUTES);
+    expect(lockout.tryBegin('10.0.0.5')).toBe(true);
+    expect(lockout.tryBegin('10.0.0.5')).toBe(false);
+    lockout.end('10.0.0.5');
+    expect(lockout.tryBegin('10.0.0.5')).toBe(true);
+  });
+
+  it('lets another device try while one device has an attempt running', () => {
+    const lockout = new PinLockout(5, FIVE_MINUTES);
+    expect(lockout.tryBegin('10.0.0.5')).toBe(true);
+    expect(lockout.tryBegin('10.0.0.6')).toBe(true);
+    lockout.end('10.0.0.5');
+    expect(lockout.tryBegin('10.0.0.6')).toBe(false);
+  });
 });

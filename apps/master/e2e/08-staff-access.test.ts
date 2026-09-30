@@ -100,11 +100,27 @@ describe('PIN login (what pushes waiters onto each other\'s accounts)', () => {
     ).toBe(200);
   });
 
+  it('[PRD 14 G5] a waiter\'s own lock stops only that waiter, not a colleague with the right PIN', async () => {
+    // Aziz is first in the waiter list; the old login ran his lock before it compared anyone's PIN.
+    const phone = '127.0.0.4';
+    await env.prisma.user.update({ where: { id: w.waiterIds.w1 }, data: { lockedUntil: new Date(Date.now() + 10 * 60 * 1000) } });
+    try {
+      const colleague = await loginPinFrom(phone, '4926'); // Bekzod's correct PIN, Bekzod is not locked
+      const locked = await loginPinFrom(phone, '5738'); // Aziz's correct PIN, Aziz is locked
+      expect({ colleague: colleague.status, locked: locked.status }).toEqual({ colleague: 200, locked: 423 });
+    } finally {
+      await env.prisma.user.update({ where: { id: w.waiterIds.w1 }, data: { lockedUntil: null } });
+    }
+  });
+
   it('[PRD 14 G5] the phone that mistyped five times waits five minutes, even with a correct PIN', async () => {
-    // Continues from the five misses above, all from 127.0.0.1.
-    const locked = await Api.rawLoginPin(env.base, '5738'); // Aziz's correct PIN, same phone
+    // Its own five misses, from an address no other test uses. It moves the clock, so it stays the last test in the file.
+    const phone = '127.0.0.3';
+    const misses: number[] = [];
+    for (let i = 0; i < 5; i += 1) misses.push((await loginPinFrom(phone, '8642')).status);
+    const locked = await loginPinFrom(phone, '5738'); // Aziz's correct PIN, same phone
     setClock(new Date(Date.now() + 5 * 60 * 1000 + 1000));
-    const later = await Api.rawLoginPin(env.base, '5738');
-    expect({ locked: locked.status, later: later.status }).toEqual({ locked: 423, later: 200 });
+    const later = await loginPinFrom(phone, '5738');
+    expect({ misses, locked: locked.status, later: later.status }).toEqual({ misses: [401, 401, 401, 401, 423], locked: 423, later: 200 });
   });
 });

@@ -104,7 +104,9 @@ export const authService = {
    * PIN login. The PIN is compared first, and only the matched waiter's own lock
    * applies to them. A PIN that matches nobody counts against the device it came
    * from — five lock that device for five minutes, never the floor (PRD 14 G5).
-   * `deviceKey` is the client's address.
+   * `deviceKey` is the client's address. A device runs one attempt at a time:
+   * parallel guesses would all pass the lock check before the first miss is
+   * counted, and a late correct PIN would erase the lock the misses had set.
    */
   async loginPin(pin: string, deviceLabel: string | undefined, deviceKey: string): Promise<AuthResult> {
     const now = Date.now();
@@ -112,24 +114,33 @@ export const authService = {
     if (deviceLockedUntil !== null) {
       throw Errors.Locked(new Date(deviceLockedUntil));
     }
-
-    const waiters = await userRepo.findActiveByPin(pin);
-    for (const waiter of waiters) {
-      if (!waiter.pinHash) {
-        continue;
-      }
-      if (await bcrypt.compare(pin, waiter.pinHash)) {
-        ensureNotLocked(waiter);
-        pinLockout.recordSuccess(deviceKey);
-        return createSession(waiter, deviceLabel, new Date(now + 30 * 24 * 60 * 60 * 1000));
-      }
+    if (!pinLockout.tryBegin(deviceKey)) {
+      throw Errors.Conflict('Oldingi urinish hali tugamadi, biroz kuting');
     }
 
-    const lockedUntil = pinLockout.recordMiss(deviceKey, now);
-    if (lockedUntil !== null) {
-      throw Errors.Locked(new Date(lockedUntil));
+    try {
+      const waiters = await userRepo.findActiveByPin(pin);
+      for (const waiter of waiters) {
+        if (!waiter.pinHash) {
+          continue;
+        }
+        if (await bcrypt.compare(pin, waiter.pinHash)) {
+          ensureNotLocked(waiter);
+          pinLockout.recordSuccess(deviceKey);
+          // `await` keeps the device claimed until the session exists.
+          return await createSession(waiter, deviceLabel, new Date(now + 30 * 24 * 60 * 60 * 1000));
+        }
+      }
+
+      const lockedUntil = pinLockout.recordMiss(deviceKey, now);
+      if (lockedUntil !== null) {
+        console.warn('[auth] PIN device locked', deviceKey, new Date(lockedUntil).toISOString());
+        throw Errors.Locked(new Date(lockedUntil));
+      }
+      throw Errors.Unauthorized();
+    } finally {
+      pinLockout.end(deviceKey);
     }
-    throw Errors.Unauthorized();
   },
 
   async logout(token: string): Promise<void> {

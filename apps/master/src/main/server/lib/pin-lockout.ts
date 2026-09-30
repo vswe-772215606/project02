@@ -6,10 +6,13 @@ type Entry = { misses: number; lockedUntil: number | null };
 /**
  * PIN misses and locks, per device. A PIN-only login cannot tell which waiter
  * mistyped, so the device that sent five PINs matching nobody waits five
- * minutes — never the whole floor (PRD 14 G5). In memory: a restart clears it.
+ * minutes — never the whole floor (PRD 14 G5). One attempt per device runs at
+ * a time, so parallel guesses cannot all pass the lock check before the first
+ * miss is counted. In memory: a restart clears it.
  */
 export class PinLockout {
   private readonly entries = new Map<string, Entry>();
+  private readonly inFlight = new Set<string>();
 
   constructor(
     private readonly limit = PIN_MISS_LIMIT,
@@ -43,6 +46,18 @@ export class PinLockout {
 
   recordSuccess(device: string): void {
     this.entries.delete(device);
+  }
+
+  /** Claims the device for one attempt; false while another attempt from it is running. */
+  tryBegin(device: string): boolean {
+    if (this.inFlight.has(device)) return false;
+    this.inFlight.add(device);
+    return true;
+  }
+
+  /** Releases the device. Call it in a finally, so a thrown attempt cannot hold it. */
+  end(device: string): void {
+    this.inFlight.delete(device);
   }
 }
 
