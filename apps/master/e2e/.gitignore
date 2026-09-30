@@ -1,0 +1,2 @@
+# Test databases and any copy of a customer database: never commit.
+.data/

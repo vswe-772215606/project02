@@ -1,0 +1,14 @@
+# Isolated finance e2e harness: own project name, own port, own SQLite files.
+services:
+  master-dev:
+    ports: !override
+      - "4020:4020"
+      - "5199:5199"
+    environment:
+      DATABASE_URL: file:/app/apps/master/e2e/.data/server.db
+      PORT: "4020"
+      TZ: Asia/Tashkent
+    command: >
+      bash -lc "pnpm install --frozen-lockfile
+      && pnpm --filter @chayxana/master exec prisma generate
+      && touch /tmp/ready && tail -f /dev/null"
