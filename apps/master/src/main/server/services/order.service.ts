@@ -26,6 +26,8 @@ type OrderWithDetails = NonNullable<Awaited<ReturnType<typeof orderRepo.findById
 
 const ACTIVE_ORDER_STATUSES = [OrderStatus.DRAFT, OrderStatus.SENT] as const;
 
+export const STALE_DRAFT_REASON = 'Avtomatik bekor qilindi: 12 soat yuborilmadi';
+
 function decimalToInt(value: Prisma.Decimal | string | number | null | undefined): number {
   if (value === null || value === undefined) {
     return 0;
@@ -671,6 +673,53 @@ export const orderService = {
         deferEmit(`waiter:${order.waiterId}`, 'order:canceled', { orderId: order.id });
 
         return mapToDto(await orderRepo.findById(order.id, tx));
+      });
+    });
+  },
+
+  /**
+   * The scheduler's cancel for a draft left unsent for 12 hours: the same effect
+   * as a person cancelling it — the portions of every live line come back
+   * through stockService.restore and the order stays as a CANCELED record.
+   * AuditLog needs a user, so the actor is the draft's own waiter and the audit
+   * metadata says `automatic: true` (PRD 14 G4). False when the draft was sent
+   * or cancelled meanwhile.
+   */
+  async cancelStaleDraft(orderId: string): Promise<boolean> {
+    return completeEmitContext(async () => {
+      const order = await getOrderOrThrow(orderId);
+      if (order.status !== OrderStatus.DRAFT) return false;
+
+      return getPrisma().$transaction(async (tx) => {
+        if (!(await orderRepo.cancelIfIn(order.id, [OrderStatus.DRAFT], STALE_DRAFT_REASON, tx))) {
+          return false;
+        }
+
+        // The lines are re-read here, inside the transaction and after the claim,
+        // as cancelOrder does: a line added since the read above was never
+        // restored, and one cancelled since would be restored twice.
+        const freshOrder = await getOrderOrThrow(order.id, tx);
+        for (const line of freshOrder.lines) {
+          await maybeRestoreLineStock(line, freshOrder, order.waiterId, tx);
+        }
+
+        await auditService.log({
+          userId: order.waiterId,
+          action: 'ORDER_CANCELED',
+          entityType: 'Order',
+          entityId: order.id,
+          metadata: {
+            orderId: order.id,
+            reason: STALE_DRAFT_REASON,
+            fromStatus: OrderStatus.DRAFT,
+            automatic: true,
+          },
+        }, tx);
+
+        deferEmit('admin', 'order:canceled', { orderId: order.id });
+        deferEmit(`waiter:${order.waiterId}`, 'order:canceled', { orderId: order.id });
+
+        return true;
       });
     });
   },

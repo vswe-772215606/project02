@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Stock and food cost (F1, F2, F4, F11, F22, C2, C3, C26, C27).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { boot, buildWorld, capturePrints, itemState, n, openOrder, sale, sendOrder, setClock, type Env, type World } from './harness';
 
 const printer = capturePrints();
@@ -135,23 +135,70 @@ describe('Stock and food cost', () => {
     expect(n(row.cogs), `Achichuk sold for ${row.grossRevenue}; food cost booked ${row.cogs}; margin counted ${row.profit}`).toBeGreaterThan(0);
   });
 
-  it('[issue 7] when the automatic cleanup deletes a stale draft, its portions go back to stock', async () => {
+  it('[issue 7] the automatic cleanup cancels a stale draft and returns its portions to stock', async () => {
     const before = await itemState(env, w.items.somsa);
     const draftId = await openOrder(w.w2, w.nextTable(), [[w.items.somsa, 5]]); // never sent
     const taken = await itemState(env, w.items.somsa);
     expect(before.stock! - taken.stock!).toBe(5);
-    const entriesBefore = await env.prisma.stockEntry.count({ where: { menuItemId: w.items.somsa } });
 
     setClock(new Date(Date.now() + 13 * 60 * 60 * 1000)); // 13 hours later
     await env.svc.scheduler.runDraftCleanup();
 
-    const gone = (await env.prisma.order.findUnique({ where: { id: draftId } })) === null;
+    const draft = await env.prisma.order.findUniqueOrThrow({ where: { id: draftId } });
     const after = await itemState(env, w.items.somsa);
-    const entriesAfter = await env.prisma.stockEntry.count({ where: { menuItemId: w.items.somsa } });
-    expect(gone, 'the draft should have been deleted by the cleanup').toBe(true);
-    expect(
-      after.stock,
-      `Somsa count: ${before.stock} before the draft, ${taken.stock} with it, ${after.stock} after cleanup; stock entries written by the cleanup: ${entriesAfter - entriesBefore}`,
-    ).toBe(before.stock);
+    const audit = await env.prisma.auditLog.findFirst({ where: { entityId: draftId, action: 'ORDER_CANCELED' } });
+    expect({
+      status: draft.status,
+      reason: draft.cancelReason,
+      stock: after.stock,
+      automatic: (audit?.metadata as { automatic?: boolean } | null)?.automatic ?? false,
+    }).toEqual({
+      status: 'CANCELED',
+      reason: 'Avtomatik bekor qilindi: 12 soat yuborilmadi',
+      stock: before.stock,
+      automatic: true,
+    });
+  });
+
+  it('[PRD 14 G4] a stale draft that cannot be cancelled stays a draft and does not stop the others', async () => {
+    const before = await itemState(env, w.items.somsa);
+    const first = await openOrder(w.w2, w.nextTable(), [[w.items.somsa, 2]]);
+    const stuck = await openOrder(w.w2, w.nextTable(), [[w.items.somsa, 3]]);
+    const last = await openOrder(w.w2, w.nextTable(), [[w.items.somsa, 4]]);
+    const statuses = async () =>
+      Object.fromEntries((await env.prisma.order.findMany({ where: { id: { in: [first, stuck, last] } } })).map((o) => [o.id, o.status]));
+    const portionsTaken = async () => before.stock! - (await itemState(env, w.items.somsa)).stock!;
+
+    // The audit row is a cancel's last write, so refusing it fails the cancel of that draft after its claim and
+    // its stock restore: everything the cancel did to it has to roll back.
+    await env.prisma.$executeRawUnsafe(
+      `CREATE TRIGGER refuse_stuck_audit BEFORE INSERT ON "AuditLog" WHEN NEW."entityId" = '${stuck}' BEGIN SELECT RAISE(ABORT, 'audit refused'); END`,
+    );
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let logged: string[];
+    try {
+      setClock(new Date(Date.now() + 13 * 60 * 60 * 1000)); // 13 hours later
+      await env.svc.scheduler.runDraftCleanup();
+      logged = errors.mock.calls.map((call) => String(call[0]));
+    } finally {
+      errors.mockRestore();
+      await env.prisma.$executeRawUnsafe('DROP TRIGGER refuse_stuck_audit');
+    }
+    expect({
+      statuses: await statuses(),
+      portionsTaken: await portionsTaken(),
+      failureNamesTheDraft: logged.some((line) => line.includes(stuck)),
+    }).toEqual({
+      statuses: { [first]: 'CANCELED', [stuck]: 'DRAFT', [last]: 'CANCELED' },
+      portionsTaken: 3, // only the stuck draft still holds its portions
+      failureNamesTheDraft: true,
+    });
+
+    // With the fault gone, the next run cancels it as well.
+    await env.svc.scheduler.runDraftCleanup();
+    expect({ statuses: await statuses(), portionsTaken: await portionsTaken() }).toEqual({
+      statuses: { [first]: 'CANCELED', [stuck]: 'CANCELED', [last]: 'CANCELED' },
+      portionsTaken: 0,
+    });
   });
 });

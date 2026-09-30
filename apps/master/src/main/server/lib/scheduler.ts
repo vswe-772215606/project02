@@ -1,5 +1,6 @@
-import { getPrisma } from './prisma';
+import { orderRepo } from '../repositories/order.repo';
 import { financeReportService } from '../services/finance-report.service';
+import { orderService } from '../services/order.service';
 
 let draftCleanupInterval: NodeJS.Timeout | null = null;
 let financeInterval: NodeJS.Timeout | null = null;
@@ -7,14 +8,20 @@ let financeInterval: NodeJS.Timeout | null = null;
 export async function runDraftCleanup(): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000);
-    const result = await getPrisma().order.deleteMany({
-      where: {
-        status: 'DRAFT',
-        createdAt: { lt: cutoff },
-      },
-    });
-    if (result.count > 0) {
-      console.log(`[scheduler] cleaned ${result.count} stale drafts`);
+    const staleIds = await orderRepo.listStaleDraftIds(cutoff);
+    let canceled = 0;
+    for (const id of staleIds) {
+      // One draft that cannot be cancelled must not stop the rest. Its
+      // transaction rolled back, so it is still a draft and the next run tries
+      // it again.
+      try {
+        if (await orderService.cancelStaleDraft(id)) canceled += 1;
+      } catch (err) {
+        console.error(`[scheduler] stale draft ${id} not cancelled:`, err);
+      }
+    }
+    if (canceled > 0) {
+      console.log(`[scheduler] cancelled ${canceled} stale drafts`);
     }
   } catch (err) {
     console.error('[scheduler] draft cleanup failed:', err);
