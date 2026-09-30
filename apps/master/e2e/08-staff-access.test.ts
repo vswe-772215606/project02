@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { request } from 'http';
 // Waiter pay, line edits, PIN login and who can see profit (F2, F31, F52, C44).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Api, boot, buildWorld, capturePrints, n, openOrder, sale, sendOrder, type Env, type World } from './harness';
+import { Api, boot, buildWorld, capturePrints, n, openOrder, sale, sendOrder, setClock, type Env, type World } from './harness';
 
 const printer = capturePrints();
 let env: Env;
@@ -15,6 +16,29 @@ afterAll(async () => {
   printer.restore();
   await env?.close();
 });
+
+/** A PIN login from another phone on the LAN: a second loopback source address. */
+function loginPinFrom(localAddress: string, pin: string): Promise<{ status: number; body: any }> {
+  const url = new URL('/api/auth/login-pin', env.base);
+  const payload = JSON.stringify({ pin });
+  return new Promise((resolve, reject) => {
+    const req = request({
+      host: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      localAddress,
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+    }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => { text += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text ? JSON.parse(text) : null }));
+    });
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
 
 describe('Waiter pay and line edits', () => {
   it('[issue 24] a waiter cannot silently remove the Xizmat haqi line from a sent order', async () => {
@@ -66,13 +90,21 @@ describe('Who sees profit', () => {
 });
 
 describe('PIN login (what pushes waiters onto each other\'s accounts)', () => {
-  it('[misuse] five mistyped PINs by one waiter do not lock the other waiters out', async () => {
+  it('[misuse] five mistyped PINs on one phone do not lock the other waiters out', async () => {
     const attempts: number[] = [];
     for (let i = 0; i < 5; i += 1) attempts.push((await Api.rawLoginPin(env.base, '8642')).status);
-    const other = await Api.rawLoginPin(env.base, '4926'); // Bekzod's correct PIN
+    const other = await loginPinFrom('127.0.0.2', '4926'); // Bekzod's correct PIN, on his own phone
     expect(
       other.status,
-      `five wrong PINs answered ${attempts.join(', ')}; then Bekzod's correct PIN answered ${other.status} ${JSON.stringify(other.body?.error ?? '')}`,
+      `five wrong PINs answered ${attempts.join(', ')}; then Bekzod's correct PIN from another phone answered ${other.status} ${JSON.stringify(other.body?.error ?? '')}`,
     ).toBe(200);
+  });
+
+  it('[PRD 14 G5] the phone that mistyped five times waits five minutes, even with a correct PIN', async () => {
+    // Continues from the five misses above, all from 127.0.0.1.
+    const locked = await Api.rawLoginPin(env.base, '5738'); // Aziz's correct PIN, same phone
+    setClock(new Date(Date.now() + 5 * 60 * 1000 + 1000));
+    const later = await Api.rawLoginPin(env.base, '5738');
+    expect({ locked: locked.status, later: later.status }).toEqual({ locked: 423, later: 200 });
   });
 });

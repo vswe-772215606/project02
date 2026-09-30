@@ -28,7 +28,11 @@ export const authController = {
   async loginPin(req: Request, res: Response, next: NextFunction) {
     try {
       const body = loginPinSchema.parse(req.body);
-      const result = await authService.loginPin(body.pin, body.deviceLabel);
+      const result = await authService.loginPin(
+        body.pin,
+        body.deviceLabel,
+        req.ip ?? req.socket.remoteAddress ?? 'unknown',
+      );
       res.json({ token: result.token, user: toPublicUser(result.user) });
     } catch (error) {
       next(error);

@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { Session, User, UserRole } from '@prisma/client';
+import { Session, User } from '@prisma/client';
 import { Errors } from '../lib/errors';
+import { pinLockout } from '../lib/pin-lockout';
 import { sessionRepo } from '../repositories/session.repo';
 import { userRepo } from '../repositories/user.repo';
 import { kickUser } from '../socket';
@@ -99,26 +100,35 @@ export const authService = {
     return createSession(user, deviceLabel, new Date(Date.now() + 8 * 60 * 60 * 1000));
   },
 
-  async loginPin(pin: string, deviceLabel?: string): Promise<AuthResult> {
-    const waiters = await userRepo.findActiveByPin(pin);
+  /**
+   * PIN login. The PIN is compared first, and only the matched waiter's own lock
+   * applies to them. A PIN that matches nobody counts against the device it came
+   * from — five lock that device for five minutes, never the floor (PRD 14 G5).
+   * `deviceKey` is the client's address.
+   */
+  async loginPin(pin: string, deviceLabel: string | undefined, deviceKey: string): Promise<AuthResult> {
+    const now = Date.now();
+    const deviceLockedUntil = pinLockout.lockedUntil(deviceKey, now);
+    if (deviceLockedUntil !== null) {
+      throw Errors.Locked(new Date(deviceLockedUntil));
+    }
 
+    const waiters = await userRepo.findActiveByPin(pin);
     for (const waiter of waiters) {
-      ensureNotLocked(waiter);
       if (!waiter.pinHash) {
         continue;
       }
-
-      const ok = await bcrypt.compare(pin, waiter.pinHash);
-      if (ok) {
-        return createSession(waiter, deviceLabel, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+      if (await bcrypt.compare(pin, waiter.pinHash)) {
+        ensureNotLocked(waiter);
+        pinLockout.recordSuccess(deviceKey);
+        return createSession(waiter, deviceLabel, new Date(now + 30 * 24 * 60 * 60 * 1000));
       }
     }
 
-    const usersToLock = waiters.filter((user) => user.role === UserRole.WAITER);
-    if (usersToLock.length > 0) {
-      await recordFailedLogin(usersToLock[0]);
+    const lockedUntil = pinLockout.recordMiss(deviceKey, now);
+    if (lockedUntil !== null) {
+      throw Errors.Locked(new Date(lockedUntil));
     }
-
     throw Errors.Unauthorized();
   },
 
