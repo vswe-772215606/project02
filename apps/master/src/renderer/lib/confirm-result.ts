@@ -17,11 +17,11 @@ export function printFailureNotice(
   if (result.printError?.includes('not configured')) {
     return {
       title: 'Chek chiqmadi',
-      description: "Hisob yopildi, pul yozildi. Chek printeri tanlanmagan: Sozlamalarda tanlang, keyin qayta chop eting.",
+      description: 'Hisob yopildi, pul yozildi. Chek printeri tanlanmagan: Sozlamalarda tanlang, keyin qayta chop eting.',
     };
   }
   return {
     title: 'Chek chiqmadi',
-    description: "Hisob yopildi, pul yozildi. Printerni tekshiring, keyin chekni qayta chop eting.",
+    description: 'Hisob yopildi, pul yozildi. Printerni tekshiring, keyin chekni qayta chop eting.',
   };
 }

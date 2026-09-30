@@ -137,9 +137,10 @@ describe('Write contention', () => {
         payments,
         addStatus: add.status,
         addWaitedUnder2s: waited < 2000,
+        reprint: reprint.status,
       },
-      `the confirm answered ${confirm.status} ${JSON.stringify(confirm.body?.error ?? '')}; the waiter's add answered ${add.status} after ${waited} ms; the reprint answered ${reprint.status}`,
-    ).toEqual({ confirm: 200, billPrinted: true, order: 'CLOSED', payments: 1, addStatus: 201, addWaitedUnder2s: true });
+      `the confirm answered ${confirm.status} ${JSON.stringify(confirm.body?.error ?? '')}; the waiter's add answered ${add.status} after ${waited} ms; the reprint answered ${reprint.status} ${JSON.stringify(reprint.body?.error ?? '')}`,
+    ).toEqual({ confirm: 200, billPrinted: true, order: 'CLOSED', payments: 1, addStatus: 201, addWaitedUnder2s: true, reprint: 200 });
   }, 60_000);
 
   it('[PRD 14 G6] the owner alerts fire after the bill prints, and a hung alert never holds the slip', async () => {

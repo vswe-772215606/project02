@@ -12,22 +12,40 @@ import { printFailureNotice, type PrintFailureNotice } from '@/lib/confirm-resul
 
 /**
  * The sale is closed and paid; only the slip is missing. The notice stays up
- * until the admin reprints or dismisses it, and a reprint that fails too shows
- * it again, in Uzbek, rather than the server's English message.
+ * until the admin reprints or closes it, and a reprint that fails too shows it
+ * again, in Uzbek, rather than the server's English message.
+ *
+ * It sits at the top centre: the bottom-right corner is the ticket rail, whose
+ * foot is the next bill's TASDIQLASH button, and a notice that stays up must
+ * never cover that. The reprint's own progress toast sits there too.
  */
 function showPrintFailure(orderId: string, notice: PrintFailureNotice): void {
   toast.error(notice.title, {
     description: notice.description,
     duration: Infinity,
-    // sonner draws its action at 24 px / 12 px; the till needs 48 px / 13 px.
-    classNames: { actionButton: '!h-12 !px-4 !text-[13px]' },
+    position: 'top-center',
+    classNames: {
+      // sonner lays a notice out in one row; two 48 px buttons beside the text
+      // would leave it a 77 px column. Let the text take the row and the
+      // buttons wrap under it, pressed to the right.
+      toast: '!flex-wrap !gap-y-3',
+      content: '!grow !basis-[calc(100%-2rem)]',
+      // sonner draws its buttons at 24 px / 12 px; the till needs 48 px / 13 px, square.
+      cancelButton: '!ml-auto !h-12 !px-4 !text-[13px] !rounded-none',
+      actionButton: '!ml-0 !h-12 !px-4 !text-[13px] !rounded-none',
+    },
+    cancel: { label: 'Yopish', onClick: () => {} },
     action: {
       label: 'Qayta chop etish',
       onClick: () => {
+        // A reprint can wait behind the print queue for seconds: show that it is
+        // happening, so nobody taps twice.
+        const printing = toast.loading('Chek chop etilmoqda…', { position: 'top-center' });
         ordersApi
           .reprintBill(orderId, 'Tasdiqlashda chop etilmadi')
-          .then(() => toast.success('Chek chop etildi'))
+          .then(() => toast.success('Chek chop etildi', { id: printing }))
           .catch((error: Error) => {
+            toast.dismiss(printing);
             showPrintFailure(
               orderId,
               printFailureNotice({ billPrinted: false, printError: error.message }) ?? notice,
@@ -77,7 +95,10 @@ export function ApprovalQueuePage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['finance'] });
-      setSelectedId(null);
+      // order:closed reaches the screens before the bill prints, so the admin may
+      // have picked another bill while this one printed: clear the selection only
+      // if it is still the bill that was just confirmed.
+      setSelectedId((current) => (current === result.id ? null : current));
       const notice = printFailureNotice(result);
       if (!notice) {
         toast.success('Buyurtma tasdiqlandi');
