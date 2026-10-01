@@ -53,9 +53,9 @@ describe('Payment legs', () => {
     const debts = await env.prisma.debt.count({ where: { orderId: id } });
     const order = await env.prisma.order.findUniqueOrThrow({ where: { id } });
     expect(
-      { status: r.status, payments, debts, order: order.status },
+      { status: r.status, code: r.body?.error?.code, payments, debts, order: order.status },
       JSON.stringify(r.body?.error ?? ''),
-    ).toEqual({ status: 400, payments: 0, debts: 0, order: 'SENT' });
+    ).toEqual({ status: 400, code: 'VALIDATION', payments: 0, debts: 0, order: 'SENT' });
   });
 
   it('[PRD 14 G3] a Nasiya leg of 0 is refused and nothing is written', async () => {

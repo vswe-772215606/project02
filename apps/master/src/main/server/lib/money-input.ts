@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 /**
  * A whole so'm amount above zero: 45000 or "45000" — never 99999.5, "1e5" or
- * -30000. Every amount that moves money uses it (PRD 14 G3).
+ * -30000. A debt repayment, an expense and an avans return use it (PRD 14 G3).
  */
 export const somAmount = z.union([
   z.number().int().positive(),

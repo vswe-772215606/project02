@@ -44,6 +44,39 @@ describe('Write contention', () => {
     expect(failedTouches, 'session touches that failed during the burst').toEqual([]);
   });
 
+  it('[PRD 14 G7] two requests within a minute write the session\'s lastUsedAt once', async () => {
+    // Every authenticated request touches its session. On the one connection each
+    // write's disk sync holds up the reads queued behind it, so a touch writes at
+    // most once a minute.
+    const { sessionRepo } = await import('../src/main/server/repositories/session.repo');
+    const where = { token: w.admin.token };
+    const stale = Date.now() - 2 * 60 * 1000;
+    await env.prisma.session.update({ where, data: { lastUsedAt: new Date(stale) } });
+
+    const touches = vi.spyOn(sessionRepo, 'touchLastUsed');
+    const lastUsedAfterARequest = async () => {
+      await w.admin.get('/api/auth/me');
+      // The request does not wait for its touch; wait for it here before reading.
+      await Promise.allSettled(touches.mock.results.map((result) => result.value));
+      return (await env.prisma.session.findUniqueOrThrow({ where })).lastUsedAt.getTime();
+    };
+    let first: number;
+    let second: number;
+    let touched: number;
+    try {
+      first = await lastUsedAfterARequest();
+      second = await lastUsedAfterARequest();
+      touched = touches.mock.calls.length;
+    } finally {
+      touches.mockRestore();
+    }
+
+    expect(
+      { touched, firstWrote: first > stale, secondWrote: second !== first },
+      `lastUsedAt was ${new Date(stale).toISOString()}, then ${new Date(first).toISOString()}, then ${new Date(second).toISOString()}`,
+    ).toEqual({ touched: 2, firstWrote: true, secondWrote: false });
+  });
+
   it('[new] while a bill prints slowly (8 s), a waiter can still add a dish to another table', async () => {
     const busy = await openOrder(w.w1, w.nextTable(), [[w.items.osh, 1]]);
     await sendOrder(w.w1, busy);
@@ -51,9 +84,9 @@ describe('Write contention', () => {
 
     const { printService } = await import('../src/main/server/services/print.service');
     const realPrint = printService.printBill.bind(printService);
-    const spy = vi.spyOn(printService, 'printBill').mockImplementation(async (order: any, tx: any) => {
+    const spy = vi.spyOn(printService, 'printBill').mockImplementation(async (order: any) => {
       await new Promise((r) => setTimeout(r, 8000)); // a slow or jammed thermal printer
-      return realPrint(order, tx);
+      return realPrint(order);
     });
 
     const confirming = w.admin.call('POST', `/api/orders/${busy}/confirm`, { payments: [{ method: 'CASH', amount: 45000 }] });

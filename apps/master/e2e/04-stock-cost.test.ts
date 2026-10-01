@@ -152,11 +152,13 @@ describe('Stock and food cost', () => {
       reason: draft.cancelReason,
       stock: after.stock,
       automatic: (audit?.metadata as { automatic?: boolean } | null)?.automatic ?? false,
+      actor: audit?.userId ?? null, // an audit row needs a user: the draft's own waiter (PRD 14 G4)
     }).toEqual({
       status: 'CANCELED',
       reason: 'Avtomatik bekor qilindi: 12 soat yuborilmadi',
       stock: before.stock,
       automatic: true,
+      actor: draft.waiterId,
     });
   });
 

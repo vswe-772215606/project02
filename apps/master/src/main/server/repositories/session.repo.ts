@@ -3,6 +3,8 @@ import { getPrisma } from '../lib/prisma';
 
 type Tx = Prisma.TransactionClient;
 
+const SESSION_TOUCH_INTERVAL_MS = 60_000;
+
 export const sessionRepo = {
   async create(data: Prisma.SessionCreateInput, tx?: Tx) {
     return (tx ?? getPrisma()).session.create({ data });
@@ -53,11 +55,21 @@ export const sessionRepo = {
     });
   },
 
+  /**
+   * Marks the session used, at most once a minute. Every authenticated request
+   * calls this, and on SQLite's one connection each write's disk sync holds up
+   * the reads queued behind it (PRD 14 G7); nothing reads `lastUsedAt` finer
+   * than that. A session deleted meanwhile matches nothing and is not an error.
+   */
   async touchLastUsed(id: string, tx?: Tx) {
-    return (tx ?? getPrisma()).session.update({
-      where: { id },
+    const now = new Date();
+    return (tx ?? getPrisma()).session.updateMany({
+      where: {
+        id,
+        lastUsedAt: { lt: new Date(now.getTime() - SESSION_TOUCH_INTERVAL_MS) },
+      },
       data: {
-        lastUsedAt: new Date(),
+        lastUsedAt: now,
       },
     });
   },

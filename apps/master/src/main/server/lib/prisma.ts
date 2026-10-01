@@ -19,6 +19,9 @@ export function getPrisma(): PrismaClient {
           ? ['warn', 'error']
           : ['error'],
     });
+    // Once per process, so a till's log shows the limit is on (PRD 14 G7). On
+    // a packaged build console output lands in <userData>/logs/runtime.log.
+    console.log(`[prisma] client created: one SQLite connection (${url ?? 'DATABASE_URL not set'})`);
   }
 
   return prisma;

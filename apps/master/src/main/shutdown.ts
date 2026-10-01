@@ -12,11 +12,13 @@
  * ── Accepted race (RISK 7) ────────────────────────────────────────────────
  * There is no drain-mode middleware, so between step 3 (print queue drained)
  * and step 5 (HTTP closed) a waiter could still send an order or the admin
- * could confirm a tender. The window is two to three seconds, the waiter
- * notice goes out first so clients stop sending before the drain begins, and
- * nothing is lost either way: the bill print lives inside the closing
- * transaction, so an in-flight confirm either commits whole or rolls back
- * whole. Adding request-rejection middleware is real scope and was not taken.
+ * could confirm a tender. The window is two to three seconds, and the waiter
+ * notice goes out first so clients stop sending before the drain begins. No
+ * sale is lost either way: a confirm's transaction commits whole or not at
+ * all, and its bill prints only after the commit (PRD 14 G6), so a confirm
+ * caught here is saved whole and at most its slip is lost — the admin
+ * reprints it. Adding request-rejection middleware is real scope and was not
+ * taken.
  */
 
 import type { Server } from 'http';
@@ -154,9 +156,9 @@ export async function shutdownForUpdate(logger: StartupLogger): Promise<void> {
     await delay(300);
   });
 
-  // 3. `confirm` prints the bill inside the closing transaction and a print
-  //    failure rolls the whole tender back. Killing receipt.exe mid-spool is a
-  //    lost sale.
+  // 3. `confirm` prints the bill after its sale commits (PRD 14 G6), so
+  //    killing receipt.exe mid-spool loses only the customer's slip, never the
+  //    sale. The customer is still owed that slip: let the queue finish.
   await runStep(ctx, 3, 'print queue', 5_000, async () => {
     const { printQueue } = await import('./server/lib/print-queue');
     await printQueue.onIdle();

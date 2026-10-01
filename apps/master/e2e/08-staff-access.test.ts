@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { request } from 'http';
 // Waiter pay, line edits, PIN login and who can see profit (F2, F31, F52, C44).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Api, boot, buildWorld, capturePrints, n, openOrder, sale, sendOrder, setClock, type Env, type World } from './harness';
 
 const printer = capturePrints();
@@ -111,6 +111,31 @@ describe('PIN login (what pushes waiters onto each other\'s accounts)', () => {
     } finally {
       await env.prisma.user.update({ where: { id: w.waiterIds.w1 }, data: { lockedUntil: null } });
     }
+  });
+
+  it('[PRD 14 G5] thirty wrong PINs at once from one phone are judged at most five times, and the phone ends locked', async () => {
+    // A phone runs one PIN attempt at a time. Without that, parallel guesses all
+    // pass the lock check before the first miss is counted, and more than five
+    // are judged. The route lets one address send 30 a minute, so this is all of them.
+    const phone = '127.0.0.5';
+    const { userRepo } = await import('../src/main/server/repositories/user.repo');
+    const { pinLockout } = await import('../src/main/server/lib/pin-lockout');
+    const judged = vi.spyOn(userRepo, 'findActiveByPin');
+    let answers: number[];
+    let evaluated: number;
+    try {
+      answers = (await Promise.all(Array.from({ length: 30 }, () => loginPinFrom(phone, '8642')))).map((r) => r.status);
+      evaluated = judged.mock.calls.length;
+    } finally {
+      judged.mockRestore();
+    }
+    // Read the lock itself: a 31st request from this address would meet the route's rate limit, not the lock.
+    const locked = pinLockout.lockedUntil(phone, Date.now()) !== null;
+    const tally = answers.reduce<Record<number, number>>((t, status) => ({ ...t, [status]: (t[status] ?? 0) + 1 }), {});
+    expect(
+      { atMostFiveJudged: evaluated <= 5, locked },
+      `${evaluated} of 30 guesses judged; answers ${JSON.stringify(tally)}; the phone ${locked ? 'is' : 'is not'} locked`,
+    ).toEqual({ atMostFiveJudged: true, locked: true });
   });
 
   it('[PRD 14 G5] the phone that mistyped five times waits five minutes, even with a correct PIN', async () => {

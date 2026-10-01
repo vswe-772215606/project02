@@ -70,28 +70,25 @@ async function executeBinary(input: PrintExecutionInput): Promise<void> {
   });
 }
 
-type Tx = Prisma.TransactionClient;
-
 async function runQueuedJob(options: {
   jobId: string;
   printerName: string;
   args: string[];
   linuxLabel: string;
   blocking: boolean;
-  tx?: Tx;
 }) {
   const task = async () => {
-    await printJobRepo.incrementAttempts(options.jobId, options.tx);
+    await printJobRepo.incrementAttempts(options.jobId);
     try {
       await executeBinary({
         printerName: options.printerName,
         args: options.args,
         linuxLabel: options.linuxLabel,
       });
-      await printJobRepo.markSuccess(options.jobId, options.tx);
+      await printJobRepo.markSuccess(options.jobId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown print error';
-      await printJobRepo.markFailed(options.jobId, message, options.tx);
+      await printJobRepo.markFailed(options.jobId, message);
       if (options.blocking) {
         throw Errors.PrintFailed(message);
       }
@@ -101,13 +98,13 @@ async function runQueuedJob(options: {
 
   if (options.blocking) {
     await printQueue.add(task);
-    return printJobRepo.findById(options.jobId, options.tx);
+    return printJobRepo.findById(options.jobId);
   }
 
   await printQueue.add(task).catch((error: unknown) => {
     console.error('[printService] queued print failed', error);
   });
-  return printJobRepo.findById(options.jobId, options.tx);
+  return printJobRepo.findById(options.jobId);
 }
 
 function getStoreHeading(): string {
@@ -123,7 +120,13 @@ function getStoreAddress(): string | undefined {
 }
 
 export const printService = {
-  async printBill(order: PrintableOrder, tx?: Tx) {
+  /**
+   * Prints a confirmed bill and records the attempt as a PrintJob. Never call
+   * it inside a transaction: it waits for the print queue, and a transaction
+   * held across that wait keeps SQLite's only connection from the queued job
+   * that needs it. confirm calls it after its sale commits (PRD 14 G6).
+   */
+  async printBill(order: PrintableOrder) {
     const printerName = settingsService.get('admin_printer_name') || '';
     if (!printerName.trim()) {
       throw Errors.PrintFailed('Admin printer not configured');
@@ -148,7 +151,7 @@ export const printService = {
             connect: { id: order.approvedById },
           }
         : undefined,
-    }, tx);
+    });
 
     return runQueuedJob({
       jobId: job.id,
@@ -156,7 +159,6 @@ export const printService = {
       args,
       linuxLabel: `BILL order=${order.id}`,
       blocking: true,
-      tx,
     });
   },
 

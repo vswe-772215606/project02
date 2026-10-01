@@ -275,10 +275,11 @@ export const orderRepo = {
     return result.count === 1;
   },
 
-  /** Ids of drafts created before `cutoff`; the scheduler cancels them. */
+  /** Ids of drafts created before `cutoff`, oldest first; the scheduler cancels them. */
   async listStaleDraftIds(cutoff: Date, tx?: Tx): Promise<string[]> {
     const rows = await (tx ?? getPrisma()).order.findMany({
       where: { status: OrderStatus.DRAFT, createdAt: { lt: cutoff } },
+      orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
     return rows.map((row) => row.id);

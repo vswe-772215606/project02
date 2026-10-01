@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { ordersApi, type ConfirmBody } from '@/api/orders';
+import { ordersApi, type ConfirmBody, type ConfirmResult } from '@/api/orders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { Screen } from '@/components/layout/Screen';
 import { Chip } from '@/components/blocks';
@@ -11,19 +11,28 @@ import { OrderTicket } from '@/components/approval/OrderTicket';
 import { printFailureNotice, type PrintFailureNotice } from '@/lib/confirm-result';
 
 /**
- * The sale is closed and paid; only the slip is missing. The notice stays up
- * until the admin reprints or closes it, and a reprint that fails too shows it
- * again, in Uzbek, rather than the server's English message.
- *
- * It sits at the top centre: the bottom-right corner is the ticket rail, whose
- * foot is the next bill's TASDIQLASH button, and a notice that stays up must
- * never cover that. The reprint's own progress toast sits there too.
+ * Where every toast of the confirm loop sits. The Toaster's own corner,
+ * bottom-right, is the ticket rail, whose foot is TASDIQLASH: the admin picks
+ * the next bill while the last one prints, and the last one's answer enables
+ * the next bill's TASDIQLASH in the same render that raises its toast. Top
+ * centre covered the first rows of the queue, the oldest bills, confirmed
+ * first. Bottom centre lies over the lower part of the queue, empty unless many
+ * bills wait (at 1236 px wide it spans x 440-796; the rail starts at x 914).
  */
-function showPrintFailure(orderId: string, notice: PrintFailureNotice): void {
+const TOAST_POSITION = 'bottom-center' as const;
+
+type ConfirmedBill = Pick<ConfirmResult, 'id' | 'tableName' | 'orderType' | 'orderNumber'>;
+
+/**
+ * The sale is closed and paid; only the slip is missing. The notice names the
+ * bill and stays up until the admin reprints or closes it, and a reprint that
+ * fails too shows it again, in Uzbek, rather than the server's English message.
+ */
+function showPrintFailure(bill: ConfirmedBill, notice: PrintFailureNotice): void {
   toast.error(notice.title, {
     description: notice.description,
     duration: Infinity,
-    position: 'top-center',
+    position: TOAST_POSITION,
     classNames: {
       // sonner lays a notice out in one row; two 48 px buttons beside the text
       // would leave it a 77 px column. Let the text take the row and the
@@ -39,16 +48,17 @@ function showPrintFailure(orderId: string, notice: PrintFailureNotice): void {
       label: 'Qayta chop etish',
       onClick: () => {
         // A reprint can wait behind the print queue for seconds: show that it is
-        // happening, so nobody taps twice.
-        const printing = toast.loading('Chek chop etilmoqda…', { position: 'top-center' });
+        // happening, so nobody taps twice. The success toast replaces this one
+        // by id and keeps its position.
+        const printing = toast.loading('Chek chop etilmoqda…', { position: TOAST_POSITION });
         ordersApi
-          .reprintBill(orderId, 'Tasdiqlashda chop etilmadi')
+          .reprintBill(bill.id, 'Tasdiqlashda chop etilmadi')
           .then(() => toast.success('Chek chop etildi', { id: printing }))
           .catch((error: Error) => {
             toast.dismiss(printing);
             showPrintFailure(
-              orderId,
-              printFailureNotice({ billPrinted: false, printError: error.message }) ?? notice,
+              bill,
+              printFailureNotice({ ...bill, billPrinted: false, printError: error.message }) ?? notice,
             );
           });
       },
@@ -101,12 +111,12 @@ export function ApprovalQueuePage() {
       setSelectedId((current) => (current === result.id ? null : current));
       const notice = printFailureNotice(result);
       if (!notice) {
-        toast.success('Buyurtma tasdiqlandi');
+        toast.success('Buyurtma tasdiqlandi', { position: TOAST_POSITION });
         return;
       }
-      showPrintFailure(result.id, notice);
+      showPrintFailure(result, notice);
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toast.error(err.message, { position: TOAST_POSITION }),
   });
 
   const ticketOrder = selected ?? selectedSummary;

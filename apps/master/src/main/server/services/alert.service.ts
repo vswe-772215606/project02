@@ -11,10 +11,13 @@ import { settingsService } from './settings.service';
  * happen instead of at 23:30.
  *
  * Contract:
- *  - Fire-and-forget. Every method self-guards and NEVER throws into business
- *    logic. Callers invoke as `void alertService.xxx(...)` right AFTER the DB
- *    transaction commits, or via `deferAfterCommit(() => alertService.xxx(...))`
- *    inside a `completeEmitContext` block (which only flushes on commit).
+ *  - Every method self-guards and NEVER throws into business logic, and none
+ *    waits more than 5 s for Telegram (`send`). Callers run them only after
+ *    their transaction commits: `void alertService.xxx(...)` right after it, or
+ *    `deferAfterCommit(() => alertService.xxx(...))` inside an emit context,
+ *    whose `flushAfterCommit()` runs only on commit — and awaits each alert, so
+ *    that request's answer waits for it. Confirm flushes its alerts last, after
+ *    the bill prints (`orderService.confirm`).
  *  - Gated by `alerts_telegram_enabled` (default ON). Amount-based alerts have
  *    their own owner-tunable thresholds in Settings.
  *  - `telegramBotService` is imported lazily to avoid a require cycle
@@ -34,11 +37,37 @@ function boolSetting(key: string, fallback: boolean): boolean {
   return raw === 'true';
 }
 
+/** How long a caller waits for one Telegram send. */
+const SEND_WAIT_MS = 5_000;
+
+/** True when `promise` settles within `ms`, false when the wait runs out first. */
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    const settled = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    promise.then(settled, settled);
+  });
+}
+
+/**
+ * Sends one alert, waiting at most 5 s. A confirm or an added dish waits for
+ * its alerts, and the Telegram call has no timeout of its own: with Telegram
+ * unreachable the till would wait until the network gave up. A send still
+ * running after 5 s finishes in the background, and its error stays caught.
+ */
 async function send(text: string): Promise<void> {
   try {
     if (!boolSetting('alerts_telegram_enabled', true)) return;
     const { telegramBotService } = await import('./telegram-bot.service');
-    await telegramBotService.sendMessage(text);
+    const delivery = telegramBotService.sendMessage(text).catch((error: unknown) => {
+      console.error('[alert] send failed:', error);
+    });
+    if (!(await settlesWithin(delivery, SEND_WAIT_MS))) {
+      console.warn(`[alert] Telegram did not answer in ${SEND_WAIT_MS / 1000} s; the alert goes on in the background`);
+    }
   } catch (error) {
     console.error('[alert] send failed:', error);
   }
