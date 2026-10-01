@@ -48,9 +48,9 @@ both on 2026-09-30 (§6).
 - The async print queue with an admin queue screen (PRD 03 Option A, phase 2).
 - Sale reversal and refunds (FIN-3).
 - Correcting data already damaged in production; the diagnostic (`e2e/prod-forensics.ts`,
-  STATE item 1) measures it first.
+  STATE item 2) measures it first.
 - Line edits, found while planning: `addLine`, `addCombo`, `updateLineQuantity` and `cancelLine`
-  check the order's status before their transaction (`order.service.ts:248, 325, 389, 466`), the
+  check the order's status before their transaction (`order.service.ts:250, 327, 391, 468`), the
   same cause as G1. A dish added while the admin confirms can land on a closed bill — its stock
   taken, its price in no total. Not tested yet; it belongs to the next slice.
 
@@ -141,7 +141,7 @@ code; §9 says what was built.*
   (`PRAGMA journal_mode=WAL`, persisted in the file) and a busy timeout, so readers stop
   blocking the writer and a writer waits instead of failing. WAL adds `-wal` and `-shm` files
   beside `master.sqlite`: a copy taken while the app runs must include them (PRD 10; STATE item
-  1 already copies with the app closed).
+  2 already copies with the app closed).
 - **B. A single connection** (`connection_limit=1`), so the process never contends with itself.
   Simple, but every read queues behind every write; tolerable only once G6 keeps transactions
   short. **Chosen after measuring:** a copy of the whole suite run with `connection_limit=1`
@@ -190,30 +190,37 @@ G6's timing test flaky.
   unit tests in `pnpm test`. The e2e suite is versioned first (plan Task 1, `c04cbfe`).
 - **Verify:** the guards' e2e tests green with none of the 39 controls regressing, `pnpm test`,
   and `pnpm typecheck` no higher than the floor of 48 (47 as built).
-- **Docs, when shipped:** CLAUDE.md "Single confirm action" and `docs/CURRENT_WORKFLOW.md`'s
-  confirm section if G6 A is chosen. `decisions.md` still carries the old print rule; it changes
-  only on Barkamol's instruction.
+- **Docs:** done with the build — CLAUDE.md "Single confirm action" and `docs/CURRENT_WORKFLOW.md`'s
+  confirm section describe G6 A. `decisions.md` still carries the old print rule; it changes only on
+  Barkamol's instruction.
 - **Data:** nothing is migrated. Drafts already deleted stay deleted; their missing portions show
   at the next Sanoq, and the diagnostic's `count-shrinkage` check sizes them. Balances already hit
   by a lost repayment are found by its `repayment-race` check and corrected by hand.
 - **Release:** through the update feed (STATE items 4–5). Stop at "ready to deploy" and hand over
   the commands.
-- **Rollback:** each guard is its own commit, or a short run of them (§9), and reverts on its own —
-  except G6 and G7, which revert together. G7 gives the process one connection; reverting G6
-  alone puts the print back inside the confirm transaction, which would then hold that only
-  connection: every other request waits for the print, and a reprint during a confirm deadlocks
-  until the confirm's 30 s timeout (measured between plan Tasks 3 and 4). Later commits touch the
-  same functions, so a revert may need a manual merge.
+- **Rollback:** by the commits in §9, in these groups only. Later commits touch the same
+  functions, so a revert may need a manual merge.
+  - The final review's fixes (`67455a1`) touch G3–G7: revert them first.
+  - G1 (`b827140`) does not revert alone: G4 and G6 use its claim methods (`cancelIfIn`,
+    `closeIfSent`).
+  - G2: `d48fa36` reverts only with `4d6e50b`. G3: `3891499` reverts only with `c45fe9b`.
+  - G6 (`d0e4d9b`, `ddcb5fb` and `c5377eb` together) reverts only together with G7 (`83fc724`).
+    G7 gives the process one connection; reverting G6 without it puts the print back inside the
+    confirm transaction, which would then hold that only connection: every other request waits
+    for the print, and a reprint during a confirm deadlocks until the confirm's 30 s timeout
+    (measured between plan Tasks 3 and 4). G7 can revert alone.
+  - G4 (`e020b94`) and G5 (`3bd7b84`, `d04a2a8`) revert on their own.
 
 ## 9. As built
 
 Built on `fix/server-money-guards` (off `feat/auto-update` at `e4082df`): 14 commits,
-`e4082df..d04a2a8`, then a docs commit. Pushed as its own branch, not merged, not released. At
-`d04a2a8`, in the Docker harness: e2e 66 pass / 38 fail (104), `pnpm test` 136 tests in 13 files,
-`pnpm typecheck` 47 (the `loginPin` rewrite removed one of the 48), `typecheck:renderer` and
-`typecheck:gallery` 0. The 38 failures are defects later slices own; none is a test §5 lists, and
-none was added by this slice. Against the baseline of 87 tests (39 pass, 48 fail): 7 flipped to
-pass, 3 rewritten tests pass, 17 new tests pass, and none that passed now fails.
+`e4082df..d04a2a8`, a docs commit (`fc0e169`), then the final review's fixes (`67455a1`) and their
+docs commit. At `67455a1`, in the Docker harness: e2e 68 pass / 38 fail (106), `pnpm test` 142
+tests in 14 files, `pnpm typecheck` 47 (the `loginPin` rewrite removed one of the 48),
+`typecheck:renderer` and `typecheck:gallery` 0. The 38 failures are defects later slices own; none
+is a test §5 lists, and none was added by this slice. Against the baseline of 87 tests (39 pass,
+48 fail): 7 flipped to pass, 3 rewritten tests pass, 19 new tests pass, and none that passed now
+fails.
 
 | Guard | Commits |
 |---|---|
@@ -225,6 +232,7 @@ pass, 3 rewritten tests pass, 17 new tests pass, and none that passed now fails.
 | G3 whole so'm, one Nasiya leg | `c45fe9b`, `3891499` |
 | G4 draft cleanup | `e020b94` |
 | G5 PIN lockout | `3bd7b84`, `d04a2a8` |
+| Final review: toast placement, PIN guard test, session touch, alert timeout | `67455a1` |
 
 Where the build differs from §4 or the plan. Each point was ruled while Barkamol was away, and none
 reverses a decision in §5–§6. The plan's "Deviations during execution" has the full list.
@@ -239,13 +247,17 @@ reverses a decision in §5–§6. The plan's "Deviations during execution" has t
 - **G4:** a restore writes no StockEntry row; the `automatic: true` audit row is the record.
 - **G5:** the device key is the client address only, and a device runs one PIN attempt at a time —
   an overlapping one answers 409 "Oldingi urinish hali tugamadi, biroz kuting". The existing
-  30-per-minute `ipRateLimit` on `POST /api/auth/login-pin` also applies, and also answers 409.
+  30-per-minute `ipRateLimit` on `POST /api/auth/login-pin` also applies, and also answers 409. An
+  e2e test pins the one-attempt rule: 30 wrong PINs at once from one address are judged at most 5
+  times and leave it locked (7 judged without the rule).
 - **G6:** the print writes its own PrintJob after the commit, not a PENDING one inside it (§4 now
-  says so). After the commit: socket emits, then the print, then the owner alerts, because the
-  alerts await Telegram with no timeout. The failure notice has a "Yopish" button, sits top-centre,
-  and its buttons are 48 px tall.
+  says so). After the commit: socket emits, then the print, then the owner alerts, each of which
+  waits at most 5 s for Telegram. The failure notice names its bill, has a "Yopish" button and
+  48 px buttons, and sits bottom-centre with every other toast of the confirm loop, clear of the
+  next bill's TASDIQLASH and of the queue's first rows. `printBill` takes no transaction.
 - **G7:** `transactionOptions.maxWait` is 10 s, because a `$transaction` now waits for the one
-  connection.
+  connection. The session touch writes `lastUsedAt` at most once a minute, so most requests add no
+  write, and the client logs once that it opens one connection.
 
 ## 10. Left for later
 
@@ -288,6 +300,9 @@ UNION ALL SELECT 'ExpenseReturn.amount', COUNT(*) FROM ExpenseReturn
   `writtenOffAt` inside the write-off transaction (`debt.service.ts` takes it before), so "comes
   back into profit" never classifies by `paidAt > writtenOffAt`. No screen calls the write-off
   route yet.
+- In the same slice (D14): a written-off debt that a late payment revived to PARTIAL can be written
+  off a second time, which overwrites `writtenOffAt` and writes a second audit row and owner
+  alert.
 
 **Questions for Barkamol** (STATE.md has them with the numbers).
 
@@ -304,10 +319,20 @@ UNION ALL SELECT 'ExpenseReturn.amount', COUNT(*) FROM ExpenseReturn
   under the 30-per-minute limit. Keep misses across a success and let them expire some minutes
   after the last miss? G5 B (name, then PIN) is the stronger option and changes both waiter apps.
 
+**Checks owed on the till.**
+
+- Time the session touch on the till's own disk: one write a minute per session is measured only
+  in Docker on a Mac, which hides the disk's sync speed.
+- Open the packaged build once: the notice colours differ between dev and a production build (CSS
+  order against sonner's runtime style), and the toast positions were checked only in a browser
+  at 1236 × 623.
+
 **Known, not caused by this slice.**
 
-- The confirm response still waits for the owner alerts (Telegram, no timeout) on nasiya and
-  large-discount sales; the slip and the other screens no longer wait.
+- The confirm response still waits for its owner alerts on nasiya and large-discount sales, now at
+  most 5 s each (10 s for a nasiya sale with a large discount); an added dish that empties a
+  counted item waits for its stock-out alert the same way. The slip and the other screens never
+  wait.
 - A Windows profile path with a space fails at `$connect`: `toSqliteUrl` (`sqlite-bootstrap.ts`)
   percent-encodes the path and Prisma does not decode it. The same on the build the customer runs.
 - G5 locks per client address, so a shared till would lock everyone at it (§6.2).

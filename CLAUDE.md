@@ -75,7 +75,7 @@ carries the old "no keyboard" line — distrust that file on hardware.
 Chayxana POS — single-location Uzbek chayxana (teahouse). pnpm monorepo with three apps: a Windows Electron admin/server (`master`), an Electron desktop waiter app (`order`), and an Expo React Native waiter app (`mobile`). There is no separate kitchen app — the admin on the master desktop is the single point of order approval and payment. LAN-only; the master is the API + Socket.io server at a static IP (e.g. `192.168.1.50:4000`). All user-facing strings are in Uzbek.
 
 Source-of-truth docs (read these before non-trivial changes):
-- **`docs/superpowers/specs/2026-09-30-money-rules-design.md` — the money rules Barkamol settled on 2026-09-30 (D9–D21, D3 and D4 confirmed), not yet built.** Cash-only Kassa, a 05:00 trading day closed by a cash count, one vocabulary (Sotuv, Kirim, Chiqim, Xarajat, Foyda). Read it before changing any money figure; where it disagrees with an older doc, it wins. Its §4 server guards (slice 1, `docs/prd/14-server-money-guards.md`) are built on `fix/server-money-guards`, pushed as its own branch, not merged; the rest is not built.
+- **`docs/superpowers/specs/2026-09-30-money-rules-design.md` — the money rules Barkamol settled on 2026-09-30 (D9–D21, D3 and D4 confirmed), not yet built.** Cash-only Kassa, a 05:00 trading day closed by a cash count, one vocabulary (Sotuv, Kirim, Chiqim, Xarajat, Foyda). Read it before changing any money figure; where it disagrees with an older doc, it wins. Its §4 server guards (slice 1, `docs/prd/14-server-money-guards.md`) are built on `fix/server-money-guards`; the rest is not built.
 - **`docs/CURRENT_WORKFLOW.md` — START HERE.** Code-verified snapshot of what the system actually does: the money path, order state machine, count-based inventory/COGS, finance formulas, API surface, socket wiring, ranked known defects, and an explicit list of which other docs to distrust. Where any doc disagrees with it, it wins.
 - **`docs/AUDIT_FINDINGS.md` — 145 open findings (11 BLOCKER / 18 CRITICAL), audited 2026-08-03 against `docs/POS_STANDARDS.md`. §8 is a live remediation tracker — a fix pass is IN PROGRESS; read §8 before starting work so you don't redo or skip a step.** §1 explains the systemic issue (no detective controls) that ties the top findings together.
 - `docs/POS_STANDARDS.md` — the audit rubric: 60 ID'd requirements from the Keurmerk POS reliability standard, Uzbek fiscal law (КМ РУз №943), and WCAG 2.2. Cite these IDs in any new finding.
@@ -133,26 +133,31 @@ pnpm build:printer:win                     # build receipt.exe via MSVC (Windows
 Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`.
 
 **Vitest is configured** (`pnpm test` / `pnpm test:watch` in `apps/master`) — added on
-`fix/customer-feedback`, currently **136 tests over 13 files**: `format`, `payment-legs`,
+`fix/customer-feedback`, currently **142 tests over 14 files**: `format`, `payment-legs`,
 `server-port`, `navigation`, `updater-view`, `updater.store` and `confirm-result` in the renderer,
-plus `updater-state`, `updater-messages`, `money-input`, `pin-lockout`, `sqlite-url` and
-`errorHandler` in the main process. `vitest.config.ts` includes
-`src/main/**/*.test.ts` as well as `src/renderer/**/*.test.ts` — added on `feat/auto-update`,
-which put the first testable pure logic in `src/main`.
+plus `updater-state`, `updater-messages`, `money-input`, `pin-lockout`, `sqlite-url`,
+`errorHandler` and `alert.service` (Telegram mocked) in the main process. `vitest.config.ts`
+includes `src/main/**/*.test.ts` as well as `src/renderer/**/*.test.ts` — added on
+`feat/auto-update`, which put the first testable pure logic in `src/main`.
 It covers pure modules only; there is no component testing.
 
-**The finance e2e suite** (`apps/master/e2e/`, its own `vitest.e2e.config.ts`, 104 tests) is
+**The finance e2e suite** (`apps/master/e2e/`, its own `vitest.e2e.config.ts`, 106 tests) is
 separate from `pnpm test`: each file boots the real Express app in-process on its own copy of a
 freshly migrated SQLite and drives it over HTTP. Run it in the Docker harness (`NO_COLOR` because the
 image sets `CI=1` and vitest colours the summary):
 
 ```bash
 docker compose -f compose.dev.yaml -f compose.e2e.yaml -p <project> up -d
+# the first start installs dependencies; wait until the container says it is ready
+until docker exec <project>-master-dev-1 test -f /tmp/ready 2>/dev/null; do sleep 5; done
 docker exec -e NO_COLOR=1 -w /app/apps/master <project>-master-dev-1 \
   pnpm exec vitest run --config vitest.e2e.config.ts
 ```
 
-**38 of the 104 fail on purpose** — each pins a defect a later slice owns — so judge a change by
+Every project binds host ports 4020 and 5199, so only one runs at a time: bring the other down
+first.
+
+**38 of the 106 fail on purpose** — each pins a defect a later slice owns — so judge a change by
 which tests flip, never by a green run. `e2e/prod-forensics.ts` is the read-only diagnostic for a
 copy of the till's database (STATE.md).
 
@@ -242,7 +247,7 @@ Electron app where the **main process hosts the Express + Socket.io server**, an
 - `src/main/server/` — backend in layered style:
   - `routes/*.routes.ts` → `controllers/` → `services/*.service.ts` → `repositories/` (only place that touches Prisma).
   - `socket.ts` — Socket.io rooms `admin`, `waiter:{userId}`, and `all` (every authenticated socket joins `all`, for menu/availability broadcasts). There is no `kitchen` room. Notification-only pattern: server emits minimal IDs; clients re-fetch via REST and use the event to invalidate TanStack Query caches.
-  - `lib/prisma.ts` — the one `PrismaClient`, opened through **one SQLite connection**: `lib/sqlite-url.ts` adds `connection_limit=1` to `DATABASE_URL`, and `transactionOptions.maxWait` is 10 s because a `$transaction` now waits for that connection (PRD 14 G7). Never call `getPrisma()` inside a `$transaction` callback — use `tx`: the query waits for the connection its own transaction holds and fails as P2028 at the transaction's timeout.
+  - `lib/prisma.ts` — the one `PrismaClient`, opened through **one SQLite connection**: `lib/sqlite-url.ts` adds `connection_limit=1` to `DATABASE_URL`, and `transactionOptions.maxWait` is 10 s because a `$transaction` now waits for that connection (PRD 14 G7). The client logs `[prisma] client created: one SQLite connection (…)` once (`runtime.log` on a till). Never call `getPrisma()` inside a `$transaction` callback — use `tx`: the query waits for the connection its own transaction holds and fails as P2028 at the transaction's timeout. `printBill` takes no transaction for the same reason, and `requireAuth`'s session touch writes at most once a minute, since on one connection every write's disk sync holds up the reads behind it.
   - `middleware/` — auth (Bearer token, single-device sessions), error handler that maps `AppError` (see `lib/errors.ts`) to `{ error: { code, message, details } }` and a failed zod schema to a 400 `VALIDATION`.
   - `printer/` + `print.service.ts` — spawns `resources/bin/receipt.exe` (C++/Win32 ESC/POS) via `execFile`, serialized through a `p-queue` mutex so concurrent jobs don't collide on the physical printer. Only `BILL` / `BILL_REPRINT` types remain. Confirm prints after its transaction commits, never inside one.
 - `prisma/schema.prisma` — SQLite-backed schema. Core models: `User`, `Session`, `Category`, `MenuItem`, `Combo`, `Table`, `Order`, `OrderLine`, `StockEntry`, `Discount`, `Payment`, `Expense`, `Debt`, `AuditLog`, `PrintJob`. `Ingredient`/`Recipe`/`Purchase`/`Stocktake`/`Waste` models remain in the schema for historical data but have no live code paths — inventory is count-based on `MenuItem` (see `docs/superpowers/specs/2026-08-13-count-based-inventory-design.md`). ⚠ "One active order per table" is **currently unenforced** — migration `20260607041034` rebuilt the `Order` table and did not recreate the partial unique index, so the `P2002` catch in `createDraft` can no longer fire.
@@ -278,7 +283,7 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 ## Domain rules to respect
 
 - **Order state machine** is enforced server-side; do not bypass it from the renderer. The graph is `DRAFT → SENT → CLOSED`, with `DRAFT|SENT → CANCELED` as the only terminal branch. There is no `WALKOUT` — an unpaid bill closes as nasiya, with the admin picking the debtor from the debt ledger on the confirm ticket (`OrderTicket.tsx`; see `docs/CURRENT_WORKFLOW.md` §2 "Closing an unpaid order"), or as a full discount. **A discount is always a whole so'm amount** — the PERCENT variant and the `Discount.type` column were dropped on 2026-08-18, so anything describing a percent discount is stale. A 100% food discount still leaves the service charge owed — that is the waiter's pay and is meant to survive a comped meal; nasiya settles the remainder. There is no `BILL_REQUESTED` and no `PENDING_PAYMENT`. See `decisions.md`.
-- **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. One transaction claims the order (a conditional SENT→CLOSED update, so a second confirm writes nothing), snapshots totals, inserts `Payment`/`Debt` rows and writes the audit row. After the commit, in this order: `order:closed` goes out, the bill prints, the owner alerts fire (their Telegram call has no timeout, so they go last). A failed print leaves the bill CLOSED and paid with `billPrinted: false` in the response, and the Tasdiqlash screen offers "Qayta chop etish" (PRD 14 G1, G6).
+- **Single confirm action**: `POST /api/orders/:id/confirm` is the only path from `SENT` to `CLOSED`. One transaction claims the order (a conditional SENT→CLOSED update, so a second confirm writes nothing), snapshots totals, inserts `Payment`/`Debt` rows and writes the audit row. After the commit, in this order: `order:closed` goes out, the bill prints, the owner alerts fire (last, and each waits at most 5 s for Telegram). A failed print leaves the bill CLOSED and paid with `billPrinted: false` in the response, and the Tasdiqlash screen offers "Qayta chop etish" (PRD 14 G1, G6).
 - **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line atomically decrements the item's `stockCount` and is rejected (`OUT_OF_STOCK`) if the count is 0 or `NULL` ("sanoq kiritilmagan" — never counted). Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); every cancellation restores; nothing consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point. See `docs/CURRENT_WORKFLOW.md` §4 for the full count/cost model.
 - **Stale drafts are cancelled, never deleted.** The scheduler (at start-up and every 6 h) cancels drafts unsent for 12 hours through the cancel path: a conditional DRAFT→CANCELED claim, every live line restored through `stockService.restore`, and an `ORDER_CANCELED` audit row with `automatic: true` whose actor is the draft's own waiter (`orderService.cancelStaleDraft`; PRD 14 G4).
 - **Money is whole so'm.** Payment legs (0 allowed), expenses, avans returns, repayments, menu prices and discount presets are validated by `lib/money-input.ts` (`somAmount` > 0, `somAmountOrZero` ≥ 0), and a bill has at most one Nasiya leg, never of 0 (PRD 14 G3). Tan narx (`costPrice`) is the exception: Keldi stores paid ÷ qty unrounded and the Menyu form sends it back on every save.

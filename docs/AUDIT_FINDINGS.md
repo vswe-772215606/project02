@@ -337,15 +337,15 @@ they cite. See `docs/superpowers/specs/2026-08-13-count-based-inventory-design.m
 | 5 | `C-8` | `socket.ts:51-52` — `socket.join('all')` for every authed socket | ✅ **DONE** — shipped on `feat/count-based-inventory` (`socket.ts` — every authenticated socket joins `all`) |
 | 6 | `C-3` | `index.ts:124` — add `httpServer.once('error', reject)` | ✅ **DONE** 2026-08-15 — rejects the startup promise, which `whenReady`'s catch turns into `dialog.showErrorBox`; `EADDRINUSE` gets a named Uzbek message. Prompted by side-by-side installs, which make port clashes routine |
 | 8 | `C-5` | `lib/scheduler.ts` — cancel + restore + audit stale drafts instead of deleting | ✅ **DONE** 2026-10-01 — PRD 14 G4, `e020b94`: `orderService.cancelStaleDraft`, audit `ORDER_CANCELED` with `automatic: true` |
-| — | `M-13` | `order.repo.ts` — `setClosed`/`setCanceled` compare-and-swap | ✅ **DONE** 2026-10-01 — PRD 14 G1, `b827140`: `closeIfSent` and `cancelIfIn` claim the order first (a conditional `updateMany`, count must be 1), so a double confirm, or a cancel racing a confirm, writes once. The modal half of the finding went with `ConfirmModal` in the C1 renderer rebuild |
-| — | `F-10`, `C-9` | Print outside the confirm transaction | ✅ **DONE** 2026-10-01 — PRD 14 G6, `d0e4d9b`: the bill prints after the commit; a failed print leaves the sale CLOSED and reprintable (`billPrinted: false`, "Qayta chop etish"). Owner alerts moved after the print in `ddcb5fb`; the notice closes and sits top-centre in `c5377eb` |
+| — | `M-13` | `order.repo.ts` — `setClosed`/`setCanceled` compare-and-swap | ✅ **DONE** 2026-09-30 — PRD 14 G1, `b827140`: `closeIfSent` and `cancelIfIn` claim the order first (a conditional `updateMany`, count must be 1), so a double confirm, or a cancel racing a confirm, writes once. The modal half of the finding went with `ConfirmModal` in the C1 renderer rebuild |
+| — | `F-10`, `C-9` | Print outside the confirm transaction | ✅ **DONE** 2026-10-01 — PRD 14 G6, `d0e4d9b`: the bill prints after the commit; a failed print leaves the sale CLOSED and reprintable (`billPrinted: false`, "Qayta chop etish"). Owner alerts moved after the print in `ddcb5fb`; the notice closes in `c5377eb`, and names its bill and sits bottom-centre, clear of the next bill's TASDIQLASH, in `67455a1` |
 | — | `C-10` | Keep a trace of a failed confirm-time print | **PARTLY DONE** 2026-10-01 — `d0e4d9b`: the print writes its own `PrintJob` row after the commit, so a failure survives as FAILED (none when no printer is chosen: the print stops before any row exists). Nothing reads failed jobs yet — `listFailedSinceDate` still has no caller |
 | — | `C-14` | Lock the device that mistyped a PIN, not the floor | ✅ **DONE** 2026-10-01 — PRD 14 G5, `3bd7b84`; one attempt per device at a time in `d04a2a8`. Known gap: a successful login clears the device's misses (`CURRENT_WORKFLOW.md` §8) |
 
 `#` follows §9; **—** marks a finding that is not a numbered step there. Rows 3, 4, 8 and the **—**
 rows were closed by PRD 14 (`docs/prd/14-server-money-guards.md`, slice 1 of the money rules):
-commits `e4082df..d04a2a8` on `fix/server-money-guards`, pushed as its own branch, not merged, not
-released.
+commits `e4082df..d04a2a8` on `fix/server-money-guards`, with the final review's fixes in
+`67455a1`.
 
 **Working protocol the user asked for:** explain each finding in plain language (what's wrong, why it
 costs the business money, why the fix is safe), invite questions, *then* implement — one finding at a

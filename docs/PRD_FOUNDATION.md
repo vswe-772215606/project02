@@ -1037,8 +1037,9 @@ A PRD generated from an audit will be tempted to tidy these. Each is correct and
 - **Stock moves at line-add time.** Not at `send`, not at `confirm`. Counter-intuitive, and correct.
 - **The FIFO engine itself is well built** — atomic conditional peels, LIFO unwind at frozen prices.
   §1's requirements change what feeds it and what reads it, **not** the peel.
-- **Printer failure rolls the confirm transaction back.** The rollback is right; only the absence of a
-  recovery path is wrong (`F-10`). Do not make the print non-blocking without replacing the guarantee.
+- **A failed print never undoes a paid sale.** Until 2026-09-30 a print failure rolled the confirm
+  transaction back (`F-10` was the missing recovery path); PRD 14 G6 retired that rule. Do not move
+  the print back inside the transaction: it would hold SQLite's only connection.
 - **Deferred socket emits.** A rolled-back transaction never emits and never fires a Telegram alert.
 - **Expense and purchase corrections are exemplary** — original preserved, reversal appended, mandatory
   reason, movement row, audit row, one transaction. `FIN-3`, `INV-8` and `INV-14` should copy this

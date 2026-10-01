@@ -56,13 +56,16 @@ cd apps/master
 pnpm run typecheck:renderer   # renderer — clean
 pnpm run typecheck:gallery    # gallery fixtures vs real API types — clean
 pnpm exec electron-vite build # clean
-npx tsc -b                    # 49 errors, ALL in src/main, ALL pre-existing
+npx tsc -b                    # 47 errors, ALL in src/main, ALL pre-existing
 ```
 
 The floor moved from 51 to 49 on `feat/remove-walkout`: deleting `markWalkout` dropped
 `orders.controller.ts` from 15 pre-existing errors to 14 (51 → 50), then deleting the walkout
 table out of `pdf-report.ts` took that file from 9 to 8 (50 → 49). Both counts are real
-measurements, not typos — if you see 51 quoted elsewhere, it predates that branch.
+measurements, not typos — if you see 51 quoted elsewhere, it predates that branch. It fell to 48
+on 2026-08-18, when a real `DiscountCreateInput` error in `discount.service.ts` was fixed while
+removing percent discounts, and to 47 on `fix/server-money-guards`, when the `loginPin` rewrite
+removed a `User | undefined` argument error in `auth.service.ts`.
 
 Two traps, both hit on this branch:
 

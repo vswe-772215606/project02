@@ -1,9 +1,8 @@
 # Chayxana POS — Current workflow (live state)
 
 **Snapshot:** 2026-08-18, branch `fix/customer-feedback` (off `feat/remove-walkout`), clean tree.
-**Updated 2026-10-01** for PRD 14 (`fix/server-money-guards`, pushed as its own branch, not merged):
-§2, §4–§6 and §8–§13, and one renumbered cross-reference in §7. Line numbers in those sections
-point at that branch.
+**Updated 2026-10-01** for PRD 14, built on `fix/server-money-guards`: §2, §4–§6 and §8–§13, and
+one renumbered cross-reference in §7. Line numbers in those sections point at that branch.
 **Method:** every claim below was read from source, not from other docs. Where this file
 disagrees with `docs/agent-plans/00-shared/decisions.md`, **this file is right** — see §12.
 **Update when:** any behaviour here changes. Code is the truth; if you change code, change this.
@@ -87,18 +86,22 @@ and answers 409 → stamp approval → write the four snapshot columns → inser
 create `Debt` if a DEBT leg exists → write `ORDER_CONFIRMED` audit.
 
 After the commit, in this order: flush the deferred socket emits (`order:closed`) → **print the
-bill** → fire the Telegram owner alerts. The alerts go last because each awaits a Telegram call
-with no timeout; an unreachable Telegram must hold neither the other screens nor the customer's
-slip. A transaction that throws emits, prints and alerts nothing.
+bill** → fire the Telegram owner alerts. The response waits for each alert, up to 5 s apiece
+(`alertService.send`; a slower send finishes in the background, its error caught), so they go
+last: a slow Telegram must hold neither the other screens nor the customer's slip. A transaction
+that throws emits, prints and alerts nothing.
 
 **A printer failure no longer undoes the sale** (PRD 14 G6). The bill stays CLOSED with its
 payments, and the response carries `billPrinted: false` and the error. With a printer chosen, a
 failed print leaves its own `PrintJob` row marked FAILED; with none chosen the print stops before
 any row exists ("Admin printer not configured"). The Tasdiqlash screen shows "Chek chiqmadi"
-(Uzbek text from `renderer/lib/confirm-result.ts`, never the server's English error). The notice
-stays until the admin closes it ("Yopish") or reprints ("Qayta chop etish",
-`POST /api/orders/:id/reprint-bill`, ADMIN/OWNER, CLOSED orders only); a reprint that fails shows
-the notice again.
+(Uzbek text from `renderer/lib/confirm-result.ts`, never the server's English error), starting
+with the bill's name — its table, or `Olib ketish #ABC123` without one — because several notices
+stack when the printer is out of paper. The notice stays until the admin closes it ("Yopish") or
+reprints ("Qayta chop etish", `POST /api/orders/:id/reprint-bill`, ADMIN/OWNER, CLOSED orders
+only); a reprint that fails shows the notice again. Every toast of the confirm loop sits
+bottom-centre (`ApprovalQueuePage.tsx`): the Toaster's bottom-right corner is the next bill's
+TASDIQLASH, enabled in the same render that raises the last bill's toast.
 
 ### Bill math (`billing.service.ts:54-130`)
 
@@ -193,7 +196,7 @@ longer locked to their creation mode.
   kiritilmagan". An uncounted item with a cost books real COGS — fixes the old UNTRACKED "100%
   margin" bug (audit `M-64`).
 - Counts are whole numbers. Combos decrement each component's own count by its component quantity
-  (`order.service.ts:331-335`).
+  (`order.service.ts:351-355`).
 
 ### Sale and restore (`stock.service.ts`, same two entry points `order.service.ts` calls)
 
@@ -360,6 +363,10 @@ for it, which is harmless dead code. See §11 defect #8 — `order:canceled` is 
 - OWNER/ADMIN: username + password. WAITER: 4-digit PIN. Both bcryptjs.
 - Tokens: 32-byte `crypto.randomBytes(...).base64url`, stored in `Session`, sent as `Bearer`.
 - **Single device per user** — a new login deletes the user's existing sessions.
+- Every authenticated request touches its session's `lastUsedAt` without waiting for it, **at most
+  once a minute** (`sessionRepo.touchLastUsed`, a conditional `updateMany`): on the one connection
+  each write's disk sync holds up the reads behind it. Nothing reads `lastUsedAt`; expiry is
+  `expiresAt`, fixed at login (8 h for a password, 30 days for a PIN).
 - **Password login:** 5 failed logins → the account is locked 5 minutes (`Errors.Locked`, HTTP 423;
   `User.failedLogins` / `lockedUntil`).
 - **PIN login locks the device, not the floor** (PRD 14 G5; `auth.service.ts` `loginPin`,
@@ -397,12 +404,15 @@ Packaged Windows applies migrations **in-process via sql.js** with its own `_app
 Prisma's default 2 s would turn the wait into a 500 (P2028). Measured 2026-09-30: with several
 connections, the session touch that `requireAuth` fires without awaiting deadlocked against a
 request's own transaction until Prisma's 5 s timeout (P1008), and 78 writes back to back failed.
-The touch now has a `.catch`, so it can never become an unhandled rejection. **Never call
-`getPrisma()` inside a `$transaction` callback — use `tx`:** with one connection the query waits for
-the connection its own transaction holds, and fails as P2028 "Transaction already closed" at the
-transaction's timeout (30 s for confirm). ⚠ A Windows profile path with a space fails at
-`$connect`: `toSqliteUrl` (`sqlite-bootstrap.ts:16`) percent-encodes the path and Prisma does not
-decode it. Found while testing G7; it is the same on the build the customer runs.
+The touch now has a `.catch`, so it can never become an unhandled rejection, and writes at most
+once a minute per session (§8). Once, when it is created, the client logs
+`[prisma] client created: one SQLite connection (…)` with the URL it uses; a packaged till writes
+it to `<userData>/logs/runtime.log`. **Never call `getPrisma()` inside a `$transaction` callback —
+use `tx`:** with one connection the query waits for the connection its own transaction holds, and
+fails as P2028 "Transaction already closed" at the transaction's timeout (30 s for confirm).
+⚠ A Windows profile path with a space fails at `$connect`: `toSqliteUrl` (`sqlite-bootstrap.ts:16`)
+percent-encodes the path and Prisma does not decode it. Found while testing G7; it is the same on
+the build the customer runs.
 
 A bind failure on the port is now fatal-with-a-dialog rather than silent: `httpServer` gets an
 `error` handler that rejects the startup promise, which `whenReady`'s catch turns into
@@ -438,18 +448,19 @@ turn at it, and no other write.
 **Telegram bot:** `/bugun /kecha /sana /oldin /hafta /oy /oylik /umumiy /excel /pdf /qarzlar
 /xarajatlar /omborxona /ofitsiantlar /yordam`, plus five push alerts — large discount,
 debt sale, debt write-off, large expense, item stock-out (`alertService.itemStockOut`, fired from
-`stock.service.ts` when a counted item's `stockCount` crosses to 0 — see §4). The walkout alert
-is gone with the rest of the status (§11, §13).
+`stock.service.ts` when a counted item's `stockCount` crosses to 0 — see §4). A request that fires
+an alert after its commit waits for it, at most 5 s per alert (`alertService.send`). The walkout
+alert is gone with the rest of the status (§11, §13).
 
 **Scheduler:** at start-up and every 6 hours, drafts created more than 12 hours ago are
-**cancelled, not deleted** (`runDraftCleanup` → `orderService.cancelStaleDraft`, PRD 14 G4): the
-same conditional claim as a cancel, every live line restored, the reason "Avtomatik bekor qilindi:
-12 soat yuborilmadi", and an `ORDER_CANCELED` audit row with `automatic: true` whose actor is the
-draft's own waiter (`AuditLog.userId` is required). One draft that fails is logged and stays a
-draft for the next run; the rest go on. Cancelled drafts appear wherever CANCELED orders do:
-Buyurtmalar's "Bekor qilingan" tab, the day report of the day they are cancelled, the waiter's
-`ordersCanceled`, and the audit page. The finance report scheduler polls **every 60 seconds** for
-the configured send time.
+**cancelled, not deleted**, oldest first (`runDraftCleanup` → `orderService.cancelStaleDraft`,
+PRD 14 G4): the same conditional claim as a cancel, every live line restored, the reason
+"Avtomatik bekor qilindi: 12 soat yuborilmadi", and an `ORDER_CANCELED` audit row with
+`automatic: true` whose actor is the draft's own waiter (`AuditLog.userId` is required). One draft
+that fails is logged and stays a draft for the next run; the rest go on. Cancelled drafts appear
+wherever CANCELED orders do: Buyurtmalar's "Bekor qilingan" tab, the day report of the day they
+are cancelled, the waiter's `ordersCanceled`, and the audit page. The finance report scheduler
+polls **every 60 seconds** for the configured send time.
 
 **Headless dev server for verification (Docker):** non-Windows dev hosts don't run Electron, so
 `dev:master` can't provide the server that the HTTP-driven smoke scripts need (see `CLAUDE.md`
@@ -473,15 +484,16 @@ workspace-root copies. Two RN copies → invariant-violation crash. Use `npx exp
 
 | Symptom | File |
 |---|---|
-| Stock didn't move on order | `services/stock.service.ts` (consume/restore), `order.service.ts:209-288` |
+| Stock didn't move on order | `services/stock.service.ts` (consume/restore), `order.service.ts:229-308` |
 | Bill total looks wrong | `services/billing.service.ts:54-130` |
-| Confirm rejected | `order.service.ts:755-786` (checks run before the transaction); a 409 means the claim at `:794` found the bill no longer SENT |
+| Confirm rejected | `order.service.ts:755-786` (checks run before the transaction); a 409 means the bill was no longer SENT, at the fast-path check (`:756`) or at the claim (`:794`) |
 | Keldi/Sanoq didn't update count or cost | `services/stock.service.ts` `restock`/`setCount` (`:140-289`), `stock.routes.ts` |
 | Cash drawer disagrees | `reports.service.ts` `dailyLedger.cashflow.cashOut` — and read §5 |
 | A canceled order didn't refresh another open screen | Expected — no listener, §11 defect #8 |
 | Print didn't fire | `services/print.service.ts`; check `admin_printer_name` setting |
 | A bill closed but no slip | The confirm answered `billPrinted: false`; `PrintJob` FAILED (no row if no printer is chosen); reprint from the ticket or `POST /api/orders/:id/reprint-bill` |
 | 500 with P2028 or P1008, or a request that hangs | One SQLite connection (§9): a `getPrisma()` call inside a `$transaction` |
+| A confirm or an added dish answers about 5 s late | Telegram is slow or unreachable: each owner alert the request fires waits up to 5 s (`services/alert.service.ts`) |
 | A waiter gets 423 with the right PIN | Their phone's address is locked — `lib/pin-lockout.ts`, in memory; restart the master to clear it (§8) |
 | Daily Telegram missing | `services/finance-report.service.ts` + `lib/scheduler.ts` |
 
@@ -650,14 +662,14 @@ warning about a deleted file reads as current until someone checks the path exis
 - Update it in the same commit that changes the behaviour it describes.
 - When a defect in §11 is fixed, delete the entry — don't mark it "done".
 - If §12 shrinks because someone corrects `decisions.md`, that's the goal.
-- **Vitest exists as of 2026-08-18** (`pnpm test` in `apps/master`: 136 tests in 13 files on
+- **Vitest exists as of 2026-08-18** (`pnpm test` in `apps/master`: 142 tests in 14 files on
   `fix/server-money-guards`) but covers pure modules only — `payment-legs`, `money-input`,
-  `pin-lockout`, `errorHandler`, and the like. The finance e2e suite (`apps/master/e2e/`, its own
-  `vitest.e2e.config.ts`, versioned on that branch) drives the real server over HTTP in the Docker
-  harness: 104 tests, 38 of which fail on purpose, each pinning a defect a later slice owns — judge
-  a change by which tests flip. Everything else is manual flows plus the `scripts/smoke-*.ts`
-  family; several `simulate-*.ts` helpers carry stale expectations, so read before trusting a
-  green run.
+  `pin-lockout`, `errorHandler`, `alert.service` (with Telegram mocked), and the like. The finance
+  e2e suite (`apps/master/e2e/`, its own `vitest.e2e.config.ts`, versioned on that branch) drives
+  the real server over HTTP in the Docker harness: 106 tests, 38 of which fail on purpose, each
+  pinning a defect a later slice owns — judge a change by which tests flip. Everything else is
+  manual flows plus the `scripts/smoke-*.ts` family; several `simulate-*.ts` helpers carry stale
+  expectations, so read before trusting a green run.
 - **2026-08-18:** ten entries left §11 by being fixed, and are deleted per the rule above rather
   than listed. For the record, since a cold reader may wonder what changed: money grouped with a
   comma everywhere (`Intl.NumberFormat('uz-UZ')` does that, against the spec and against
@@ -743,3 +755,10 @@ warning about a deleted file reads as current until someone checks the path exis
   (§9); a failed schema answers 400 (§6). Verified in the Docker harness at `d04a2a8`:
   `pnpm test` 136 tests in 13 files, finance e2e 66 pass / 38 fail (104), `pnpm typecheck` **47**
   (the `loginPin` rewrite removed one error), `typecheck:renderer` and `typecheck:gallery` 0.
+- **2026-10-01, PRD 14's final review (`67455a1`):** no §11 entry changed. Behaviour documented:
+  each owner alert waits at most 5 s for Telegram (§2, §9, §10); the session touch writes at most
+  once a minute and the client logs its one connection (§8, §9); the print-failure notice names its
+  bill and every confirm-loop toast sits bottom-centre (§2); stale drafts go oldest first (§9); the
+  §4 and §10 line pointers re-checked. Verified in the Docker harness at `67455a1`: `pnpm test`
+  142 tests in 14 files, finance e2e 68 pass / 38 fail (106) with no test changing status,
+  `pnpm typecheck` **47**, `typecheck:renderer` and `typecheck:gallery` 0.

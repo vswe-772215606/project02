@@ -10,23 +10,29 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
 
 **NEXT ACTION**
 1. Slice 1 (PRD 14, server money guards) is built and pushed as `fix/server-money-guards`, not
-   merged: 14 commits `e4082df..d04a2a8` plus a docs commit (worktree `../project02-guards`); at
-   `d04a2a8` e2e 66 pass / 38 fail (104), `pnpm test` 136, typecheck 47. With Barkamol's go-ahead,
-   from `~/dev/lab/project02`, setting aside his uncommitted CLAUDE.md and STATE.md first:
+   merged: 14 commits `e4082df..d04a2a8`, a docs commit, then the final review's code commit
+   `67455a1` and its docs commit (worktree `../project02-guards`). At `67455a1`: e2e 68 pass /
+   38 fail (106), `pnpm test` 142, typecheck 47. With Barkamol's go-ahead, from
+   `~/dev/lab/project02`, setting aside his uncommitted CLAUDE.md and STATE.md first:
    `git stash push -m pre-merge CLAUDE.md STATE.md && git merge --no-ff fix/server-money-guards &&
-   git stash pop`. Before a till gets it: the pre-release check, `docs/prd/14-server-money-guards.md`
-   §10 (a fractional total can no longer be paid).
+   git stash pop`. After merging, update the merge state in three places: this item, the status
+   line of `docs/prd/14-server-money-guards.md`, and row 14 of `docs/prd/README.md`. Before a till
+   gets it: that PRD's §10 — the pre-release check (a fractional total can no longer be paid) and
+   the checks owed on the till.
 2. Measure the finance causes on real data. Barkamol copies the till's
    `%APPDATA%\@chayxana\master\data\master.sqlite` (app closed) to
    `../project02-finance-e2e/apps/master/e2e/.data/prod/master.sqlite` (git-ignored, debtor
-   data). There: `docker compose -f compose.dev.yaml -f compose.e2e.yaml -p chayxana-e2e up -d`,
-   then `docker exec -w /app/apps/master chayxana-e2e-master-dev-1 pnpm exec tsx
-   e2e/prod-forensics.ts e2e/.data/prod/master.sqlite --days=30`. Never run on real data.
+   data). Both Docker projects bind host ports 4020 and 5199, so first, in `../project02-guards`:
+   `docker compose -f compose.dev.yaml -f compose.e2e.yaml -p chayxana-guards down`. Then in
+   `../project02-finance-e2e`: `docker compose -f compose.dev.yaml -f compose.e2e.yaml -p
+   chayxana-e2e up -d`, then `docker exec -w /app/apps/master chayxana-e2e-master-dev-1 pnpm exec
+   tsx e2e/prod-forensics.ts e2e/.data/prod/master.sqlite --days=30`. Never run on real data.
 3. After slice 1: design and plan slice 2 (money-rules §7) and the line-edit race in PRD 14
    §2; rewrite each e2e expectation in money-rules §5 as its slice lands. Also owed (PRD 14 §10):
    confirm must compute totals and check payments after its claim, inside the transaction; D14
-   must say how a written-off debt shows after a later payment and stamp `writtenOffAt` inside
-   the write-off transaction. Port PRD 14 to `feat/web-platform` by hand (notes in §10).
+   must say how a written-off debt shows after a later payment, refuse writing it off twice, and
+   stamp `writtenOffAt` inside the write-off transaction. Port PRD 14 to `feat/web-platform` by
+   hand (notes in §10).
 4. Restore the update feed on avtobron — human-run, `docs/UPDATE_FEED_RUNBOOK.md` §2.5. Verify:
    `curl -sS https://updates.mutallib.uz/chayxana/master/production/latest.yml` prints YAML
    with `version: 0.1.4`. No fix reaches a till until this works.
@@ -46,6 +52,9 @@ plan's "Deviations during execution" (`docs/superpowers/plans/2026-09-30-server-
 - Confirm emits, then prints, then fires the owner alerts; a failed print leaves the sale closed.
 - A cancel claims from the status it checked.
 - One PIN attempt per device at a time; the device key is the address only.
+- Final review: every toast of the confirm loop sits bottom-centre (set per toast; the global
+  Toaster keeps the rulebook's corner); each owner alert waits at most 5 s for Telegram; the
+  session touch writes at most once a minute.
 His own decisions stand: the 2026-09-30 money rules
 (`docs/superpowers/specs/2026-09-30-money-rules-design.md`) and PRD 14 §6.
 
@@ -81,8 +90,8 @@ Barkamol, with the chayxana owner:
   `click-avto-nginx-1`. Never change or restart it from a session — hand over commands.
 - `CLAUDE.md`'s uncommitted top block (`@STATE.md`, `@docs/UI_UX_RULES.md` imports) and
   `docs/chayxana-pos-audit-2026-09-30.pdf` are Barkamol's: don't commit or revert them.
-- No `scripts/gate.sh`, no test CI. `pnpm test`: 136 tests in 13 files, pure helpers only; the
-  finance e2e suite (104 tests, 38 fail by design) runs by hand in the Docker harness (`CLAUDE.md`).
+- No `scripts/gate.sh`, no test CI. `pnpm test`: 142 tests in 14 files, pure helpers only; the
+  finance e2e suite (106 tests, 38 fail by design) runs by hand in the Docker harness (`CLAUDE.md`).
 
 <!-- auto:git -->
 - branch: feat/auto-update

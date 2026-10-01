@@ -1947,11 +1947,12 @@ In `STATE.md`, replace item 3 of NEXT ACTION (from `3. Build the slices` down to
 
 ```markdown
 3. Slice 1 (PRD 14, server guards) is built on `fix/server-money-guards`
-   (`../project02-guards`): e2e 52 pass / 38 fail, `pnpm test` 119, typecheck 48. Merge it
-   into `feat/auto-update` with Barkamol's go-ahead:
-   `git checkout feat/auto-update && git merge --no-ff fix/server-money-guards`. Next: the
-   design and plan for slice 2 in `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7.
-   Shipping needs items 4–5.
+   (`../project02-guards`): e2e 68 pass / 38 fail (106), `pnpm test` 142, typecheck 47. Merge
+   it into `feat/auto-update` with Barkamol's go-ahead, from `~/dev/lab/project02`, setting
+   aside his uncommitted CLAUDE.md and STATE.md first:
+   `git stash push -m pre-merge CLAUDE.md STATE.md && git merge --no-ff fix/server-money-guards &&
+   git stash pop`. Next: the design and plan for slice 2 in
+   `docs/superpowers/specs/2026-09-30-money-rules-design.md` §7. Shipping needs items 4–5.
 ```
 
 - [ ] **Step 4: Final verification**
@@ -1992,11 +1993,11 @@ from Step 3. Nothing reaches a till until the update feed is restored and v0.1.5
 ## Deviations during execution
 
 Executed 2026-09-30 and 2026-10-01 with superpowers:subagent-driven-development: 14 commits,
-`e4082df..d04a2a8`, then the Task 9 docs commit. Each line below is a ruling made after a
-pre-flight audit of Tasks 2–8 against the code, or after a task's review. It overrides the task
-text above where they conflict, and none reverses a decision in PRD 14 §5–§6. The ledger that
-tracked progress is not in git (`.superpowers/sdd/2026-09-30-server-money-guards/` in the main
-checkout).
+`e4082df..d04a2a8`, the Task 9 docs commit (`fc0e169`), then the final review's code commit
+(`67455a1`) and docs commit. Each line below is a ruling made after a pre-flight audit of Tasks
+2–8 against the code, after a task's review, or after the final review. It overrides the task text
+above where they conflict, and none reverses a decision in PRD 14 §5–§6. The ledger that tracked
+progress is not in git (`.superpowers/sdd/2026-09-30-server-money-guards/` in the main checkout).
 
 **Pre-flight and Task 1**
 
@@ -2043,17 +2044,18 @@ checkout).
 - The print runs outside `completeEmitContext`, from the closed order read inside the transaction.
   The order is emits → print → owner alerts (`withEmitContext`, then explicit `flushDeferredEmits()`
   and `flushAfterCommit()`, `ddcb5fb`): the alerts await a Telegram call with no timeout and would
-  otherwise hold the customer's slip. A new e2e test pins emit, emit, print, alert, alert.
+  otherwise hold the customer's slip (capped at 5 s each since the final review, F below). A new
+  e2e test pins emit, emit, print, alert, alert.
 - `printBill` writes a `PrintJob` only when a printer is chosen; with none it throws before any row
   exists. The docs say "the result says `billPrinted: false` and the admin reprints", not that a
   PrintJob always records the failure.
 - The notice's "Qayta chop etish" is at least 48 px tall with 13 px text (per-toast
   `classNames.actionButton` with `!` modifiers, no inline style), and a failed reprint shows the
   same Uzbek notice again, never the server's English message.
-- The notice gets a "Yopish" button and sits top-centre (`c5377eb`): it stays until dismissed, and
-  at bottom-right it covered the next bill's TASDIQLASH. The same commit fixes a selection race on
-  a slow confirm (`setSelectedId` by function) and shows a loading toast while a reprint waits in
-  the print queue.
+- The notice gets a "Yopish" button and sits top-centre (`c5377eb`; bottom-centre since the final
+  review, A below): it stays until dismissed, and at bottom-right it covered the next bill's
+  TASDIQLASH. The same commit fixes a selection race on a slow confirm (`setSelectedId` by
+  function) and shows a loading toast while a reprint waits in the print queue.
 - New e2e assertions: `[issue 26]` counts a second bill print as broken and `[PRD 14 G1]` counts a
   cancelled order with a bill print as broken (the PRD's goal: charged, printed and closed once).
   New test `[PRD 14 G6] a slow reprint never fails a confirm of another bill`: at `83fc724` the
@@ -2120,28 +2122,73 @@ checkout).
 - The plan named four documents and a STATE.md anchor ("3. Build the slices") that no longer
   exists, and its counts were stale. The final list also covers `docs/AUDIT_FINDINGS.md`,
   `CLAUDE.md`, this section, and the diagnostic's PIN sentence in `e2e/prod-forensics.ts` (now past
-  tense: it describes the floor-wide lock the old build had). Final numbers, verified in the
-  container at `d04a2a8`: e2e 66 pass / 38 fail (104), `pnpm test` 136 tests in 13 files,
-  `pnpm typecheck` 47, `typecheck:renderer` and `typecheck:gallery` 0.
+  tense: it describes the floor-wide lock the old build had). Numbers verified in the container
+  at `d04a2a8`: e2e 66 pass / 38 fail (104), `pnpm test` 136 tests in 13 files,
+  `pnpm typecheck` 47, `typecheck:renderer` and `typecheck:gallery` 0 (the final numbers are under
+  "Final review" below).
+- STATE.md's built note replaced NEXT ACTION item 1 (the "Build slice 1" item), not item 3, and
+  its merge command first sets aside Barkamol's uncommitted CLAUDE.md and STATE.md edits in
+  `~/dev/lab/project02`, because git refuses the merge over them:
+  `git stash push -m pre-merge CLAUDE.md STATE.md && git merge --no-ff fix/server-money-guards &&
+  git stash pop`. Step 3 above now shows that form.
 - Barkamol's instruction on 2026-10-01 (finish, commit, push as a separate branch) overrode the
-  plan's "never push" for this branch: pushed as `fix/server-money-guards`; not merged, tagged or
-  deployed, and no pull request.
+  plan's "never push" for this branch. Merging, tagging and deploying stay his, and no pull request
+  is opened.
+
+**Final review (`67455a1`, then a docs commit)**
+
+The final whole-branch review ("ready to push, with fixes") and the Task 9 docs review ran side by
+side, and one fix pass took both lists (items A–S of `final-fix-wave.md` in the ledger directory):
+
+- A. Every toast of the confirm loop sits bottom-centre, set per toast: at bottom-right the success
+  toast covered the next bill's TASDIQLASH (a tap on its centre hit the toast, measured at
+  1236 × 623), and top-centre covered the first queue rows. The global Toaster keeps the corner
+  `docs/UI_UX_RULES.md` §8.6 sets.
+- B. The print-failure notice starts with the bill's name — its table, or `Olib ketish #ABC123`
+  without one — so stacked notices can be told apart.
+- C. New e2e test: 30 wrong PINs at once from one address are judged at most 5 times and leave it
+  locked (5 judged; 7 with the one-attempt check removed).
+- D. The session touch writes `lastUsedAt` at most once a minute (a conditional `updateMany`;
+  nothing reads it). New e2e test: two requests within a minute write it once; the old touch wrote
+  twice.
+- E. The Prisma client logs once that it opens one SQLite connection, with the URL it uses.
+- F. Each owner alert waits at most 5 s for Telegram; a slower send finishes in the background with
+  its error caught. Three unit tests with fake timers; two of them time out on the old `send`.
+- G. `printBill` and `runQueuedJob` take no `tx`, and `printBill` says never to call it inside a
+  transaction.
+- H. `listStaleDraftIds` returns the oldest drafts first.
+- I. `[issue 7]` asserts the audit actor is the draft's own waiter.
+- J. `[issue 28]` asserts code `VALIDATION` besides the 400.
+- K. Comments the branch had made wrong: `shutdown.ts` (a confirm caught by the shutdown is saved
+  whole; at most its slip is lost), the header of `alert.service.ts`, `payment-legs.ts` (a zero
+  Nasiya leg gets `VALIDATION`), `money-input.ts` (`somAmount` names its three users).
+- L. `docs/PRD_FOUNDATION.md` §8 says a failed print never undoes a paid sale.
+- M. `docs/CURRENT_WORKFLOW.md`'s line pointers re-checked (§4 combos, §10 stock and confirm rows),
+  plus the behaviour above.
+- N. PRD 14: STATE item numbers, line cites, the docs bullet, the rollback groups, three more §10
+  items, the final numbers.
+- O. This plan: Step 3's merge command and numbers, the Task 9 line above, this list. The deferred
+  findings this pass fixed are gone from the list below, and two follow-ups that no committed file
+  recorded (D18's doc and test alignment, CLAUDE.md's "Work in flight" block) are added to it.
+- P. The merge state ("not merged") is written only in STATE.md, PRD 14's status line and
+  `docs/prd/README.md` row 14.
+- Q. CLAUDE.md's e2e snippet waits for `/tmp/ready`; `docs/AUDIT_FINDINGS.md` dates M-13
+  2026-09-30; `docs/design/RENDERER_REBUILD.md` gives the typecheck floor as 47.
+- R. STATE.md brings `chayxana-guards` down before item 2 starts `chayxana-e2e` (both bind host
+  ports 4020 and 5199), and counts the extra commits.
+- S. Final numbers, at `67455a1` in the container: e2e 68 pass / 38 fail (106), no test changing
+  status against `d04a2a8`; `pnpm test` 142 tests in 14 files; `pnpm typecheck` 47;
+  `typecheck:renderer` and `typecheck:gallery` 0.
 
 ## Deferred review findings
 
 Smaller points the reviews raised and the plan did not act on. None changes a decision or blocks
 the merge.
 
-- `printBill` and `runQueuedJob` still take an unused `tx`: a print inside a transaction would hold
-  the only connection, the deadlock G6 removed. Remove the parameter, or document "never inside a
-  transaction".
 - `printFailureNotice` (`renderer/lib/confirm-result.ts`) tells "no printer chosen" apart by
   matching the server's English "not configured" text; a distinct error code would be sturdier.
-- The failure notice at top-centre covers the top queue rows and the count chip while it is up;
-  bottom-centre would cover mostly empty list area (a one-word change). The ordinary
-  `toast.success('Buyurtma tasdiqlandi')` still sits bottom-right for 4 s and may cover the next
-  bill's TASDIQLASH. Notice colours differ between dev and a production build (CSS order against
-  sonner's runtime style); the packaged app was not opened.
+- Notice colours differ between dev and a production build (CSS order against sonner's runtime
+  style); the packaged app was not opened (PRD 14 §10).
 - `orderRepo.setStatus` keeps an unconditional branch and has no callers: delete it, so every
   transition claims by construction.
 - The loser of two confirms answers the English "Cannot transition from CLOSED to CLOSED" (409
@@ -2152,16 +2199,13 @@ the merge.
   "So'rov ma'lumotlari noto'g'ri". `DebtsPage.tsx` does not refetch after a repayment error (stale
   balance).
 - Tests not written: the losing concurrent write-off (`DEBT_ALREADY_WRITTEN_OFF`), two simultaneous
-  full repayments (409), the PIN in-flight guard (30 parallel wrong PINs from one address: at most 5
-  evaluated, ends locked), and `requireAuth`'s `.catch`. `[issue 28]` asserts only the 400, not the
-  `VALIDATION` code.
-- `listStaleDraftIds` has no `orderBy` (add `createdAt` ascending, so the oldest drafts go first);
-  "12 hours" is written twice (`scheduler.ts` and the cancel reason); `stopScheduler` does not
+  full repayments (409), and `requireAuth`'s `.catch`.
+- "12 hours" is written twice (`scheduler.ts` and the cancel reason); `stopScheduler` does not
   interrupt a cleanup in progress (each cancel is atomic, so nothing breaks).
-- Stale comments: `renderer/lib/payment-legs.ts` says a zero Nasiya leg is rejected with
-  `DebtMetadataRequired` (the server now answers `VALIDATION`); `lib/money-input.ts` says `somAmount`
-  is used by "every amount that moves money" (tan narx and Keldi's `paidUzs` are not); `shutdown.ts`
-  says a print failure rolls the whole tender back; the header of `alert.service.ts` says alerts are
-  deferred inside `completeEmitContext` (confirm now flushes them itself).
 - `apps/master/e2e/` is outside every tsconfig, so it is never typechecked; the `sqlite-url` tests
   lack an empty string, a trailing `?` and a `%20` path.
+- D18 lets ADMIN see profit, but `docs/CURRENT_WORKFLOW.md` §3, §11 #7 and §12 still call it a
+  defect and `08-staff-access` `[issue 20]` still pins the old rule (money rules §5 withdraws the
+  test). Align both in D18's slice.
+- CLAUDE.md's "Work in flight" block (2026-08-18) still names `feat/remove-walkout` as the build
+  the customer runs.
