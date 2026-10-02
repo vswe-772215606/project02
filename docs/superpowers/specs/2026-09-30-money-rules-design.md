@@ -1,6 +1,7 @@
 # Money rules — design
 
-**Date:** 2026-09-30 · **Status:** decided by Barkamol on 2026-09-30; nothing implemented
+**Date:** 2026-09-30 · **Status:** decided by Barkamol on 2026-09-30, D22–D27 on 2026-10-02;
+slice 1 built on `fix/server-money-guards`, the rest building on `feat/money-rules`
 **Base:** `feat/auto-update` (v0.1.4, the build the customer runs)
 **Inputs:** the 2026-09-30 finance audit — the Money Map
 (<https://claude.ai/artifact/5fWhB6Fb3tAs6aM1ZwVkYS>) and the finance test report
@@ -37,6 +38,13 @@ drawer on its own, never through a note that explains a gap.
 | D19 | The printed bill | Food, then discount, then Xizmat haqi, then total, then one line per payment leg. | 1 |
 | D20 | Change for cash | An optional "Olindi" field on the ticket shows "Qaytim". | F6 |
 | D21 | When the owner's report goes out | When the day is closed, with the count in it. On by default. | 22 |
+| D22 | Does ADMIN open Hisobot | Yes, the whole screen: kunlik, oylik, umumiy and saving the file, as the owner sees it. (2026-10-02, was §6) | 20 |
+| D23 | How far back a closed day can be corrected | Any day, by OWNER or ADMIN. Every correction messages the owner. (2026-10-02, was §6) | 5 |
+| D24 | A payment on a written-off debt | Closes the debt however old it is; the cash is Kirim on the day it arrives but never that day's profit. The write-off day is corrected instead, as in D13, and the owner is messaged. (2026-10-02, replaces §3.5's "comes back into profit") | PRD 14 §10 |
+| D5 | Spoiled or lost food | Confirmed 2026-10-02: not tracked. Profit is what was sold minus its tan narx; a Sanoq shortfall has no money effect and is not reported. | audit §12 Q4 |
+| D25 | When waiters are paid | Once a month. Maoshlar leads with each waiter's month: Ishlagan · Berilgan · Qoldiq. A payout (and any avans) is entered when it happens. (2026-10-02) | open-decisions |
+| D26 | A Sanoq, then an older line is cancelled | The line does not return stock: a line added before the item's latest Sanoq restores nothing when cancelled, by hand or by the cleanup. (2026-10-02) | PRD 14 §10 |
+| D27 | Orders the 12-hour cleanup cancels | Not counted as cancelled orders: not in a waiter's `ordersCanceled`, the day report or Buyurtmalar's "Bekor qilingan". They stay in Amallar tarixi. (2026-10-02) | PRD 14 §10 |
 
 ## 3. What each decision means
 
@@ -89,7 +97,13 @@ Egasiga berildi  = Sanaldi − Ertaga qoladi
 - Qarzlar gains "Hisobdan chiqarish" for OWNER and ADMIN (`debt.routes.ts` already allows both).
 - The loss is a Xarajat line on the write-off day. The nasiya ledger shows "hisobdan chiqarildi",
   never "to'landi". Cash is untouched.
-- A payment later made on a written-off debt is Kirim on that day and comes back into profit.
+- A payment later made on a written-off debt (D24) closes the debt however old it is. The cash
+  is Kirim on the day it arrives and never reaches that day's profit; instead the write-off day's
+  loss shrinks by the amount paid, as a D13 correction that messages the owner. Example: 100 000
+  written off on 10 October, 40 000 paid on 25 October — Kassa +40 000 on the 25th, 25 October
+  profit unchanged, 10 October loss 60 000. The remaining 60 000 stays on Qarzlar, payable.
+- A debt already written off cannot be written off again; `writtenOffAt` is stamped inside the
+  write-off transaction (PRD 14 §10).
 - An avans write-off books on the write-off day, not the day the avans was given
   (`expense.service.ts:382-386`).
 
@@ -201,11 +215,13 @@ In `../project02-finance-e2e/apps/master/e2e/`, untracked until STATE item 2 ver
 - `01-bill.test.ts`: the two receipt tests assert the D19 layout.
 - Any test that builds a day across midnight uses the 05:00 boundary (D11).
 
-## 6. Still open — assumed until Barkamol says otherwise
+## 6. Answered 2026-10-02
 
-- Hisobot (`reports.routes.ts:8`, OWNER only today) opens to ADMIN as well, since profit is no
-  longer owner-only.
-- A closed day may be corrected however far back, since every correction messages the owner.
+Both assumptions that stood here were confirmed (D22, D23), and the questions slice 1 raised were
+answered (D24, D26, D27, D5, D25) — see §2. Nothing in the money rules is open. One question
+remains for the close screen (slice 5) and does not change its formulas: with waiters paid
+monthly, does the month's Xizmat haqi stay in the drawer until payday? The close screen shows
+unpaid Qoldiq beside "Ertaga qoladi" either way.
 
 ## 7. Slices
 

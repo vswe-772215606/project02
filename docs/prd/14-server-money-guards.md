@@ -304,7 +304,8 @@ UNION ALL SELECT 'ExpenseReturn.amount', COUNT(*) FROM ExpenseReturn
   off a second time, which overwrites `writtenOffAt` and writes a second audit row and owner
   alert.
 
-**Questions for Barkamol** (STATE.md has them with the numbers).
+**Questions for Barkamol** — answered 2026-10-02: the Sanoq over-count is fixed (money rules D26),
+auto-cancelled drafts are not counted as cancelled (D27). The PIN reset-on-success question is open.
 
 - A Sanoq taken while an open order holds portions over-counts when that order is cancelled later.
   At 22:00 the owner counts 10 somsa; a draft still holds 5 of them (taken when the line was
