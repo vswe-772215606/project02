@@ -1,7 +1,7 @@
 # PRD 14 — Server money guards
 
-- **Status:** Implemented on `fix/server-money-guards` (pushed as its own branch, not merged) —
-  G1–G6 as Option A, G7 as Option B; not released. Decided 2026-09-30 (§6, §7); built 2026-09-30
+- **Status:** Implemented on `fix/server-money-guards`, merged into `main` 2026-10-06 (with
+  `feat/money-rules`) — G1–G6 as Option A, G7 as Option B; not released. Decided 2026-09-30 (§6, §7); built 2026-09-30
   and 2026-10-01 (§9)
 - **Author / date:** 2026-09-30
 - **Area:** Domain correctness (confirm, payments, debts, auth, SQLite writes)

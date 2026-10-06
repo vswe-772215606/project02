@@ -1,3 +1,18 @@
+@STATE.md
+@docs/UI_UX_RULES.md
+
+<!-- The two files above are IMPORTED, not referenced: they are in context on
+     every turn. STATE.md is where this project currently stands. UI_UX_RULES.md
+     is the source of truth for every visual and interaction decision — when a
+     screenshot looks wrong, name the rule it breaks, and if no rule covers it,
+     ADD ONE to that file before changing code.
+
+     Reference docs, read on demand (too large to carry every turn):
+       docs/CURRENT_WORKFLOW.md  - what the system actually does. Read this
+                                   before answering any "how does X work".
+       docs/AUDIT_FINDINGS.md    - 145 open findings, 11 BLOCKER / 18 CRITICAL.
+       docs/POS_STANDARDS.md     - the audit rubric; cite its IDs in findings. -->
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -8,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Branch | What it is | State |
 |---|---|---|
-| `main` | v0.1.3 | Behind everything. Do not target. |
+| `main` | Everything below, plus slice 1 and the money plans | Fast-forwarded to `feat/money-rules` on 2026-10-06. `STATE.md` is current; this table is not. |
 | `feat/remove-walkout` | The build the **customer is running** | The base for hotfixes. |
 | `fix/customer-feedback` | **v0.1.4 hotfix — active work** | Tasks 1, 2, 4, 9 of 12 done, plus a browser audit's worth of fixes. |
 | `feat/web-platform` | Electron → web migration | Slice 1 of 5 done. `apps/master` deliberately does not build there. |

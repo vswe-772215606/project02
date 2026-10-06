@@ -39,7 +39,7 @@ Each PRD is a single Markdown file: `NN-kebab-case-title.md`. The number is info
 | 10 | [Backup & disaster recovery](10-backup-and-dr.md) | Ops | Draft |
 | 11 | [Auto-update & multi-machine rollout](11-auto-update-rollout.md) | Ops | Draft |
 | 12 | [Network partition / degraded UX](12-network-partition-degraded-ux.md) | Architecture / UX | Draft |
-| 14 | [Server money guards](14-server-money-guards.md) | Domain / correctness | Implemented on `fix/server-money-guards` (pushed, not merged); not released |
+| 14 | [Server money guards](14-server-money-guards.md) | Domain / correctness | Implemented on `fix/server-money-guards`, merged into `main` 2026-10-06; not released |
 
 ## Quick navigation by theme
 
