@@ -9,12 +9,23 @@ A chayxana POS running on real hardware in a real restaurant: Uzbek-only, dense
 enough for 1366x768, and able to update itself without a hand-delivered build.
 
 **NEXT ACTION**
+0. `fix/money-walkthrough` (2026-10-20, off `main` 09441a3, pushed) holds the money fixes from the
+   walkthrough: write-off losses on the write-off day (D14), a payment after a write-off (D24), an
+   undone avans counts for nothing, the slip's Jami adds up and names the payment, waiters get no
+   tan narx, Kunlik moliya's dish totals are food only, Xarajat excludes Keldi on every surface,
+   unknown expense category and impossible dates answer 400. Not merged: merge when Barkamol says
+   so (`git switch main && git merge --ff-only fix/money-walkthrough`). The side-by-side installer
+   is built from it with `gh workflow run build-windows.yml --ref fix/money-walkthrough -f variant=next`
+   (artifact `chayxana-master-windows-installer-next`, file `ChayxanaMaster-Yangi-Setup-0.1.4.exe`):
+   installs BESIDE the live till as "Chayxana Master (Yangi)", own database, port 4100, no feed;
+   point a trial waiter app at `:4100`. Headers of the P6 and P3 plans list what this pre-empts.
 1. Build wave 1 of the money rules — P7 discount-qaytim, P1 guards-2, P2 trading-day — per
    `docs/superpowers/plans/2026-10-02-money-README.md` (merge order, pinned migrations, conflict
    rulings). Not started: the 2026-10-02 dispatch wrote Task 1 briefs, no commits. Cut each
    package fresh from `feat/money-rules`, merge back in README order, fast-forward `main`. Gates
-   in the Docker harness (`CLAUDE.md` "Headless dev server"), before and after: `pnpm test` 142,
-   `pnpm typecheck` 47, renderer 0, gallery 0, e2e 68 pass / 38 fail (106).
+   in the Docker harness (`CLAUDE.md` "Headless dev server"), before and after: `pnpm test` 212,
+   `pnpm typecheck` 45, renderer 0, gallery 0, e2e 272 pass / 35 fail (307; the failing list is
+   `~/dev/freelance/.money-baseline/e2e-baseline.txt` on the Linux box).
 2. Measure the finance causes on real data. Barkamol copies the till's
    `%APPDATA%\@chayxana\master\data\master.sqlite` (app closed) to
    `apps/master/e2e/.data/prod/master.sqlite` (git-ignored, debtor data), then
@@ -33,6 +44,10 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    with Windows — PIN lockout and printer fallback shipped in slice 1.
 
 **LAST DECISION**
+2026-10-20 — Barkamol, after the money walkthrough (e2e `90`–`93`): "so fix then build the windows
+installable nsis file, make sure it builds on machine as a complete new app, it must avoid override
+the previous database and data." Fixed on `fix/money-walkthrough` (not merged), installer = the
+`next` variant from CI. Deviations from the plans are recorded in the P6 and P3 plan headers.
 2026-10-06 — Barkamol: "whatever updated in this repo you need to push and merge to main, I'll
 continue in another device." `main` fast-forwarded from v0.1.3 (`e8af3bf`) to `feat/money-rules`:
 v0.1.4, slice 1 (PRD 14), D22–D27 and the seven 2026-10-02 plans. History was linear, so there
@@ -64,8 +79,8 @@ Barkamol, with the chayxana owner:
   `../project02-finance-e2e` may hold the till's copy: don't remove or clean it.
 - On the first Mac, local `feat/money-{discount-qaytim,guards-2,trading-day}` sit at `cedd71a`
   with empty ledgers, never pushed: don't build on them.
-- No `scripts/gate.sh`, no test CI. `pnpm test`: 142 tests in 14 files, pure helpers only; the
-  finance e2e suite runs by hand in the Docker harness (38 fail by design).
+- No `scripts/gate.sh`, no test CI. `pnpm test`: 212 tests in 19 files, pure helpers only; the
+  finance e2e suite runs by hand in the Docker harness (35 of 307 fail by design).
 
 <!-- auto:git -->
 - branch: feat/auto-update

@@ -59,9 +59,10 @@ paths differ.
 ⚠ **A stale Prisma client fakes a 50th type error.** `node_modules/.prisma/client` is shared across
 branches and `feat/web-platform` generates it from a **PostgreSQL** schema. After any branch switch,
 run `pnpm exec prisma generate --schema prisma/schema.prisma` from `apps/master` before trusting a
-typecheck count. The floor here is **47** (it was 49 until 2026-08-18, when a real
-`DiscountCreateInput` error in `discount.service.ts` was fixed while removing percent
-discounts, and 48 until `fix/server-money-guards` removed the `loginPin` argument error).
+typecheck count. The floor here is **45** (47 until 2026-10-20, when `fix/money-walkthrough` gave the receipt
+builder a structural input type; 49 until 2026-08-18, when a real `DiscountCreateInput` error in
+`discount.service.ts` was fixed while removing percent discounts, and 48 until
+`fix/server-money-guards` removed the `loginPin` argument error).
 
 **The demo runs from its own worktree.** `../project02-demo` is pinned to `feat/web-platform` and
 runs as its own compose project (`docker compose -f compose.dev.yaml -p chayxana-demo up -d`), so
@@ -119,11 +120,13 @@ pnpm build:order
 pnpm typecheck       # tsc -b — the ONLY command that checks apps/master/src/main.
                      # `tsc -p tsconfig.json` there compiles nothing (solution-style
                      # config: files:[] + references), so a green run from it is vacuous.
-                     # Currently 47 errors, all in src/main, all pre-existing. (Was 51;
+                     # Currently 45 errors, all in src/main, all pre-existing. (Was 51;
                      # feat/remove-walkout dropped it deleting markWalkout out of
                      # orders.controller.ts and the walkout table out of pdf-report.ts;
                      # fix/server-money-guards dropped it to 47 when the loginPin rewrite
-                     # removed a `User | undefined` argument error in auth.service.ts.)
+                     # removed a `User | undefined` argument error in auth.service.ts;
+                     # fix/money-walkthrough dropped it to 45 on 2026-10-20 when the
+                     # receipt builder took a structural input type.)
 pnpm lint            # noop in most packages today
 ```
 
@@ -148,16 +151,19 @@ pnpm build:printer:win                     # build receipt.exe via MSVC (Windows
 Single-file typecheck: `pnpm --filter @chayxana/<app> typecheck`.
 
 **Vitest is configured** (`pnpm test` / `pnpm test:watch` in `apps/master`) — added on
-`fix/customer-feedback`, currently **142 tests over 14 files**: `format`, `payment-legs`,
+`fix/customer-feedback`, currently **212 tests over 19 files**: `format`, `payment-legs`,
 `server-port`, `navigation`, `updater-view`, `updater.store` and `confirm-result` in the renderer,
 plus `updater-state`, `updater-messages`, `money-input`, `pin-lockout`, `sqlite-url`,
-`errorHandler` and `alert.service` (Telegram mocked) in the main process. `vitest.config.ts`
+`errorHandler` and `alert.service` (Telegram mocked) in the main process, and since 2026-10-20
+(`fix/money-walkthrough`) `expense-contribution`, `debt-ledger-row`, `client-order-line`,
+`local-day` and `receipt-builder` — the pure rules behind the money fixes. `vitest.config.ts`
 includes `src/main/**/*.test.ts` as well as `src/renderer/**/*.test.ts` — added on
 `feat/auto-update`, which put the first testable pure logic in `src/main`.
 It covers pure modules only; there is no component testing.
 
-**The finance e2e suite** (`apps/master/e2e/`, its own `vitest.e2e.config.ts`, 106 tests) is
-separate from `pnpm test`: each file boots the real Express app in-process on its own copy of a
+**The finance e2e suite** (`apps/master/e2e/`, its own `vitest.e2e.config.ts`, 307 tests in 19
+files; `90`–`93` are the 2026-10-20 money walkthrough, a hand model with round numbers for every
+money action) is separate from `pnpm test`: each file boots the real Express app in-process on its own copy of a
 freshly migrated SQLite and drives it over HTTP. Run it in the Docker harness (`NO_COLOR` because the
 image sets `CI=1` and vitest colours the summary):
 
@@ -172,8 +178,10 @@ docker exec -e NO_COLOR=1 -w /app/apps/master <project>-master-dev-1 \
 Every project binds host ports 4020 and 5199, so only one runs at a time: bring the other down
 first.
 
-**38 of the 106 fail on purpose** — each pins a defect a later slice owns — so judge a change by
-which tests flip, never by a green run. `e2e/prod-forensics.ts` is the read-only diagnostic for a
+**35 of the 307 fail on purpose** — 28 in files `00`–`15` each pin a defect a later package owns,
+7 in `90`–`93` pin decisions (money as strings on the wire, the Maksimal cap P7 removes, 403 on
+cancelling a closed bill, money-only Keldi undo) — so judge a change by which tests flip, never by
+a green run. `e2e/prod-forensics.ts` is the read-only diagnostic for a
 copy of the till's database (STATE.md).
 
 Everything else is verified by the `scripts/smoke-*.ts` family (some run in-process against a throwaway SQLite; the three above, plus `smoke-summary-report.ts`, drive a **running** server over HTTP instead — see the Docker harness below) plus manual flows. Note: `tsc -b` does not typecheck anything under `scripts/` (`npx tsc --listFiles -p tsconfig.main.json | grep -c "/scripts/"` → `0`) — every script here is entirely untypechecked; running it is the only check it gets.
@@ -302,7 +310,7 @@ Use **Expo tunnel mode** (`npx expo start --tunnel`) when developing — direct 
 - **Stock moves at line-add time, not at any status transition.** `send` and `confirm` touch no inventory. Adding a line atomically decrements the item's `stockCount` and is rejected (`OUT_OF_STOCK`) if the count is 0 or `NULL` ("sanoq kiritilmagan" — never counted). Cancelling or decreasing a line restores stock from **both `DRAFT` and `SENT`** (deliberate — commit `000e540`); every cancellation restores; nothing consumes without restoring. `decisions.md` still says "SENT does not restore" and is stale on this point. See `docs/CURRENT_WORKFLOW.md` §4 for the full count/cost model.
 - **Stale drafts are cancelled, never deleted.** The scheduler (at start-up and every 6 h) cancels drafts unsent for 12 hours through the cancel path: a conditional DRAFT→CANCELED claim, every live line restored through `stockService.restore`, and an `ORDER_CANCELED` audit row with `automatic: true` whose actor is the draft's own waiter (`orderService.cancelStaleDraft`; PRD 14 G4).
 - **Money is whole so'm.** Payment legs (0 allowed), expenses, avans returns, repayments, menu prices and discount presets are validated by `lib/money-input.ts` (`somAmount` > 0, `somAmountOrZero` ≥ 0), and a bill has at most one Nasiya leg, never of 0 (PRD 14 G3). Tan narx (`costPrice`) is the exception: Keldi stores paid ÷ qty unrounded and the Menyu form sends it back on every save.
-- **Roles**: OWNER and ADMIN may both see finance, including profit, tan narx totals and per-dish margins — the owner-only profit rule was dropped on 2026-09-30 (D18 in `docs/superpowers/specs/2026-09-30-money-rules-design.md`), so ADMIN receiving `pnl.profit` is not a leak. WAITER is mobile/order-app only and must never receive tan narx or food cost (today it does — Money Map issue 32). The owner's Hisobot (`reports.routes.ts`) is still OWNER-only in code.
+- **Roles**: OWNER and ADMIN may both see finance, including profit, tan narx totals and per-dish margins — the owner-only profit rule was dropped on 2026-09-30 (D18 in `docs/superpowers/specs/2026-09-30-money-rules-design.md`), so ADMIN receiving `pnl.profit` is not a leak. WAITER is mobile/order-app only and must never receive tan narx or food cost: since 2026-10-20 every order line leaves the server through `lib/client-order-line.ts` without `cogsSnapshot`, `consumptionSnapshot` or the dish row, for every role (Money Map issue 32). The owner's Hisobot (`reports.routes.ts`) is still OWNER-only in code.
 - **v1 scope explicitly excludes**: split/merge bills, per-line discounts, Click/Payme, structured modifiers, multi-tenant. Don't add them speculatively.
 
 ## Printer

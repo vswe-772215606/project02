@@ -24,6 +24,21 @@ day-correction service, which writes the audit row and messages the owner.
 Slice 1 leftovers: `docs/prd/14-server-money-guards.md` §10 ("For slice 2", D14 items) and the plan's
 "Deferred review findings" (the losing concurrent write-off).
 
+> **Pre-empted on 2026-10-20 (`fix/money-walkthrough`):** Task 5 (avans — `lib/expense-contribution.ts`,
+> `services/write-off.service.ts` `lossesForRange`, a write-off once, the owner told who) and Task 6
+> (debt write-off — `lib/debt-ledger-row.ts`, `buildDebtLedger`, the status after a repayment, a
+> write-off once, `writtenOffAmount` on the wire) are built there, with these deviations: **no schema
+> change** — `writtenOffAmount` is derived (original − repayments before `writtenOffAt`) and a legacy
+> PARTIAL row with `writtenOffAt` set reads as WRITTEN_OFF; **as of the day's end** — Kutilayotgan
+> qaytim and "written off yet?" are answered as of the day being read, so a later return or write-off
+> never rewrites the day the avans was given; the losses reach `dailyLedger` through
+> `expenseService.listByDate(...).totals.operating` (`monthly` and `summary` add them themselves from
+> `lossesForRange`) — never add them a second time; **Task 7 is not built** (no DAY_CORRECTED row, no
+> message: the write-off day's loss shrinks by itself through `remainingAmount`). Tasks 1–4 (payouts)
+> and 8–11 (Qarzlar, Maoshlar, Kunlik moliya, Chiqimlar, documents) are untouched. Re-read
+> `expense.service.ts`, `debt.service.ts`, `reports.service.ts` and `write-off.service.ts` before
+> Tasks 5–7; the line numbers below predate the fix.
+
 ---
 
 ## Design

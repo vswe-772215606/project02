@@ -7,6 +7,17 @@
 > below were read at `cafd82e`; wave 1 moves some of them. Find each place by the code quoted, not by
 > the number.
 
+> **Pre-empted on 2026-10-20 (`fix/money-walkthrough`):** Task 7's server half (every order line
+> leaves the server through `lib/client-order-line.ts` without `cogsSnapshot`, `consumptionSnapshot`
+> or the dish row, for every role; Hisobot's routes stay OWNER-only — D22 is still open), Task 12's
+> totals inside the unchanged 6-argument `receipt.exe` protocol (Jami = Σ printed rows, Xizmat haqi
+> included; Chegirma; Umumiy; one `To'lov: Naqd|Karta …` or `Nasiya: <debtor> …` line per leg in the
+> order-info block; `receipt.exe` not rebuilt, `parseBill` unchanged), Money Map issue 10 (Kunlik
+> moliya's `mealSalesTotal` is food only) and the D17 figure (`GET /api/expenses?date`
+> `totals.operating` and `reports.daily().expenses.operating` are the ledger's Xarajat: Keldi purchases
+> excluded, write-off losses included). The seven words (`dayMoney`), Naqd/Karta on expenses, the
+> Telegram/PDF/Excel wording and every renderer task are untouched.
+
 **Goal:** One vocabulary for money, worked out once on the server and shown everywhere: Kassa is the
 cash in the drawer, Karta is its own line, nasiya is neither; an expense records Naqd or Karta; ADMIN
 sees Foyda and opens Hisobot; waiters never receive food cost; the printed bill adds up and says how
