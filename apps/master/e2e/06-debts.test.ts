@@ -145,17 +145,28 @@ describe('Nasiya', () => {
       const recorded = (await env.prisma.auditLog.findMany({ where: { action: 'DEBT_WRITTEN_OFF', entityId: debt.id } }))
         .map((a) => n((a.metadata as any).remainingAtWriteOff));
       const alerts = alerted.mock.calls.filter(([c]) => c.debtorName === name).map(([c]) => n(c.amount));
-      // A payment that lands on a written-off debt turns it PARTIAL or PAID (the D14 test below), so a
-      // debt still WRITTEN_OFF took its payment before the write-off, and one that is not took it after.
-      const heldAtWriteOff = after.status === 'WRITTEN_OFF' ? left : 45000;
+      // A payment after the write-off keeps the debt WRITTEN_OFF until it is paid in full (D14, D24), so
+      // the status no longer tells which came first. What the write-off took is `writtenOffAmount`: the
+      // original less the repayments made before `writtenOffAt`. Under this file's frozen clock the two
+      // requests carry one instant, so a repayment that committed first still reads as "not before" —
+      // the record may then hold exactly that much less.
+      const shown = await w.admin.get(`/api/debts/${debt.id}`);
+      const heldAtWriteOff = shown.writtenOffAmount === null ? null : n(shown.writtenOffAmount);
+      const writtenOffAt = after.writtenOffAt;
+      const atTheSameInstant = writtenOffAt
+        ? after.repayments.filter((r) => r.paidAt.getTime() === writtenOffAt.getTime()).reduce((s, r) => s + n(r.amount), 0)
+        : 0;
 
       const problems: string[] = [];
       if (left + repaid !== 45000) problems.push(`${left} left + repayments ${repaid} is not 45000`);
       if (http.repayment !== 201) problems.push(`the repayment answered ${http.repayment}, yet a written-off debt stays repayable (D14)`);
       if (http['write-off'] !== 200 && repaying !== 45000) problems.push(`the write-off answered ${http['write-off']} on a debt that still owed money`);
       if (recorded.length !== (http['write-off'] === 200 ? 1 : 0)) problems.push(`${recorded.length} write-off(s) on record after HTTP ${http['write-off']}`);
-      if (recorded.length === 1 && recorded[0] !== heldAtWriteOff) problems.push(`written off at ${recorded[0]}, but the debt held ${heldAtWriteOff} then`);
+      if (recorded.length === 1 && heldAtWriteOff !== null && recorded[0] !== heldAtWriteOff && recorded[0] !== heldAtWriteOff - atTheSameInstant) {
+        problems.push(`written off at ${recorded[0]}, but the debt held ${heldAtWriteOff} then`);
+      }
       if (after.status === 'WRITTEN_OFF' && left === 0) problems.push('a fully repaid debt was written off');
+      if (after.writtenOffAt && left > 0 && after.status !== 'WRITTEN_OFF') problems.push(`written off with ${left} left, yet ${after.status}`);
       if (alerts.join() !== recorded.join()) problems.push(`the owner alert said ${alerts.join() || 'nothing'}, the record says ${recorded.join() || 'nothing'}`);
       if (problems.length > 0) miscounted += 1;
       lines.push(`debt ${i}: repaying ${repaying}, sent ${answers.map((a) => `${a.what} ${a.status}`).join(', then ')}; now ${after.status}, ${left} left, repayment rows ${repaid}, written off at ${recorded.join() || 'never'}${problems.length > 0 ? ` — ${problems.join('; ')}` : ''}`);
@@ -164,7 +175,7 @@ describe('Nasiya', () => {
     expect(miscounted, lines.join('\n')).toBe(0);
   });
 
-  it('[D14] a payment on a written-off debt is accepted, lowers the balance and is money in that day', async () => {
+  it('[D14][D24] a payment on a written-off debt is accepted, keeps it written off until paid in full, and is money in that day', async () => {
     await sale(w, w.w1, [[w.items.osh, 1]], { payments: [{ method: 'DEBT', amount: 45000 }], debt: { debtorName: 'Keyinroq' } });
     const debt = await debtByName('Keyinroq');
     await w.admin.post(`/api/debts/${debt.id}/write-off`, { reason: 'Shahardan ketgan' });
@@ -180,7 +191,7 @@ describe('Nasiya', () => {
     expect(
       { seen, moneyIn },
       `money rules D14: a payment made later on a written-off debt is Kirim on that day; after the write-off: ${seen.join(' | ')}, Kirim +${moneyIn}`,
-    ).toEqual({ seen: ['5000: HTTP 201, PARTIAL, 40000 left', '40000: HTTP 201, PAID, 0 left'], moneyIn: 45000 });
+    ).toEqual({ seen: ['5000: HTTP 201, WRITTEN_OFF, 40000 left', '40000: HTTP 201, PAID, 0 left'], moneyIn: 45000 });
   });
 
   it('[PRD 14 G2] two repayments that together exceed the balance: exactly one lands, the other is an overpay', async () => {

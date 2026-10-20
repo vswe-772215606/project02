@@ -1,7 +1,9 @@
 import { DebtStatus, PaymentMethod, Prisma } from '@prisma/client';
+import { debtStatusAfterRepayment, writtenOffAmountOf } from '../lib/debt-ledger-row';
 import { Errors } from '../lib/errors';
 import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
+import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { alertService } from './alert.service';
 
@@ -9,6 +11,20 @@ type Tx = Prisma.TransactionClient;
 
 function decimalToString(value: Prisma.Decimal | null | undefined): string {
   return (value ?? new Prisma.Decimal(0)).toFixed(0);
+}
+
+function decimalOrNull(value: Prisma.Decimal | null): string | null {
+  return value === null ? null : decimalToString(value);
+}
+
+/**
+ * The status a screen shows. A written-off debt that is not yet paid in full is
+ * WRITTEN_OFF whatever a payment before this rule left in its row (money rules
+ * D14, D24); paid in full after a write-off, it is PAID.
+ */
+function shownStatus(item: { status: DebtStatus; remainingAmount: Prisma.Decimal; writtenOffAt: Date | null }): DebtStatus {
+  if (item.writtenOffAt === null) return item.status;
+  return debtStatusAfterRepayment({ remaining: item.remainingAmount, writtenOff: true });
 }
 
 function mapDebt(item: Awaited<ReturnType<typeof debtRepo.findById>>) {
@@ -30,9 +46,12 @@ function mapDebt(item: Awaited<ReturnType<typeof debtRepo.findById>>) {
     repaidAmount: decimalToString(repaid),
     openedAt: item.openedAt.toISOString(),
     closedAt: item.closedAt?.toISOString() ?? null,
-    status: item.status,
+    status: shownStatus(item),
     writtenOffAt: item.writtenOffAt?.toISOString() ?? null,
     writtenOffReason: item.writtenOffReason,
+    writtenOffByName: item.writtenOffBy?.fullName ?? null,
+    // What the write-off took off the books; the balance still payable is remainingAmount.
+    writtenOffAmount: decimalOrNull(writtenOffAmountOf(item)),
     repayments: item.repayments.map((repayment) => ({
       id: repayment.id,
       amount: decimalToString(repayment.amount),
@@ -111,7 +130,11 @@ export const debtService = {
         repaidAmount: decimalToString(item.originalAmount.minus(item.remainingAmount)),
         openedAt: item.openedAt.toISOString(),
         closedAt: item.closedAt?.toISOString() ?? null,
-        status: item.status,
+        status: shownStatus(item),
+        writtenOffAt: item.writtenOffAt?.toISOString() ?? null,
+        writtenOffReason: item.writtenOffReason,
+        writtenOffByName: null,
+        writtenOffAmount: decimalOrNull(writtenOffAmountOf(item)),
       })),
     };
   },
@@ -180,15 +203,20 @@ export const debtService = {
       if (!after) {
         throw Errors.NotFound('Debt');
       }
-      const remainingAmount = after.remainingAmount;
-      const status = remainingAmount.isZero()
-        ? DebtStatus.PAID
-        : DebtStatus.PARTIAL;
+      // Paid in full → PAID, written off or not. A balance left on a
+      // written-off debt keeps it WRITTEN_OFF: its loss stays on the write-off
+      // day and the rest stays payable (money rules D14, D24).
+      const status = debtStatusAfterRepayment({
+        remaining: after.remainingAmount,
+        writtenOff: after.writtenOffAt !== null,
+      });
+      const closedAt = status === DebtStatus.PAID
+        ? input.paidAt
+        : status === DebtStatus.WRITTEN_OFF
+          ? after.closedAt
+          : null;
 
-      await debtRepo.update(debt.id, {
-        status,
-        closedAt: remainingAmount.isZero() ? input.paidAt : null,
-      }, tx);
+      await debtRepo.update(debt.id, { status, closedAt }, tx);
 
       await auditService.log({
         userId: input.actorUserId,
@@ -204,7 +232,7 @@ export const debtService = {
         },
       }, tx);
 
-      if (remainingAmount.isZero()) {
+      if (status === DebtStatus.PAID) {
         await auditService.log({
           userId: input.actorUserId,
           action: 'DEBT_CLOSED',
@@ -230,19 +258,19 @@ export const debtService = {
     if (!debt) {
       throw Errors.NotFound('Debt');
     }
-    if (debt.status === DebtStatus.WRITTEN_OFF) {
+    if (debt.writtenOffAt !== null) {
+      // WRITTEN_OFF, or PAID after a write-off: a debt is written off once (D14).
       throw Errors.DebtAlreadyWrittenOff();
     }
     if (debt.status === DebtStatus.PAID || debt.remainingAmount.lte(0)) {
       throw Errors.DebtNotOpen();
     }
-    if (!input.reason.trim()) {
+    const reason = input.reason.trim();
+    if (!reason) {
       throw Errors.Validation('Yo\'qotish sababini yozish kerak');
     }
 
-    const writtenOffAt = new Date();
-
-    const remainingAtWriteOff = await getPrisma().$transaction(async (tx) => {
+    const writtenOff = await getPrisma().$transaction(async (tx) => {
       // The checks above only choose the error message. A repayment may have
       // landed since they ran, so what is written off is what the debt holds now,
       // read here: the transaction opens with BEGIN IMMEDIATE, so nothing else
@@ -251,16 +279,19 @@ export const debtService = {
       if (!current) {
         throw Errors.NotFound('Debt');
       }
-      if (current.status === DebtStatus.WRITTEN_OFF) {
+      if (current.writtenOffAt !== null) {
         throw Errors.DebtAlreadyWrittenOff();
       }
       if (current.status !== DebtStatus.OPEN && current.status !== DebtStatus.PARTIAL) {
         throw Errors.DebtNotOpen();
       }
 
+      // Stamped inside the transaction, so no repayment can commit between the
+      // stamp and the claim (PRD 14 §10).
+      const writtenOffAt = new Date();
       const claimed = await debtRepo.writeOffIfOpen(debt.id, {
         writtenOffById: input.actorUserId,
-        writtenOffReason: input.reason.trim(),
+        writtenOffReason: reason,
         writtenOffAt,
       }, tx);
       if (!claimed) {
@@ -274,22 +305,25 @@ export const debtService = {
         entityId: debt.id,
         metadata: {
           debtId: debt.id,
-          reason: input.reason.trim(),
+          reason,
           originalAmount: current.originalAmount.toFixed(0),
           remainingAtWriteOff: current.remainingAmount.toFixed(0),
           writtenOffAt: writtenOffAt.toISOString(),
         },
       }, tx);
 
-      return current.remainingAmount;
+      return { amount: current.remainingAmount };
     });
 
     // Owner alert (post-commit, fire-and-forget) — a written-off debt is a
-    // real loss worth surfacing immediately.
+    // real loss worth surfacing immediately, and the owner is told who did it
+    // (money rules D14).
+    const actor = await userRepo.findById(input.actorUserId);
     void alertService.debtWriteOff({
       debtorName: debt.debtorName,
-      amount: remainingAtWriteOff.toFixed(0),
-      reason: input.reason.trim(),
+      amount: writtenOff.amount.toFixed(0),
+      reason,
+      actorName: actor?.fullName ?? null,
     });
 
     return this.getById(debt.id);
