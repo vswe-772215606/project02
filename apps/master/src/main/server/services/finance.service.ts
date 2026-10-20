@@ -95,11 +95,20 @@ export const financeService = {
     const operatingExpense = new Prisma.Decimal(ledger.outflow.operatingExpense);
     const pendingRepayable = new Prisma.Decimal(ledger.outflow.pendingRepayable);
     const purchasesTotal = new Prisma.Decimal(ledger.outflow.ingredientPurchases);
-    const mealsRevenue = ledger.lines.mealSales.reduce(
+    // The dish table's totals are food only (issue 10). The Xizmat haqi row
+    // stays in the table itself, but it is the waiter's pay, not a dish sold:
+    // the "Sotuv" / portions totals must agree with the Brutto savdo tile,
+    // which billingService keeps free of SERVICE lines.
+    const foodRows = ledger.lines.mealSales.filter((row) => !row.isService);
+    const mealsQty = foodRows.reduce((count, row) => count + row.qty, 0);
+    const mealsRevenue = foodRows.reduce(
       (sum, row) => sum.plus(row.grossRevenue),
       new Prisma.Decimal(0),
     );
-    const mealsCogs = new Prisma.Decimal(ledger.pnl.cogs);
+    const mealsCogs = foodRows.reduce(
+      (sum, row) => sum.plus(row.cogs),
+      new Prisma.Decimal(0),
+    );
 
     // Drawer math: real cash that crossed the till today.
     //   totalIn  = sales-cash + sales-card + debt-repaid + expense-returns
@@ -142,6 +151,10 @@ export const financeService = {
         // Cash that actually left the till today (drives "Jami ketgan" + drawer).
         cashOut: ledger.cashflow.cashOut,
         totalOut: ledger.cashflow.cashOut,
+        // What the day gave up on: avans and nasiya written off today. Both are
+        // losses in the P&L (inside operatingExpense), never cash out.
+        avansWriteOffs: ledger.outflow.avansWriteOffs,
+        debtWriteOffs: ledger.outflow.debtWriteOffs,
       },
       drawer: {
         movement: decStr(drawerMovement),
@@ -228,7 +241,7 @@ export const financeService = {
           }));
       })(),
       mealSalesTotal: {
-        qty: ledger.lines.mealSales.reduce((n, r) => n + r.qty, 0),
+        qty: mealsQty,
         revenue: decStr(mealsRevenue),
         cogs: decStr(mealsCogs),
         profit: decStr(mealsRevenue.minus(mealsCogs)),
@@ -250,6 +263,9 @@ export const financeService = {
         gross: operatingExpenseSummary.totals.gross,
         operating: operatingExpenseSummary.totals.operating,
       },
+      // The day's write-offs (nasiya and avans), one row each, for the
+      // Chiqimlar card to list beside the expenses they sit with in the P&L.
+      writeOffs: ledger.lines.writeOffs,
 
       // Xaridlar bloki — ingredient-purchase outflow. Informational, not in P&L outflow.
       ingredientPurchases: purchases.map((p) => ({

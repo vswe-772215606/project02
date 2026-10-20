@@ -1,5 +1,8 @@
 import { ExpenseStatus, OrderStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { expenseService } from './expense.service';
+import { writeOffService, type WriteOffLoss } from './write-off.service';
+import { expenseContribution } from '../lib/expense-contribution';
+import { debtLedgerRow } from '../lib/debt-ledger-row';
 import { getPrisma } from '../lib/prisma';
 import { debtRepo } from '../repositories/debt.repo';
 import { stockEntryRepo } from '../repositories/stockEntry.repo';
@@ -83,6 +86,19 @@ function decStr(value: Prisma.Decimal | null | undefined) {
 
 function shortOrderNumber(id: string) {
   return id.slice(-6).toUpperCase();
+}
+
+/** One write-off as the screens list it (money rules D14). */
+function writeOffRow(loss: WriteOffLoss) {
+  return {
+    kind: loss.kind,
+    id: loss.id,
+    name: loss.name,
+    reason: loss.reason,
+    amount: decStr(loss.amount),
+    writtenOffAt: loss.writtenOffAt.toISOString(),
+    writtenOffByName: loss.writtenOffByName,
+  };
 }
 
 function isWithinDay(value: Date | null | undefined, dayStart: Date, dayEnd: Date) {
@@ -188,33 +204,13 @@ function buildMealSales(closedOrders: ReportOrder[]) {
 function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
   const rows = debts
     .map((debt) => {
-      const repaidToday = debt.repayments
-        .filter((repayment) => isWithinDay(repayment.paidAt, dayStart, dayEnd))
-        .reduce((sum, repayment) => sum.plus(repayment.amount), new Prisma.Decimal(0));
-
-      const repaidUpToDayEnd = debt.repayments
-        .filter((repayment) => repayment.paidAt < dayEnd)
-        .reduce((sum, repayment) => sum.plus(repayment.amount), new Prisma.Decimal(0));
-
-      const writtenOffAsOfDay = debt.writtenOffAt !== null && debt.writtenOffAt < dayEnd;
-      // For a written-off debt the principal is recognized as a loss and is no
-      // longer considered outstanding. The original is kept for the audit trail.
-      const remainingAtDayEnd = writtenOffAsOfDay
-        ? new Prisma.Decimal(0)
-        : dec(debt.originalAmount).minus(repaidUpToDayEnd);
-      const totalRepaidAtDayEnd = dec(debt.originalAmount).minus(remainingAtDayEnd);
+      // As of this day's end: what came back is only what was actually paid
+      // (never original − remaining, which counted a write-off as repaid —
+      // issue 31); a written-off debt shows what the write-off still holds.
+      const row = debtLedgerRow(debt, dayStart, dayEnd);
       const lastRepaymentAt = debt.repayments
         .filter((repayment) => repayment.paidAt < dayEnd)
         .at(-1)?.paidAt ?? null;
-
-      let statusAsOfDay: 'OPEN' | 'PARTIAL' | 'PAID' | 'WRITTEN_OFF' = 'OPEN';
-      if (writtenOffAsOfDay) {
-        statusAsOfDay = 'WRITTEN_OFF';
-      } else if (remainingAtDayEnd.lte(0)) {
-        statusAsOfDay = 'PAID';
-      } else if (totalRepaidAtDayEnd.gt(0)) {
-        statusAsOfDay = 'PARTIAL';
-      }
 
       return {
         debtId: debt.id,
@@ -224,17 +220,18 @@ function buildDebtLedger(debts: ReportDebt[], dayStart: Date, dayEnd: Date) {
         debtorPhone: debt.debtorPhone,
         orderTotal: decStr(debt.order.totalSnapshot),
         originalAmount: decStr(debt.originalAmount),
-        repaidToday: decStr(repaidToday),
-        totalRepaid: decStr(totalRepaidAtDayEnd),
-        remainingAmount: decStr(remainingAtDayEnd),
-        status: statusAsOfDay,
+        repaidToday: decStr(row.repaidToday),
+        totalRepaid: decStr(row.totalRepaid),
+        remainingAmount: decStr(row.remaining),
+        writtenOffAmount: decStr(row.writtenOff),
+        status: row.status,
         lastRepaymentAt: lastRepaymentAt?.toISOString() ?? null,
         openedToday: isWithinDay(debt.openedAt, dayStart, dayEnd),
         writtenOffAt: debt.writtenOffAt?.toISOString() ?? null,
         writtenOffReason: debt.writtenOffReason,
       };
     })
-    .filter((debt) => debt.openedToday || debt.repaidToday !== '0' || debt.remainingAmount !== '0' || debt.status === 'WRITTEN_OFF');
+    .filter((debt) => debt.openedToday || debt.repaidToday !== '0' || debt.remainingAmount !== '0' || debt.writtenOffAmount !== '0');
 
   return rows.sort((a, b) => {
     if (a.remainingAmount !== b.remainingAmount) {
@@ -351,8 +348,15 @@ export const reportsService = {
         // Same-day reversals only — what genuinely offsets today's cash-out.
         sameDayReversal: expenseSummary.totals.sameDayReversal,
         net: expenseSummary.totals.net,
-        operating: expenseSummary.totals.operating,
-        pendingRepayable: expenseSummary.totals.pendingRepayable,
+        // Xarajat as the ledger counts it (money rules D17): a Keldi purchase
+        // is tan narx when the dish sells, never Xarajat, and a write-off's
+        // loss belongs to the write-off day. The Telegram report reads this.
+        operating: ledger.outflow.operatingExpense,
+        pendingRepayable: ledger.outflow.pendingRepayable,
+        writeOffLoss: decStr(
+          new Prisma.Decimal(ledger.outflow.avansWriteOffs).plus(ledger.outflow.debtWriteOffs),
+        ),
+        writeOffs: ledger.lines.writeOffs,
         byCategory: expenseSummary.byCategory,
         items: expenseSummary.items,
       },
@@ -433,6 +437,7 @@ export const reportsService = {
       expenseReturns,
       expenses,
       outstandingAtMonthEnd,
+      losses,
     ] = await Promise.all([
       prisma.order.findMany({
         where: { status: OrderStatus.CLOSED, closedAt: { gte: monthStartUtc, lt: monthEnd } },
@@ -461,11 +466,14 @@ export const reportsService = {
         where: { occurredAt: { gte: monthStartUtc, lt: monthEnd } },
         include: {
           category: { select: { id: true } },
-          returns: { select: { amount: true } },
+          returns: { select: { amount: true, receivedAt: true } },
+          reversedExpense: { select: { repayable: true } },
         },
       }),
       // Outstanding-as-of-end-of-month: use the proper aggregate primitive.
       debtRepo.sumOutstandingAsOf(new Date(monthEnd.getTime() - MS_PER_DAY)),
+      // Every write-off of the month, each on its write-off day (D14).
+      writeOffService.lossesForRange(monthStartUtc, monthEnd),
     ]);
 
     // Per-day outstanding-as-of-EOD: parallel SQL aggregates, one per day.
@@ -584,17 +592,6 @@ export const reportsService = {
       const isIngredientPurchase = expense.category.id === INGREDIENT_EXPENSE_CATEGORY_ID;
       if (expense.status === ExpenseStatus.ACTIVE || expense.status === ExpenseStatus.REVERSED) {
         agg.expenseGross = agg.expenseGross.plus(expense.amount);
-        if (!isIngredientPurchase) {
-          if (!expense.repayable) {
-            agg.operatingExpense = agg.operatingExpense.plus(expense.amount);
-          } else if (expense.writtenOffAt) {
-            const returned = expense.returns.reduce(
-              (sum, r) => sum.plus(r.amount),
-              new Prisma.Decimal(0),
-            );
-            agg.operatingExpense = agg.operatingExpense.plus(expense.amount.minus(returned));
-          }
-        }
       } else if (expense.status === ExpenseStatus.REVERSAL) {
         agg.expenseReversal = agg.expenseReversal.plus(expense.amount);
         const originalDay = expense.reversedExpenseId
@@ -603,10 +600,29 @@ export const reportsService = {
         if (originalDay === dayKey) {
           agg.expenseSameDayReversal = agg.expenseSameDayReversal.plus(expense.amount);
         }
-        if (!isIngredientPurchase) {
-          agg.operatingExpense = agg.operatingExpense.minus(expense.amount);
-        }
       }
+      // Xarajat: the one rule every surface uses (lib/expense-contribution).
+      // A Keldi purchase is tan narx when the dish sells, never Xarajat; an
+      // undone avans counts for nothing; a written-off one books its loss
+      // below, on the write-off day, not on the day it was given (D14).
+      if (!isIngredientPurchase) {
+        const { operating } = expenseContribution(
+          {
+            status: expense.status,
+            amount: expense.amount,
+            repayable: expense.repayable,
+            writtenOffAt: expense.writtenOffAt,
+            returns: expense.returns,
+            original: expense.reversedExpense ?? null,
+          },
+          localDayRangeFor(dayKey).end,
+        );
+        agg.operatingExpense = agg.operatingExpense.plus(operating);
+      }
+    }
+    for (const loss of losses) {
+      const agg = getDay(localDayKey(loss.writtenOffAt));
+      agg.operatingExpense = agg.operatingExpense.plus(loss.amount);
     }
 
     // ─── Walk every Tashkent day in the month, emit one row per day ────
@@ -903,9 +919,12 @@ export const reportsService = {
       where: { occurredAt: { gte: from, lt: end } },
       include: {
         category: { select: { id: true, name: true } },
-        returns: { select: { amount: true } },
+        returns: { select: { amount: true, receivedAt: true } },
+        reversedExpense: { select: { repayable: true } },
       },
     });
+    // Every write-off inside the range, each a loss of its write-off day (D14).
+    const losses = await writeOffService.lossesForRange(from, end);
 
     type ExpCatRow = {
       categoryId: string;
@@ -943,21 +962,23 @@ export const reportsService = {
       row.cashGross = row.cashGross.plus(cashDelta);
       cashOutTotal = cashOutTotal.plus(cashDelta);
 
-      // P&L (operating) side: matches expense.service.listByDate's math
-      if (e.status === ExpenseStatus.ACTIVE || e.status === ExpenseStatus.REVERSED) {
-        if (!e.repayable) {
-          row.operating = row.operating.plus(e.amount);
-          operatingTotalAll = operatingTotalAll.plus(e.amount);
-        } else if (e.writtenOffAt) {
-          const returned = e.returns.reduce((s, r) => s.plus(r.amount), new Prisma.Decimal(0));
-          const loss = e.amount.minus(returned);
-          row.operating = row.operating.plus(loss);
-          operatingTotalAll = operatingTotalAll.plus(loss);
-        }
-        // pending-repayable: NOT counted as P&L expense yet
-      } else if (e.status === ExpenseStatus.REVERSAL) {
-        row.operating = row.operating.minus(e.amount);
-        operatingTotalAll = operatingTotalAll.minus(e.amount);
+      // Xarajat side: the one rule every surface uses (lib/expense-contribution).
+      // A Keldi purchase is tan narx when the dish sells, never Xarajat; a
+      // write-off's loss is added below, on its write-off day (D14).
+      if (e.categoryId !== INGREDIENT_EXPENSE_CATEGORY_ID) {
+        const { operating } = expenseContribution(
+          {
+            status: e.status,
+            amount: e.amount,
+            repayable: e.repayable,
+            writtenOffAt: e.writtenOffAt,
+            returns: e.returns,
+            original: e.reversedExpense ?? null,
+          },
+          localDayRange(e.occurredAt).end,
+        );
+        row.operating = row.operating.plus(operating);
+        operatingTotalAll = operatingTotalAll.plus(operating);
       }
 
       expCatMap.set(e.categoryId, row);
@@ -983,8 +1004,16 @@ export const reportsService = {
       }))
       .sort((a, b) => Number(b.amount) - Number(a.amount));
 
-    const operatingExclIngredients = (expCatMap.get(INGREDIENT_EXPENSE_CATEGORY_ID)?.operating ?? new Prisma.Decimal(0));
-    const operatingForPnl = operatingTotalAll.minus(operatingExclIngredients);
+    const writeOffLoss = losses.reduce((sum, loss) => sum.plus(loss.amount), new Prisma.Decimal(0));
+    if (!writeOffLoss.isZero()) {
+      expensesByCategoryPnl.push({
+        categoryId: 'write-offs',
+        categoryName: 'Hisobdan chiqarilganlar',
+        amount: writeOffLoss.toFixed(0),
+      });
+      expensesByCategoryPnl.sort((a, b) => Number(b.amount) - Number(a.amount));
+    }
+    const operatingForPnl = operatingTotalAll.plus(writeOffLoss);
 
     // ─── Identity sums ───────────────────────────────────────────────────
     // P&L revenue is net food (gross food − bill discount), matching daily
@@ -1040,6 +1069,7 @@ export const reportsService = {
         grossRevenue: totalRevenue.toFixed(0),
         discount: rangeDiscount.toFixed(0),
         cogs: totalCogs.toFixed(0),
+        writeOffLoss: writeOffLoss.toFixed(0),
         operatingExpense: operatingForPnl.toFixed(0),
         profit: pnlProfit.toFixed(0),
       },
@@ -1068,8 +1098,10 @@ export const reportsService = {
    * Canonical P&L:
    *   revenue          = sales.netSales              (gross − discount)
    *   cogs             = Σ OrderLine.cogsSnapshot    (FIFO peel + untracked-unit)
-   *   operatingExpense = expense.operating MINUS the ingredient-purchase
-   *                      category (those are already in COGS — double-count guard)
+   *   operatingExpense = Xarajat: every expense row through
+   *                      lib/expense-contribution (a Keldi purchase is tan narx,
+   *                      never Xarajat; an avans is a receivable until written
+   *                      off) plus the losses written off ON this day (D14)
    *   profit           = revenue − cogs − operatingExpense
    */
   async dailyLedger(localDay: string) {
@@ -1090,6 +1122,7 @@ export const reportsService = {
       debtsOpenedAgg,
       debtRepaidAgg,
       outstandingAsOfEod,
+      losses,
     ] = await Promise.all([
       prisma.order.findMany({
         where: { status: OrderStatus.CLOSED, closedAt: { gte: dayStart, lt: dayEnd } },
@@ -1144,6 +1177,7 @@ export const reportsService = {
         _sum: { amount: true },
       }),
       debtRepo.sumOutstandingAsOf(dayAnchor),
+      writeOffService.lossesForRange(dayStart, dayEnd),
     ]);
 
     // ─── Sales register ────────────────────────────────────────────────
@@ -1226,6 +1260,13 @@ export const reportsService = {
     const operatingExpense = new Prisma.Decimal(operatingExpenseSummary.totals.operating);
     const pendingRepayable = new Prisma.Decimal(expenseSummary.totals.pendingRepayable);
     const ingredientPurchases = moneyRestocks.total;
+    // What this day lost to write-offs (money rules D14). listByDate already
+    // counts them inside `operating`; split out here for the screens.
+    const sumLosses = (kind: WriteOffLoss['kind']) => losses
+      .filter((loss) => loss.kind === kind)
+      .reduce((sum, loss) => sum.plus(loss.amount), new Prisma.Decimal(0));
+    const avansWriteOffs = sumLosses('AVANS');
+    const debtWriteOffs = sumLosses('NASIYA');
 
     let cogs = new Prisma.Decimal(0);
     type MealRow = {
@@ -1319,6 +1360,8 @@ export const reportsService = {
         expenseNet: decStr(expenseNet),
         operatingExpense: decStr(operatingExpense),
         pendingRepayable: decStr(pendingRepayable),
+        avansWriteOffs: decStr(avansWriteOffs),
+        debtWriteOffs: decStr(debtWriteOffs),
         ingredientPurchases: decStr(ingredientPurchases),
         ingredientPurchasesCount: moneyRestocks.count,
       },
@@ -1372,6 +1415,7 @@ export const reportsService = {
           paidAt: repayment.paidAt.toISOString(),
           receivedByName: repayment.receivedBy.fullName,
         })),
+        writeOffs: losses.map(writeOffRow),
       },
     };
   },
