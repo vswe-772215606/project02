@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { PrintJobType, Prisma } from '@prisma/client';
+import { PaymentMethod, PrintJobType, Prisma } from '@prisma/client';
 import { promisify } from 'util';
 import { Errors } from '../lib/errors';
 import { printQueue } from '../lib/print-queue';
@@ -16,6 +16,14 @@ type PrintableOrder = {
   totalSnapshot: Prisma.Decimal | null;
   subtotalSnapshot: Prisma.Decimal | null;
   discountAmountSnapshot: Prisma.Decimal | null;
+  // Jami on the slip is food plus service, because the item rows include the
+  // Xizmat haqi lines (issue 1).
+  serviceChargeSnapshot: Prisma.Decimal | null;
+  // How the bill was settled — one line per leg on the slip (issue 1).
+  // orderRepo.findByIdWithDetails includes both, so the confirm and the
+  // reprint hand them over as they are.
+  payments: Array<{ method: PaymentMethod; amount: Prisma.Decimal }>;
+  debt: { debtorName: string } | null;
   approvedAt: Date | null;
   lines: Array<{
     id: string;

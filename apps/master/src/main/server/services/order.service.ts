@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { MenuItemKind, OrderStatus, PaymentMethod, Prisma, UserRole } from '@prisma/client';
+import { toClientLine } from '../lib/client-order-line';
 import { Errors } from '../lib/errors';
 import { deferAfterCommit, deferEmit, flushAfterCommit, flushDeferredEmits, withEmitContext } from '../lib/socket-events';
 import { alertService } from './alert.service';
@@ -79,11 +80,9 @@ function mapToDto(order: any) {
     discountAmountSnapshot: order.discountAmountSnapshot ? decimalToInt(order.discountAmountSnapshot) : null,
     serviceChargeSnapshot: order.serviceChargeSnapshot ? decimalToInt(order.serviceChargeSnapshot) : null,
     totalSnapshot: order.totalSnapshot ? decimalToInt(order.totalSnapshot) : null,
-    lines: order.lines?.map((l: any) => ({
-      ...l,
-      price: decimalToInt(l.unitPriceSnapshot),
-      menuItemKind: l.menuItem?.kind ?? 'FOOD',
-    })),
+    // Every role gets the same line: no food cost, no dish row (money rules
+    // D18; Money Map issue 32). Waiters read this payload.
+    lines: order.lines?.map((l: any) => toClientLine(l, decimalToInt(l.unitPriceSnapshot))),
     debt: order.debt
       ? {
           id: order.debt.id,
@@ -302,7 +301,8 @@ export const orderService = {
         deferEmit('admin', 'order:updated', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
-        return line;
+        // The waiter's own response carries no food cost either (issue 32).
+        return toClientLine({ ...line, menuItem: { kind: item.kind } }, decimalToInt(line.unitPriceSnapshot));
       }, { timeout: 30_000 });
     });
   },
@@ -353,7 +353,7 @@ export const orderService = {
             component.quantity,
             tx,
           );
-          lines.push(line);
+          lines.push(toClientLine({ ...line, menuItem: { kind: component.menuItem.kind } }, decimalToInt(line.unitPriceSnapshot)));
         }
 
         deferEmit('admin', 'order:updated', { orderId: order.id });
@@ -421,7 +421,8 @@ export const orderService = {
         deferEmit('admin', 'order:updated', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
-        return updated;
+        const kind = order.lines.find((l) => l.id === line.id)?.menuItem.kind;
+        return toClientLine({ ...updated, menuItem: kind ? { kind } : null }, decimalToInt(updated.unitPriceSnapshot));
       }, { timeout: 30_000 });
     });
   },
@@ -451,7 +452,8 @@ export const orderService = {
       deferEmit('admin', 'order:updated', { orderId: order.id });
       deferEmit(`waiter:${input.waiterId}`, 'order:updated', { orderId: order.id });
 
-      return updatedLine;
+      const kind = order.lines.find((l) => l.id === input.lineId)?.menuItem.kind;
+      return toClientLine({ ...updatedLine, menuItem: kind ? { kind } : null }, decimalToInt(updatedLine.unitPriceSnapshot));
     });
   },
 
@@ -499,7 +501,7 @@ export const orderService = {
         deferEmit('admin', 'order:updated', { orderId: order.id });
         deferEmit(`waiter:${order.waiterId}`, 'order:updated', { orderId: order.id });
 
-        return updated;
+        return toClientLine({ ...updated, menuItem: { kind: line.menuItem.kind } }, decimalToInt(updated.unitPriceSnapshot));
       });
     });
   },
