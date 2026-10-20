@@ -105,17 +105,40 @@ export const alertService = {
     );
   },
 
-  /** An open debt was written off (forgiven / lost). Always alerts. */
+  /**
+   * An open debt was written off (forgiven / lost). Always alerts, and names
+   * who did it (money rules D14).
+   */
   async debtWriteOff(p: {
     debtorName: string;
     amount: string | number;
     reason: string;
+    actorName?: string | null;
   }): Promise<void> {
+    const who = p.actorName ? `\nKim: ${p.actorName}` : '';
     await send(
-      `❌ <b>Qarz yo'qotildi (hisobdan chiqarildi)</b>\n` +
+      `❌ <b>Qarz hisobdan chiqarildi</b>\n` +
         `Qarzdor: <b>${p.debtorName}</b>\n` +
         `Summa: <b>${money(p.amount)}</b> so'm\n` +
-        `Sabab: ${p.reason}`,
+        `Sabab: ${p.reason}${who}`,
+    );
+  },
+
+  /**
+   * An avans was written off: what never came back is that day's loss
+   * (money rules D14). Always alerts, and names who did it.
+   */
+  async avansWriteOff(p: {
+    reason: string;
+    amount: string | number;
+    writeOffReason: string;
+    actorName?: string | null;
+  }): Promise<void> {
+    const who = p.actorName ? `\nKim: ${p.actorName}` : '';
+    await send(
+      `❌ <b>Avans hisobdan chiqarildi</b>\n` +
+        `${p.reason}: <b>${money(p.amount)}</b> so'm\n` +
+        `Sabab: ${p.writeOffReason}${who}`,
     );
   },
 

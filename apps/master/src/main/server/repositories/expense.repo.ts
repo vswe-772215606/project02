@@ -76,6 +76,11 @@ export const expenseRepo = {
         writtenOffBy: {
           select: { id: true, fullName: true },
         },
+        // A REVERSAL row must know whether it undid an avans: that undo is not
+        // a negative Xarajat (lib/expense-contribution.ts).
+        reversedExpense: {
+          select: { repayable: true },
+        },
         returns: {
           include: {
             receivedBy: { select: { id: true, fullName: true } },
@@ -96,18 +101,43 @@ export const expenseRepo = {
     });
   },
 
-  async markWrittenOff(
+  /**
+   * → written off, only from an open avans (repayable, ACTIVE, not yet
+   * written off), as one conditional statement — so two write-offs at the
+   * same moment write it off once. False when nothing matched.
+   */
+  async markWrittenOffIfOpen(
     id: string,
-    input: { writtenOffById: string; writtenOffReason: string },
-    tx?: Tx,
-  ) {
-    return (tx ?? getPrisma()).expense.update({
-      where: { id },
+    input: { writtenOffById: string; writtenOffReason: string; writtenOffAt: Date },
+    tx: Tx,
+  ): Promise<boolean> {
+    const result = await tx.expense.updateMany({
+      where: { id, repayable: true, status: ExpenseStatus.ACTIVE, writtenOffAt: null },
       data: {
-        writtenOffAt: new Date(),
+        writtenOffAt: input.writtenOffAt,
         writtenOffById: input.writtenOffById,
         writtenOffReason: input.writtenOffReason,
       },
+    });
+    return result.count === 1;
+  },
+
+  /**
+   * Avans rows written off inside [start, end): the losses those days carry
+   * (money rules D14). The day an avans was given is not asked here.
+   */
+  async listWrittenOffInRange(start: Date, end: Date, tx?: Tx) {
+    return (tx ?? getPrisma()).expense.findMany({
+      where: {
+        repayable: true,
+        status: ExpenseStatus.ACTIVE,
+        writtenOffAt: { gte: start, lt: end },
+      },
+      include: {
+        returns: { select: { amount: true, receivedAt: true } },
+        writtenOffBy: { select: { id: true, fullName: true } },
+      },
+      orderBy: [{ writtenOffAt: 'asc' }, { createdAt: 'asc' }],
     });
   },
 

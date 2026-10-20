@@ -1,12 +1,19 @@
 import { ExpenseStatus, Prisma } from '@prisma/client';
 import { Errors } from '../lib/errors';
+import { expenseContribution } from '../lib/expense-contribution';
 import { getPrisma } from '../lib/prisma';
 import { expenseRepo } from '../repositories/expense.repo';
+import { userRepo } from '../repositories/user.repo';
 import { auditService } from './audit.service';
 import { alertService } from './alert.service';
-import { isSameLocalDay, localDayKey } from '../lib/time';
+import { writeOffService } from './write-off.service';
+import { isSameLocalDay, localDayKey, localDayRange } from '../lib/time';
 
 type Tx = Prisma.TransactionClient;
+
+// A Keldi purchase, or a Chiqim filed as Mahsulot xaridi, is tan narx when the
+// dish sells — never Xarajat. The category stays in the cash figures.
+const INGREDIENT_EXPENSE_CATEGORY_ID = 'seed-cat-ingredients';
 
 function decimalToString(value: Prisma.Decimal | null | undefined): string {
   return (value ?? new Prisma.Decimal(0)).toFixed(0);
@@ -83,6 +90,7 @@ export const expenseService = {
   },
 
   async listByDate(date: Date, opts: { excludeCategoryIds?: string[] } = {}) {
+    const { start, end } = localDayRange(date);
     const allItems = await expenseRepo.listForDate(date);
     // Optional category filter — used by finance.dailyForAdmin to keep
     // ingredient-purchase Expense rows out of the operating-expense numbers
@@ -104,9 +112,9 @@ export const expenseService = {
     const idsInDay = new Set(items.map((item) => item.id));
     let sameDayReversal = new Prisma.Decimal(0);
 
-    // Operating expense for P&L: excludes pending-repayable rows; for written-off
-    // repayables, includes only the loss (amount − returned). Non-repayable rows
-    // contribute their full amount.
+    // Xarajat (operating) and Kutilayotgan qaytim (pending) for the P&L: one
+    // rule per row, as of this day's end — lib/expense-contribution.ts. The
+    // loss of anything written off today is added after the loop.
     let operating = new Prisma.Decimal(0);
     let pendingRepayable = new Prisma.Decimal(0);
 
@@ -127,27 +135,20 @@ export const expenseService = {
         }
       }
 
-      // Operating expense math (per CURRENT_WORKFLOW.md money-flow rules).
-      if (item.status === ExpenseStatus.ACTIVE || item.status === ExpenseStatus.REVERSED) {
-        if (!item.repayable) {
-          operating = operating.plus(item.amount);
-        } else if (item.writtenOffAt) {
-          const returned = (item.returns ?? []).reduce(
-            (sum, r) => sum.plus(r.amount),
-            new Prisma.Decimal(0),
-          );
-          operating = operating.plus(item.amount.minus(returned));
-        } else {
-          // Pending-repayable: receivable, not an expense.
-          const returned = (item.returns ?? []).reduce(
-            (sum, r) => sum.plus(r.amount),
-            new Prisma.Decimal(0),
-          );
-          pendingRepayable = pendingRepayable.plus(item.amount.minus(returned));
-        }
-      } else if (item.status === ExpenseStatus.REVERSAL) {
-        operating = operating.minus(item.amount);
+      // P&L side. Mahsulot xaridi rows contribute nothing to Xarajat whichever
+      // filter the caller passed: that money is tan narx when the dish sells.
+      const contribution = expenseContribution({
+        status: item.status,
+        amount: item.amount,
+        repayable: item.repayable,
+        writtenOffAt: item.writtenOffAt,
+        returns: item.returns ?? [],
+        original: item.reversedExpense ?? null,
+      }, end);
+      if (item.categoryId !== INGREDIENT_EXPENSE_CATEGORY_ID) {
+        operating = operating.plus(contribution.operating);
       }
+      pendingRepayable = pendingRepayable.plus(contribution.pending);
 
       // Cash "where money went" breakdown: cross-day reversals contribute 0
       // (their original cash belongs to an earlier day), so the per-category
@@ -163,6 +164,13 @@ export const expenseService = {
       existing.amount = existing.amount.plus(sign);
       byCategoryMap.set(item.categoryId, existing);
     }
+
+    // What was written off today — an avans less what came back, a nasiya's
+    // unpaid balance — is today's Xarajat (D14), whatever day it was given or
+    // sold on. No cash moves, so the cash figures above do not see it.
+    const writeOffs = await writeOffService.lossesForRange(start, end);
+    const writeOffLoss = writeOffs.reduce((sum, loss) => sum.plus(loss.amount), new Prisma.Decimal(0));
+    operating = operating.plus(writeOffLoss);
 
     return {
       date: localDayKey(date),
@@ -180,7 +188,17 @@ export const expenseService = {
         cashOut: decimalToString(gross.minus(sameDayReversal)),
         operating: decimalToString(operating),
         pendingRepayable: decimalToString(pendingRepayable),
+        writeOffLoss: decimalToString(writeOffLoss),
       },
+      writeOffs: writeOffs.map((loss) => ({
+        kind: loss.kind,
+        id: loss.id,
+        name: loss.name,
+        reason: loss.reason,
+        amount: decimalToString(loss.amount),
+        writtenOffAt: loss.writtenOffAt.toISOString(),
+        writtenOffByName: loss.writtenOffByName,
+      })),
       byCategory: Array.from(byCategoryMap.values())
         .filter((item) => !item.amount.isZero())
         .map((item) => ({
@@ -226,6 +244,13 @@ export const expenseService = {
 
     let categoryId = input.categoryId ?? DEFAULT_CATEGORY_ID;
     let category = await expenseRepo.findCategoryById(categoryId);
+
+    // A category the caller named must exist and be active. An unknown one is
+    // refused, never silently refiled under the default: the row would carry
+    // a category the admin did not choose, and the figures would move with it.
+    if (input.categoryId !== undefined && (!category || !category.isActive)) {
+      throw Errors.Validation('Chiqim turi topilmadi yoki faol emas');
+    }
 
     // If the default category doesn't exist (very old dev seed), fall back to
     // any active category — preferring one named "Operatsion" or "Boshqa".
@@ -362,28 +387,38 @@ export const expenseService = {
       throw Errors.Validation('Bu chiqim qaytariladigan emas');
     }
     if (original.writtenOffAt) {
-      throw Errors.Validation('Bu chiqim allaqachon yo\'qotilgan deb belgilangan');
+      throw Errors.ExpenseAlreadyWrittenOff();
     }
 
-    if (!input.reason.trim()) {
+    const writeOffReason = input.reason.trim();
+    if (!writeOffReason) {
       throw Errors.Validation('Yo\'qotish sababini yozish kerak');
     }
 
-    await getPrisma().$transaction(async (tx) => {
-      await expenseRepo.markWrittenOff(
+    // Claim the avans before writing anything else: two write-offs at the same
+    // moment — a double tap, two stations — write it off once, and the loss is
+    // read from the row as it is inside the transaction, not from the read
+    // above (a return could have landed in between).
+    const lossAmount = await getPrisma().$transaction(async (tx) => {
+      const writtenOffAt = new Date();
+      const fresh = await expenseRepo.findById(original.id, tx);
+      if (!fresh) {
+        throw Errors.NotFound('Expense');
+      }
+      const claimed = await expenseRepo.markWrittenOffIfOpen(
         original.id,
-        {
-          writtenOffById: input.actorUserId,
-          writtenOffReason: input.reason.trim(),
-        },
+        { writtenOffById: input.actorUserId, writtenOffReason: writeOffReason, writtenOffAt },
         tx,
       );
+      if (!claimed) {
+        throw Errors.ExpenseAlreadyWrittenOff();
+      }
 
-      const returned = (original.returns ?? []).reduce(
+      const returned = (fresh.returns ?? []).reduce(
         (sum, r) => sum.plus(r.amount),
         new Prisma.Decimal(0),
       );
-      const lossAmount = original.amount.minus(returned);
+      const loss = fresh.amount.minus(returned);
 
       await auditService.log({
         userId: input.actorUserId,
@@ -391,12 +426,25 @@ export const expenseService = {
         entityType: 'Expense',
         entityId: original.id,
         metadata: {
-          reason: input.reason.trim(),
-          originalAmount: original.amount.toFixed(0),
+          reason: writeOffReason,
+          originalAmount: fresh.amount.toFixed(0),
           returnedTotal: returned.toFixed(0),
-          lossAmount: lossAmount.toFixed(0),
+          lossAmount: loss.toFixed(0),
+          writtenOffAt: writtenOffAt.toISOString(),
         },
       }, tx);
+
+      return loss;
+    });
+
+    // Owner alert (post-commit, fire-and-forget): a write-off always goes out,
+    // naming who did it (money rules D14).
+    const actor = await userRepo.findById(input.actorUserId);
+    void alertService.avansWriteOff({
+      reason: original.reason,
+      amount: lossAmount.toFixed(0),
+      writeOffReason,
+      actorName: actor?.fullName ?? null,
     });
 
     return mapExpense(await expenseRepo.findById(original.id));

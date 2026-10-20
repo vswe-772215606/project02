@@ -32,6 +32,9 @@ export const debtRepo = {
         createdBy: {
           select: { id: true, fullName: true },
         },
+        writtenOffBy: {
+          select: { id: true, fullName: true },
+        },
         repayments: {
           include: {
             receivedBy: {
@@ -69,6 +72,10 @@ export const debtRepo = {
             closedAt: true,
             totalSnapshot: true,
           },
+        },
+        // Enough to derive what a write-off took (lib/debt-ledger-row).
+        repayments: {
+          select: { amount: true, paidAt: true },
         },
       },
       orderBy: [{ status: 'asc' }, { openedAt: 'desc' }],
@@ -112,6 +119,9 @@ export const debtRepo = {
         status: {
           in: [DebtStatus.OPEN, DebtStatus.PARTIAL],
         },
+        // A written-off debt is a loss, not a receivable, whatever a payment
+        // after the write-off left its status at (money rules D14, D24).
+        writtenOffAt: null,
       },
       _sum: {
         remainingAmount: true,
@@ -160,6 +170,26 @@ export const debtRepo = {
 
     return (opened._sum.originalAmount ?? new Prisma.Decimal(0))
       .minus(repaid._sum.amount ?? new Prisma.Decimal(0));
+  },
+
+  /**
+   * Debts written off inside [start, end), whatever their status since: the
+   * losses those days carry (money rules D14). `remainingAmount` is what is
+   * still unpaid now, so a payment after the write-off shrinks the loss (D24).
+   */
+  async listWrittenOffInRange(start: Date, end: Date, tx?: Tx) {
+    return (tx ?? getPrisma()).debt.findMany({
+      where: { writtenOffAt: { gte: start, lt: end } },
+      select: {
+        id: true,
+        debtorName: true,
+        remainingAmount: true,
+        writtenOffReason: true,
+        writtenOffAt: true,
+        writtenOffBy: { select: { id: true, fullName: true } },
+      },
+      orderBy: [{ writtenOffAt: 'asc' }, { openedAt: 'asc' }],
+    });
   },
 
   async openedTodaySummary(date: Date, tx?: Tx) {
@@ -259,7 +289,7 @@ export const debtRepo = {
     tx: Tx,
   ): Promise<boolean> {
     const result = await tx.debt.updateMany({
-      where: { id, status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL] } },
+      where: { id, status: { in: [DebtStatus.OPEN, DebtStatus.PARTIAL] }, writtenOffAt: null },
       data: {
         status: DebtStatus.WRITTEN_OFF,
         writtenOffAt: input.writtenOffAt,
