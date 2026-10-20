@@ -2,6 +2,7 @@ import { OrderStatus, PaymentMethod, UserRole } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { orderService } from '../services/order.service';
+import { localDaySchema } from '../lib/local-day';
 import { somAmountOrZero } from '../lib/money-input';
 import { parseLocalDay } from '../lib/time';
 
@@ -13,7 +14,7 @@ const createSchema = z.object({
 const listQuerySchema = z.object({
   status: z.nativeEnum(OrderStatus).optional(),
   mine: z.union([z.literal('true'), z.literal('false')]).optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: localDaySchema.optional(),
 });
 
 const addItemSchema = z.object({

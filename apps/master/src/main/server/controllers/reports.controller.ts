@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { reportsService } from '../services/reports.service';
 import { Errors } from '../lib/errors';
+import { localDaySchema } from '../lib/local-day';
 import { localMonthRangeFor, parseLocalDay } from '../lib/time';
 
-const dailyQuery = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+const dailyQuery = z.object({ date: localDaySchema });
 const monthlyQuery = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) });
 const summaryQuery = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from: localDaySchema,
+  to: localDaySchema,
 });
 
 export const reportsController = {

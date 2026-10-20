@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { expenseService } from '../services/expense.service';
+import { localDaySchema } from '../lib/local-day';
 import { somAmount } from '../lib/money-input';
 import { localDayRangeFor, parseLocalDay } from '../lib/time';
 
@@ -28,15 +29,15 @@ const writeOffSchema = z.object({
 });
 
 const listExpensesQuery = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: localDaySchema,
 });
 
 const searchQuery = z.object({
   q: z.string().optional(),
   repayable: z.enum(['true', 'false']).optional(),
   openRepayable: z.enum(['true', 'false']).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: localDaySchema.optional(),
+  to: localDaySchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 

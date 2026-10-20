@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { financeService } from '../services/finance.service';
+import { localDaySchema } from '../lib/local-day';
 import {
   localDayKey,
   localDayRangeFor,
@@ -9,14 +10,14 @@ import {
 } from '../lib/time';
 
 const dailyQuery = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: localDaySchema.optional(),
 });
 
 // Either { from, to } as ISO dates, or legacy { month: YYYY-MM }, or
 // neither (defaults to current calendar month).
 const serviceChargeQuery = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: localDaySchema.optional(),
+  to: localDaySchema.optional(),
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
 });
 

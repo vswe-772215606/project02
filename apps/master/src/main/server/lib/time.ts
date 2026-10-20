@@ -67,6 +67,21 @@ export function parseLocalDay(yyyyMmDd: string): Date {
 }
 
 /**
+ * True iff `value` is a real Tashkent calendar day written "YYYY-MM-DD": the
+ * shape must match AND the day must exist. "2026-13-45" parses to an Invalid
+ * Date, and "2026-02-30" is one `Date` silently rolls into March; both used to
+ * reach `localDayKey` or Prisma and come back as a 500. Request schemas use this
+ * through lib/local-day.ts — this module stays zod-free.
+ */
+export function isValidLocalDay(value: string): boolean {
+  if (!ISO_DAY.test(value)) {
+    return false;
+  }
+  const parsed = parseLocalDay(value);
+  return !Number.isNaN(parsed.getTime()) && localDayKey(parsed) === value;
+}
+
+/**
  * Half-open [start, end) range for the Tashkent calendar day named by
  * `yyyyMmDd`. end = next-day 00:00 in Tashkent.
  */

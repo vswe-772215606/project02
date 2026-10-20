@@ -5,10 +5,11 @@ import { Prisma } from '@prisma/client';
 import { getPrisma } from '../lib/prisma';
 import { toPublicUser } from '../lib/public-user';
 import { userService } from '../services/user.service';
+import { localDaySchema } from '../lib/local-day';
 import { localDayKey, localDayRangeFor } from '../lib/time';
 
 const todayStatsQuery = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: localDaySchema.optional(),
 });
 
 const createSchema = z.object({

@@ -2,12 +2,13 @@ import { DebtStatus, PaymentMethod } from '@prisma/client';
 import { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { debtService } from '../services/debt.service';
+import { localDaySchema } from '../lib/local-day';
 import { somAmount } from '../lib/money-input';
 import { parseLocalDay } from '../lib/time';
 
 const debtListQuery = z.object({
   status: z.nativeEnum(DebtStatus).optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: localDaySchema.optional(),
 });
 
 const repaymentSchema = z.object({

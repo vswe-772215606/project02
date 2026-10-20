@@ -1,18 +1,17 @@
 import { NextFunction, Request, Response } from 'express';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { localDaySchema } from '../lib/local-day';
 import { getPrisma } from '../lib/prisma';
 import { localDayKey, localDayRangeFor, parseLocalDay } from '../lib/time';
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 const todayStatsQuery = z.object({
-  date: z.string().regex(ISO_DATE).optional(),
+  date: localDaySchema.optional(),
 });
 
 const rangeStatsQuery = z.object({
-  from: z.string().regex(ISO_DATE),
-  to: z.string().regex(ISO_DATE),
+  from: localDaySchema,
+  to: localDaySchema,
 });
 
 /**
