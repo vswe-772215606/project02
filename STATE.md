@@ -19,6 +19,12 @@ enough for 1366x768, and able to update itself without a hand-delivered build.
    (artifact `chayxana-master-windows-installer-next`, file `ChayxanaMaster-Yangi-Setup-0.1.4.exe`):
    installs BESIDE the live till as "Chayxana Master (Yangi)", own database, port 4100, no feed;
    point a trial waiter app at `:4100`. Headers of the P6 and P3 plans list what this pre-empts.
+   2026-10-21: re-running the first trial build on the till stopped with "Failed to uninstall old
+   application files … 2" — electron-builder failing to replace the PREVIOUS TRIAL copy (found
+   under the trial's own appId key); the live app sits under another key and was never addressed
+   (`CLAUDE.md` "Build variants"). Rebuilt with `executableName: 'Chayxana Master Yangi'` and the
+   `APP_PACKAGE_NAME` override in `installer.next.nsh`. On the till: close "Chayxana Master
+   (Yangi)" or uninstall it from Apps & features (removes only the trial), then install again.
 1. Build wave 1 of the money rules — P7 discount-qaytim, P1 guards-2, P2 trading-day — per
    `docs/superpowers/plans/2026-10-02-money-README.md` (merge order, pinned migrations, conflict
    rulings). Not started: the 2026-10-02 dispatch wrote Task 1 briefs, no commits. Cut each

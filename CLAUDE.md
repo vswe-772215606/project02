@@ -205,13 +205,30 @@ it moves the install directory and the Start Menu entry while leaving both build
 database. Second, **`installer.nsh`'s database-wipe prompt cannot fire**: it tests
 `$APPDATA\${PRODUCT_NAME}\data\master.sqlite`, i.e. `%APPDATA%\Chayxana Master\...`, which no build
 has ever written. `AUDIT_FINDINGS.md` `C-2` overstates the risk on that basis; the prompt is dead
-code, not a live hazard.
+code, not a live hazard. Third, **electron-builder's own uninstaller knows the production data
+directory by name**: it is handed `APP_PACKAGE_NAME` = package.json `name` with `/` as `\`, i.e.
+`@chayxana\master`, and runs `RMDir /r "$APPDATA\${APP_PACKAGE_NAME}"` when app data is to be
+deleted (`nsis.deleteAppDataOnUninstall`, or `--delete-app-data` on the uninstaller). Both are off,
+`electron-builder.next.js` refuses to build if the first is turned on, and `installer.next.nsh`
+redefines `APP_PACKAGE_NAME` to the trial's own userData name so the trial's uninstaller cannot
+name the till's directory at all.
+
+**Which install an installer upgrades is decided by the Uninstall registry key, a GUID derived
+from `appId`.** A re-run of the `next` installer finds and replaces only a previous `next` install;
+production sits under another key and is never addressed. Its "Failed to uninstall old application
+files … 2" (seen on the till on 2026-10-21) means the previous *trial* copy could not be renamed
+away — exit code 2 is electron-builder's uninstaller aborting on a busy file — usually because the
+trial app, an Explorer window on its folder, or an antivirus scan still held a file. Close the
+trial (or uninstall it from Apps & features, which removes only the trial) and run the installer
+again.
 
 | | `production` (default) | `next` (`pnpm package:win:next`) |
 |---|---|---|
 | app name → userData | untouched (`@chayxana/master`) | `chayxana-master-next` |
 | appId | `com.chayxana.master` | `com.chayxana.master.next` |
-| productName / install dir / shortcut | Chayxana Master | Chayxana Master (Yangi) |
+| productName / shortcut / Apps & features | Chayxana Master | Chayxana Master (Yangi) |
+| executable / install dir | `Chayxana Master.exe` in `C:\Program Files\Chayxana Master` | `Chayxana Master Yangi.exe` in `C:\Program Files\Chayxana Master Yangi` (`executableName`, 2026-10-21; the first trial build landed in `@chayxanamaster`, and a till that still has it keeps that directory until the trial is uninstalled once) |
+| Uninstall registry key | GUID of `com.chayxana.master` | GUID of `com.chayxana.master.next` |
 | port | 4000 | 4100 |
 | firewall rule | `Chayxana Master (TCP 4000)` | `Chayxana Master (Yangi) (TCP 4100)` |
 | NSIS hooks | `installer.nsh` | `installer.next.nsh` (no wipe prompt) |

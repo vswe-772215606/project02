@@ -29,9 +29,23 @@ module.exports = {
   // what would make the installer replace the existing app.
   appId: 'com.chayxana.master.next',
 
-  // Drives $INSTDIR (Program Files\...), the .exe name and the shortcut, so
-  // none of them collide with the production install.
+  // What a person sees: window title, Apps & features, the shortcut, the
+  // firewall rule name. Not the install directory — see executableName.
   productName: 'Chayxana Master (Yangi)',
+
+  // The executable and, through it, the install directory and the uninstaller:
+  //   C:\Program Files\Chayxana Master Yangi\Chayxana Master Yangi.exe
+  //   C:\Program Files\Chayxana Master Yangi\Uninstall Chayxana Master Yangi.exe
+  // electron-builder derives these from productName only when it matches
+  // /^[-_+0-9a-zA-Z .]+$/ (app-builder-lib targetUtil.getWindowsInstallationDirName).
+  // The parentheses in "(Yangi)" fail that test, and the fallback is package.json
+  // `name` sanitised — "@chayxanamaster", a directory named after the ONE field
+  // the two variants share. It stayed clear of production's
+  // "C:\Program Files\Chayxana Master" only because production's name passes
+  // the test. Name it on purpose instead. (A machine that already holds the
+  // first trial build keeps its old directory until that build is uninstalled:
+  // electron-builder reuses the registered InstallLocation on upgrade.)
+  executableName: 'Chayxana Master Yangi',
 
   // Keeps the two installers apart in the artifacts list and in Downloads.
   artifactName: 'ChayxanaMaster-Yangi-Setup-${version}.${ext}',
@@ -53,9 +67,36 @@ module.exports = {
   nsis: {
     ...base.nsis,
     shortcutName: 'Chayxana Master (Yangi)',
-    // Its own firewall rule on its own port, and deliberately NO
-    // database-wipe prompt — a trial install must never offer to delete a
-    // database, least of all the production one.
+    // Its own firewall rule on its own port, deliberately NO database-wipe
+    // prompt — a trial install must never offer to delete a database, least
+    // of all the production one — and an APP_PACKAGE_NAME override so the
+    // trial's uninstaller cannot name the production data directory at all.
     include: 'installer.next.nsh',
   },
 };
+
+// ─── Build-time guards ──────────────────────────────────────────────────────
+// Each of these is a way the trial could reach the live till. Failing the
+// build is cheaper than finding out on the counter.
+const fs = require('fs');
+const path = require('path');
+const next = module.exports;
+const fail = (why) => {
+  throw new Error(`electron-builder.next.js: ${why}`);
+};
+
+if (next.appId === base.appId) fail('appId must differ from production — same appId means the installer replaces the live app');
+if (next.productName === base.productName) fail('productName must differ from production — shortcut, Apps & features and firewall rule would collide');
+if (next.publish !== null) fail('publish must be null — the trial has no update feed (see app-identity.ts)');
+if (next.nsis.deleteAppDataOnUninstall) {
+  fail('nsis.deleteAppDataOnUninstall must stay false — the uninstaller derives app-data paths from package.json `name`, which both variants share');
+}
+
+// The trial's userData name is spelled in three places that must agree:
+// app-identity.ts (what Electron uses), installer.next.nsh (what the
+// uninstaller would delete on --delete-app-data), and here.
+const trialAppName = 'chayxana-master-next';
+const identity = fs.readFileSync(path.join(__dirname, 'src/main/app-identity.ts'), 'utf8');
+if (!identity.includes(`appName: '${trialAppName}'`)) fail(`app-identity.ts no longer names the next variant '${trialAppName}'`);
+const nsh = fs.readFileSync(path.join(__dirname, 'installer.next.nsh'), 'utf8');
+if (!nsh.includes(`!define APP_PACKAGE_NAME "${trialAppName}"`)) fail(`installer.next.nsh must redefine APP_PACKAGE_NAME as "${trialAppName}"`);
